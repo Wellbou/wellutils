@@ -1,6 +1,7 @@
 # wellutils
 
-A suite of colourful system and peripheral reporting tools for Arch Linux.
+A suite of colourful system and peripheral reporting tools for Arch Linux —
+and a lightweight, zero-dependency PowerShell port for Windows 10/11.
 
 ## Tools
 
@@ -25,11 +26,38 @@ from lm_sensors.
 
 ## Install
 
+### Linux (Arch)
+
 AUR: `yay -S wellutils` (once published), or build locally:
 
 ```sh
 makepkg -si
 ```
+
+### Windows
+
+No WSL, no admin rights, no downloads beyond a single file: uses the
+PowerShell that ships with Windows. Pick one:
+
+```powershell
+# PowerShell (5.1 or 7) — recommended
+irm https://raw.githubusercontent.com/Wellbou/wellutils/main/windows/install.ps1 | iex
+
+# Git Bash / MSYS2
+curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/windows/install.sh | bash
+```
+
+Installs `well.ps1` plus `well*.cmd` shims into `%USERPROFILE%\.wellutils\bin`
+and adds it to your user PATH. Open a NEW terminal, then:
+
+```
+well mem    | well fetch  | well hw
+wellmem     | wellusb     | wellsensors   # per-tool shims
+wmem -l en  | well usb --plain
+```
+
+All tools read data via CIM/WMI — nothing to install, nothing runs as
+administrator.
 
 ## Usage
 
