@@ -267,7 +267,7 @@ classify() {
             printf '%s' tablet; return ;;
     esac
     case "$hay" in
-        *keyboard*|*k63*|*k55*|*k70*|*typewriter*|*gaming*key*|*blackwidow*|*huntsman*|*ornata*|*k552*|*k556*|*k530*|*razer*key*)
+        *key*board*|*key*koard*|*key*ard*|*k63*|*k55*|*k70*|*typewriter*|*gaming*key*|*blackwidow*|*huntsman*|*ornata*|*k552*|*k556*|*k530*|*razer*key*)
             printf '%s' keyboard; return ;;
         *mouse*|*trackball*|*deathadder*|*viper*|*basilisk*|*naga*|*mamba*|*lancehead*|*logitech*g*|*gaming*mouse*)
             printf '%s' mouse; return ;;
@@ -299,6 +299,7 @@ classify() {
             *" 0e "*) printf '%s' webcam; return ;;
             *" 02 "*) printf '%s' network; return ;;
             *" 01 "*|*" 04 "*) printf '%s' audio; return ;;
+            *" 03 "*) printf '%s' hid; return ;;
             *" 06 "*) printf '%s' data; return ;;
             *" 09 "*) printf '%s' hub; return ;;
         esac
