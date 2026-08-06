@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# wellmem — Beautiful memory overview
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellmem" _WU_NAME="WellMem" _WU_VERSION="1.1"
+_WU_TAGLINE="Beautiful memory overview"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+ORANGE=$'\033[1;38;5;208m'
+
+# ─── Helpers ─────────────────────────────────────────────────────
+usage_color() {
+    local pct=$1
+    if   (( pct < 50 )); then printf '%s' "$G"
+    elif (( pct < 75 )); then printf '%s' "$Y"
+    elif (( pct < 90 )); then printf '%s' "$ORANGE"
+    else                      printf '%s' "$R"
+    fi
+}
+
+usage_bar() {
+    local pct=$1 width=${2:-30}
+    local filled=$(( pct * width / 100 ))
+    local empty=$(( width - filled ))
+    local color
+    color=$(usage_color "$pct")
+    printf '%s' "$color"
+    for (( i=0; i<filled; i++ )); do printf '█'; done
+    printf '%s' "$DIM"
+    for (( i=0; i<empty; i++ )); do printf '░'; done
+    printf '%s' "$RESET"
+}
+
+fmt_kb() {
+    local kb=$1
+    if (( kb >= 1048576 )); then
+        printf '%s GB' "$(awk "BEGIN {printf \"%.1f\", $kb/1048576}")"
+    elif (( kb >= 1024 )); then
+        printf '%s MB' "$(awk "BEGIN {printf \"%.1f\", $kb/1024}")"
+    else
+        printf '%d KB' "$kb"
+    fi
+}
+
+# ─── Content ─────────────────────────────────────────────────────
+print_all() {
+    local total used free available buffers cached shared
+    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+    free=$(awk '/^MemFree:/{print $2}' /proc/meminfo)
+    available=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+    [[ -z "$available" ]] && available="$free"
+    buffers=$(awk '/^Buffers:/{print $2}' /proc/meminfo)
+    cached=$(awk '/^(Cached|SReclaimable):/{s+=$2} END{print s+0}' /proc/meminfo)
+    shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
+    used=$(( total - available ))
+    [[ -n "$total" && "$total" -gt 0 ]] || total=1
+
+    local pct_used=$(( (total - available) * 100 / total ))
+    local pct_actual=$(( used * 100 / total ))
+
+    local total_h used_h available_h buffers_h cached_h shared_h free_h
+    total_h=$(fmt_kb "$total")
+    used_h=$(fmt_kb "$used")
+    available_h=$(fmt_kb "$available")
+    buffers_h=$(fmt_kb "$buffers")
+    cached_h=$(fmt_kb "$cached")
+    shared_h=$(fmt_kb "$shared")
+    free_h=$(fmt_kb "$free")
+
+    local pct_color
+    pct_color=$(usage_color "$pct_used")
+
+    _LINES+=( "" )
+    _LINES+=( "  ${BOLD}${pct_color}$(usage_bar "$pct_used" 40)${RESET} ${pct_used}% $(t mem_pct_used)" )
+    _LINES+=( "" )
+
+    ml() {
+        local label="$1" color="$2" value="$3"
+        _LINES+=( "  ${BOLD}$(printf '%-14s' "${label}:")${RESET}  ${color}$(printf '%8s' "$value")${RESET}" )
+    }
+    ml "$(t mem_total)" "$W" "$total_h"
+    ml "$(t mem_used)" "$R" "$used_h"
+    ml "$(t mem_available)" "$G" "$available_h"
+    ml "$(t mem_buffers)" "$C" "$buffers_h"
+    ml "$(t mem_cached)" "$C" "$cached_h"
+    ml "$(t mem_shared)" "$DIM" "$shared_h"
+    ml "$(t mem_free)" "$DIM" "$free_h"
+
+    local swap_total swap_used swap_free
+    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
+    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo)
+    swap_used=$(( swap_total - swap_free ))
+
+    _LINES+=( "" )
+    _LINES+=( "  ${BOLD}${W}$(_ic '🔄')$(t mem_swap)${RESET}" )
+
+    if (( swap_total > 0 )); then
+        local swap_pct=$(( swap_used * 100 / swap_total ))
+        local swap_total_h swap_used_h swap_free_h
+        swap_total_h=$(fmt_kb "$swap_total")
+        swap_used_h=$(fmt_kb "$swap_used")
+        swap_free_h=$(fmt_kb "$swap_free")
+
+        _LINES+=( "  ${BOLD}$(usage_color "$swap_pct")$(usage_bar "$swap_pct" 40)${RESET} ${swap_pct}% $(t mem_pct_used)" )
+        _LINES+=( "  $(t mem_total): ${W}${swap_total_h}${RESET}  $(t mem_used): ${R}${swap_used_h}${RESET}  $(t mem_free): ${DIM}${swap_free_h}${RESET}" )
+    else
+        _LINES+=( "  ${DIM}$(t mem_no_swap)${RESET}" )
+    fi
+
+    if [[ -d /sys/block/zram0 ]]; then
+        local zram_size=$(cat /sys/block/zram0/disksize 2>/dev/null || echo "0")
+        local zram_kb=$(( zram_size / 1024 ))
+        local zram_h
+        zram_h=$(fmt_kb "$zram_kb")
+        local zram_algorithm
+        zram_algorithm=$(awk '/^\S+ / { match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2) }' /sys/block/zram0/comp_algorithm 2>/dev/null || echo "unknown")
+
+        _LINES+=( "" )
+        _LINES+=( "  ${BOLD}${W}$(_ic '📦')$(t mem_zram)${RESET}" )
+        _LINES+=( "  $(t mem_size): ${G}${zram_h}${RESET}  $(t mem_algorithm): ${DIM}${zram_algorithm}${RESET}" )
+    fi
+
+    local huge_total huge_free huge_size
+    read -r huge_total huge_free huge_size <<< "$(
+        awk '/^HugePages_Total:|^HugePages_Free:|^Hugepagesize:/ {
+            key = $1; sub(/:/, "", key)
+            if (key == "HugePages_Total") total = $2
+            else if (key == "HugePages_Free") free = $2
+            else size = $2 " " $3
+        }
+        END { print total + 0, free + 0, size }' /proc/meminfo
+    )"
+
+    if [[ -n "$huge_size" && "$huge_total" != "0" ]]; then
+        _LINES+=( "" )
+        _LINES+=( "  ${BOLD}${W}$(_ic '📏')$(t mem_huge)${RESET}" )
+        _LINES+=( "  $(t mem_total): ${W}${huge_total}${RESET}  $(t mem_free): ${G}${huge_free}${RESET}  $(t mem_size): ${DIM}${huge_size}${RESET}" )
+    fi
+
+    if [[ -f /proc/zoneinfo ]]; then
+        local numa_nodes
+        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { print length(nodes) + 0 }' /proc/zoneinfo)
+        if (( numa_nodes > 1 )); then
+            _LINES+=( "" )
+            _LINES+=( "  ${BOLD}${W}$(_ic '🔢')$(t mem_numa)${RESET} ${numa_nodes}" )
+        fi
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    box_header "$(_emu '🧠')" "wellmem" "$(t mem_title)"
+    box "$(_emu '🧩')" "$(t mem_ram)" print_all
+
+    printf '\n  %sWellMem v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

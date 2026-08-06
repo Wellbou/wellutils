@@ -1,0 +1,485 @@
+#!/usr/bin/env bash
+# WellSensors v1.2 — Beautiful system temperature monitor
+# by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellsensors" _WU_NAME="WellSensors" _WU_VERSION="1.2"
+_WU_TAGLINE="Beautiful system temperature monitor"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+RED_BG=$'\033[1;97;41m'
+ORANGE=$'\033[1;38;5;208m'
+
+# Temperature color gradient
+temp_color() {
+    local t=$1
+    if   (( t < 40 )); then printf '%s' "$G"
+    elif (( t < 55 )); then printf '%s' "$Y"
+    elif (( t < 70 )); then printf '%s' "$ORANGE"
+    elif (( t < 85 )); then printf '%s' "$R"
+    else                     printf '%s' "$RED_BG"
+    fi
+}
+
+temp_bar() {
+    local t=$1 max=${2:-100}
+    local bars=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
+    local idx=$(( t * 8 / max ))
+    (( idx > 7 )) && idx=7
+    (( idx < 0 )) && idx=0
+    local color
+    color=$(temp_color "$t")
+    printf '%s' "$color"
+    for (( i=0; i<=idx; i++ )); do
+        printf '%s' "${bars[$i]}"
+    done
+    printf '%s' "$RESET"
+}
+
+temp_emoji() {
+    local t=$1
+    if   (( t < 35 )); then printf ''"$(_ic "❄️")"''
+    elif (( t < 50 )); then printf ''"$(_emu "🌊")"''
+    elif (( t < 65 )); then printf ''"$(_emu "🔥")"''
+    elif (( t < 80 )); then printf ''"$(_emu "🌋")"''
+    else                     printf ''"$(_emu "💀")"''
+    fi
+}
+
+tline() {
+    local emoji="$1" label="$2" temp="$3" bar="$4" suffix="${5:-}"
+    local color pad_l val
+    color=$(temp_color "$temp")
+    pad_l=$(printf '%-14s' "$label")
+    val=$(printf '%4d°C' "$temp")
+    _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${color}${val}${RESET}  ${bar}${suffix}" )
+}
+
+print_cpu() {
+    local hwmon=""
+    for d in /sys/class/hwmon/hwmon*/name; do
+        local name
+        name=$(cat "$d" 2>/dev/null)
+        if [[ "$name" == "coretemp" ]]; then
+            hwmon=$(dirname "$d")
+            break
+        fi
+    done
+
+    if [[ -z "$hwmon" ]]; then
+        pline "${DIM}$(t sens_no_cpu)${RESET}"
+        return
+    fi
+
+    for input_file in "$hwmon"/temp*_input; do
+        [[ -f "$input_file" ]] || continue
+        local idx
+        idx=$(basename "$input_file" | grep -oP '\d+')
+        local label_file="${hwmon}/temp${idx}_label"
+        local high_file="${hwmon}/temp${idx}_high"
+        local crit_file="${hwmon}/temp${idx}_crit"
+
+        local label="Sensor $idx"
+        [[ -f "$label_file" ]] && label=$(cat "$label_file")
+
+        local raw_temp
+        raw_temp=$(cat "$input_file")
+        local temp=$(( raw_temp / 1000 ))
+
+        local high="-" crit="-"
+        [[ -f "$high_file" ]] && high=$(( $(cat "$high_file") / 1000 ))
+        [[ -f "$crit_file" ]] && crit=$(( $(cat "$crit_file") / 1000 ))
+
+        local color emoji bar suffix=""
+        color=$(temp_color "$temp")
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 100)
+        [[ "$high" != "-" ]] && suffix="  hi:${high}° crit:${crit}°"
+
+        tline "$emoji" "$label" "$temp" "$bar" "$suffix"
+    done
+}
+
+print_gpu() {
+    if ! command -v nvidia-smi &>/dev/null; then
+        pline "${DIM}nvidia-smi not found${RESET}"
+        return
+    fi
+
+    local gpu_info
+    gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || {
+        pline "${DIM}$(t sens_no_gpu)${RESET}"
+        return
+    }
+
+    while IFS=',' read -r name temp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
+        name=$(echo "$name" | xargs)
+        temp=$(echo "$temp" | xargs)
+        fan=$(echo "$fan" | xargs)
+        power=$(echo "$power" | xargs)
+        [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
+        local power_str="N/A"
+        [[ "$power" != "N/A" ]] && power_str="${power}W"
+        clk_gpu=$(echo "$clk_gpu" | xargs)
+        clk_mem=$(echo "$clk_mem" | xargs)
+        vram_total=$(echo "$vram_total" | xargs)
+        vram_used=$(echo "$vram_used" | xargs)
+        gpu_util=$(echo "$gpu_util" | xargs)
+
+        local color emoji bar
+        color=$(temp_color "$temp")
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 100)
+
+        tline "$emoji" "$name" "$temp" "$bar"
+        _LINES+=( "  ${DIM}  ├── Fan: ${fan}%  |  Power: ${power_str}  |  GPU: ${clk_gpu} MHz${RESET}" )
+        _LINES+=( "  ${DIM}  ├── VRAM: ${vram_used} / ${vram_total} MiB  |  Util: ${gpu_util}%  |  Mem: ${clk_mem} MHz${RESET}" )
+    done <<< "$gpu_info"
+}
+
+print_acpi() {
+    local found=0
+    for d in /sys/class/hwmon/hwmon*/name; do
+        local name
+        name=$(cat "$d" 2>/dev/null)
+        if [[ "$name" == "acpitz" ]]; then
+            local hwmon
+            hwmon=$(dirname "$d")
+            for input_file in "$hwmon"/temp*_input; do
+                [[ -f "$input_file" ]] || continue
+                local idx
+                idx=$(basename "$input_file" | grep -oP '\d+')
+                local raw_temp
+                raw_temp=$(cat "$input_file")
+                local temp=$(( raw_temp / 1000 ))
+
+                (( temp <= 0 || temp > 200 )) && continue
+
+                local color emoji bar
+                color=$(temp_color "$temp")
+                emoji=$(temp_emoji "$temp")
+                bar=$(temp_bar "$temp" 100)
+                tline "$emoji" "ACPI Zone $idx" "$temp" "$bar"
+                found=1
+            done
+        fi
+    done
+    if (( found == 0 )); then
+        pline "${DIM}$(t sens_no_acpi)${RESET}"
+    fi
+}
+
+print_thermal_zones() {
+    local found=0
+    for zone_dir in /sys/class/thermal/thermal_zone*/; do
+        [[ -d "$zone_dir" ]] || continue
+        local type_file="${zone_dir}type"
+        local temp_file="${zone_dir}temp"
+        [[ -f "$type_file" ]] && [[ -f "$temp_file" ]] || continue
+
+        local ztype
+        ztype=$(cat "$type_file")
+        local raw_temp
+        raw_temp=$(cat "$temp_file")
+        local temp=$(( raw_temp / 1000 ))
+
+        [[ "$ztype" == "acpitz" ]] && continue
+        [[ "$ztype" == "coretemp" ]] && continue
+
+        (( temp <= 0 || temp > 200 )) && continue
+
+        local color emoji bar
+        color=$(temp_color "$temp")
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 100)
+
+        tline "$emoji" "$ztype" "$temp" "$bar"
+        found=1
+    done
+    if (( found == 0 )); then
+        pline "${DIM}$(t sens_all_covered)${RESET}"
+    fi
+}
+
+print_network_temp() {
+    local found=0
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        local hname=""
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ "$hname" == "coretemp" ]] && continue
+        [[ "$hname" == "acpitz" ]] && continue
+
+        # У старых драйверов (f71882fg и др.) атрибуты лежат на platform-устройстве,
+        # а не в каталоге hwmon — резолвим родительский device-каталог
+        local dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
+        fi
+        [[ -z "$hname" ]] && hname="chip"
+
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for input_file in "$base"/temp*_input; do
+                [[ -f "$input_file" ]] || continue
+                local temp=$(( $(cat "$input_file") / 1000 ))
+                (( temp <= 0 || temp > 200 )) && continue
+
+                local color emoji bar
+                color=$(temp_color "$temp")
+                emoji=$(temp_emoji "$temp")
+                bar=$(temp_bar "$temp" 100)
+                tline "$emoji" "$hname" "$temp" "$bar"
+                found=1
+            done
+        done
+    done
+    if (( found == 0 )); then
+        pline "${DIM}$(t sens_no_chips)${RESET}"
+    fi
+}
+
+print_disks() {
+    local found=0
+
+    smartctl_run() {
+        if (( EUID == 0 )); then
+            smartctl "$@"
+        elif sudo -n true 2>/dev/null; then
+            sudo -n smartctl "$@"
+        else
+            smartctl "$@"
+        fi
+    }
+
+    nvme_run() {
+        if (( EUID == 0 )); then
+            nvme "$@"
+        elif sudo -n true 2>/dev/null; then
+            sudo -n nvme "$@"
+        else
+            nvme "$@"
+        fi
+    }
+
+    for dev in /dev/nvme*n*; do
+        [[ -b "$dev" ]] || continue
+        local temp
+        temp=$(nvme_run smart-log "$dev" 2>/dev/null | grep -oP 'temperature\s*:\s*\K\d+') || continue
+        (( temp > 150 )) && continue
+        local color emoji bar
+        color=$(temp_color "$temp")
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 60)
+        local bn model
+        bn=$(basename "$dev" | sed 's/nvme[0-9]*n[0-9]*//')
+        model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null || echo "$dev" | sed 's|/dev/||')
+        tline "$emoji" "$model" "$temp" "$bar"
+        found=1
+    done
+
+    for dev in /dev/sd?; do
+        [[ -b "$dev" ]] || continue
+        local temp=""
+        if command -v smartctl &>/dev/null; then
+            temp=$(smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius/ {print $10; exit}') || true
+        fi
+        if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
+            temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
+        fi
+        [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
+
+        local model_file="/sys/block/$(basename "$dev")/device/model"
+        local model="Unknown"
+        [[ -f "$model_file" ]] && model=$(cat "$model_file")
+
+        local color emoji bar
+        color=$(temp_color "$temp")
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 60)
+        tline "$emoji" "$model" "$temp" "$bar"
+        found=1
+    done
+
+    if (( found == 0 )); then
+        pline "${DIM}$(t sens_no_disk)${RESET}"
+    fi
+}
+
+print_cooling() {
+    local total_powerclamp=0 total_fan=0 total_processor=0
+
+    for dev_dir in /sys/class/thermal/cooling_device*/; do
+        [[ -d "$dev_dir" ]] || continue
+        local type_file="${dev_dir}type"
+        local cur_file="${dev_dir}cur_state"
+        [[ -f "$type_file" ]] || continue
+
+        local dtype
+        dtype=$(cat "$type_file")
+        local cur=0
+        [[ -f "$cur_file" ]] && cur=$(cat "$cur_file")
+
+        case "$dtype" in
+            *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
+            *Fan*) total_fan=$(( total_fan + 1 )) ;;
+            *Processor*) total_processor=$(( total_processor + cur )) ;;
+        esac
+    done
+
+    pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${total_fan} $(t sens_devices)${RESET}"
+    pline_hw "$(_ic '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
+    pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
+
+    # Обороты чип-вентиляторов (fan*_input): атрибуты могут лежать как в каталоге
+    # hwmon, так и на platform-устройстве (f71882fg и др. старые драйверы)
+    local chip_fan=0
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        local hname=""
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ "$hname" == "coretemp" ]] && continue
+        [[ "$hname" == "acpitz" ]] && continue
+
+        local dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
+        fi
+        [[ -z "$hname" ]] && hname="chip"
+
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for fan_file in "$base"/fan*_input; do
+                [[ -f "$fan_file" ]] || continue
+                local fidx rpm color
+                fidx=$(basename "$fan_file" | grep -oP '\d+')
+                rpm=$(cat "$fan_file")
+                (( rpm > 0 )) || continue
+                if   (( rpm < 400 )); then color="$R"
+                elif (( rpm < 800 )); then color="$Y"
+                else                       color="$C"
+                fi
+                local rpmval
+                rpmval=$(printf '%4d RPM' "$rpm")
+                _LINES+=( "  $(_ic '💨')${BOLD}${W}$(t sens_fan)${fidx}${RESET} ${color}${rpmval}${RESET}  ${DIM}(${hname})${RESET}" )
+                chip_fan=1
+            done
+        done
+    done
+    if (( chip_fan == 0 )); then
+        pline "${DIM}$(t sens_no_fan_rpm)${RESET}"
+    fi
+}
+
+print_system() {
+    local uptime_str
+    uptime_str=$(uptime -p 2>/dev/null | sed 's/up //')
+    local load
+    load=$(cut -d' ' -f1-3 /proc/loadavg)
+    local cores
+    cores=$(nproc)
+
+    local mem_total mem_used mem_pct
+    read -r mem_total mem_used _ <<< "$(free -m | awk '/^Mem:/ {print $2, $3}')"
+    mem_pct=$(( mem_used * 100 / mem_total ))
+
+    local model
+    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+
+    local load_color
+    local load_int
+    load_int=$(echo "$load" | cut -d. -f1)
+    if   (( load_int < cores / 2 )); then load_color="$G"
+    elif (( load_int < cores ));     then load_color="$Y"
+    else                                  load_color="$R"
+    fi
+
+    pline_hw "$(_emu '🖥️')" "$(t sens_cpu)" "${model}  ${DIM}(${cores} $(t hw_threads))${RESET}"
+    pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${load}${RESET}  ${DIM}(1/5/15 min)${RESET}"
+    pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${mem_used} MB / ${mem_total} MB  ${DIM}(${mem_pct}%)${RESET}"
+    pline_hw "$(_emu '⏱️')" "$(t sens_uptime)" "$uptime_str"
+}
+
+print_summary() {
+    local temps=()
+
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        local dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+        fi
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for f in "$base"/temp*_input; do
+                [[ -f "$f" ]] || continue
+                local t=$(( $(cat "$f") / 1000 ))
+                (( t > 0 && t < 200 )) && temps+=("$t")
+            done
+        done
+    done
+
+    if command -v nvidia-smi &>/dev/null; then
+        local gt
+        gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
+        [[ -n "$gt" ]] && temps+=("$gt")
+    fi
+
+    _LINES=()
+    if (( ${#temps[@]} == 0 )); then
+        _LINES+=( "${DIM}$(t no_data)${RESET}" )
+    else
+        local sum=0 max=0 min=999
+        for t in "${temps[@]}"; do
+            sum=$(( sum + t ))
+            (( t > max )) && max=$t
+            (( t < min )) && min=$t
+        done
+        local avg=$(( sum / ${#temps[@]} ))
+
+        local max_color min_color avg_color
+        max_color=$(temp_color "$max")
+        min_color=$(temp_color "$min")
+        avg_color=$(temp_color "$avg")
+
+        local mv av xv
+        mv=$(printf '%4d°C' "$min")
+        av=$(printf '%4d°C' "$avg")
+        xv=$(printf '%4d°C' "$max")
+
+        _LINES+=( "  $(_ic '📈')${BOLD}${W}$(t sens_min)${RESET} ${min_color}${mv}${RESET}   $(_ic '📉')${BOLD}${W}$(t sens_avg)${RESET} ${avg_color}${av}${RESET}   $(_ic '🔺')${BOLD}${W}$(t sens_max)${RESET} ${max_color}${xv}${RESET}" )
+    fi
+    banner
+}
+
+main() {
+    box_header "$(_emu '⚡')" "wellsensors" "$(t sens_title)"
+
+    box "$(_emu '🧠')" "$(t sens_sys_overview)" print_system
+    box "$(_emu '🔥')" "$(t sens_cpu_cores)" print_cpu
+    box "$(_emu '🎮')" "$(t sens_gpu)" print_gpu
+    box "$(_ic '🌡️')" "$(t sens_acpi)" print_acpi
+    box "$(_emu '📡')" "$(t sens_thermal)" print_thermal_zones
+    box "$(_emu '🔌')" "$(t sens_sensors)" print_network_temp
+    box "$(_emu '💾')" "$(t sens_storage)" print_disks
+    box "$(_emu '🌀')" "$(t sens_cooling)" print_cooling
+
+    print_summary
+
+    printf '\n  %sWellSensors v1.2 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

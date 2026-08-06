@@ -1,0 +1,62 @@
+.TH WELLMEM 1 "August 2026" "wellmem 1.3" "wellutils"
+.SH NAME
+wellmem \- memory usage overview
+.SH SYNOPSIS
+.B wellmem
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellmem
+prints a colour-coded summary of memory usage read directly from
+.IR /proc/meminfo :
+total, used (total minus available), buffers, cache (Cached plus
+SReclaimable), shared, free, and swap usage, with a usage bar.
+.PP
+When stdout is a terminal the report is drawn as boxes; when piped a plain
+layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1),
+.BR wellhw (1)

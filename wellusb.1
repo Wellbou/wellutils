@@ -1,0 +1,61 @@
+.TH WELLUSB 1 "August 2026" "wellusb 2.0" "wellutils"
+.SH NAME
+Wellusb \- E n u m e r a t e s   U S B   d e v i c e s ,   m a t c h i n g   v e n d o r / d e v i c e   I D s   a g a i n s t   t h e   h w d a t a
+.SH SYNOPSIS
+.B wellusb
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellusb
+.PP
+Enumerates USB devices, matching vendor/device IDs against the hwdata
+usb.ids database, and classifies each device (hubs, keyboards, mice,
+gamepads, printers, storage, audio, network, cameras) combining the
+device class with the set of interface classes for composite devices.
+.PP
+When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1)

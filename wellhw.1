@@ -1,0 +1,85 @@
+.TH WELLHW 1 "August 2026" "wellhw 1.3" "wellutils"
+.SH NAME
+wellhw \- hardware report (CPU, GPU, board, RAM, storage, network)
+.SH SYNOPSIS
+.B wellhw
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellhw
+prints a colour-coded hardware report: CPU, GPU, motherboard and BIOS, memory
+modules, storage, network interfaces, fans, and battery status.
+.PP
+Memory details come from
+.BR dmidecode (8)
+when available (module count, total size, type, speed, form factor, part
+number) and fall back to
+.BR decode-dimms (1)
+from i2c-tools. The raw JEDEC JEP106 manufacturer code reported by dmidecode
+(e.g. \fB8313\fR) is resolved to the vendor name (e.g. \fBGolden Empire\fR)
+using the table shipped as \fI/usr/share/wellutils/jedec.sh\fR.
+.PP
+When stdout is a terminal the report is drawn as boxes; when piped a plain
+layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR: \fI~/.config/wellutils/lang.conf\fR,
+then locale).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.TP
+.B LANG / LC_MESSAGES
+Locale used to pick the default language.
+.SH FILES
+.TP
+.I /usr/share/wellutils/lang.sh
+Translation table.
+.TP
+.I /usr/share/wellutils/box.sh
+Adaptive box-drawing engine.
+.TP
+.I /usr/share/wellutils/jedec.sh
+JEDEC JEP106 manufacturer ID table (data from i2c-tools, GPL-2.0).
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1),
+.BR wellmem (1),
+.BR decode-dimms (1),
+.BR dmidecode (8)

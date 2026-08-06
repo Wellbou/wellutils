@@ -1,0 +1,85 @@
+.TH WELLUTILS 1 "August 2026" "wellutils 1.0" "wellutils"
+.SH NAME
+wellutils \- launcher and suite of system/peripheral reporting tools
+.SH SYNOPSIS
+.B wellutils
+[\fB\-\-lang\fR \fIru|en\fR] [\fIsubcommand\fR|\fIalias\fR]
+.SH DESCRIPTION
+.B wellutils
+is the entry point of a suite of shell tools that render system reports with
+adaptive box-drawing, colour and emoji. It dispatches to the individual tools
+and can set the persistent report language.
+.PP
+When invoked without arguments, it prints the suite help.
+.SH SUBCOMMANDS AND ALIASES
+.TP
+.B wellper, per, wper
+Peripheral report (USB, displays, audio).
+.TP
+.B wellhw, hw, whw
+Hardware summary (CPU, GPU, board, RAM, storage, cooling).
+.TP
+.B wellmem, mem, wmem
+Memory detail.
+.TP
+.B wellsensors, sensors, wsensors, wtemp
+Temperature and sensor monitor (CPU, GPU, disks via smartctl/nvme).
+.TP
+.B wellusb, usb, wusb
+USB device listing with ID database lookup.
+.TP
+.B wellpci, pci, wpci
+PCI device listing grouped by class.
+.TP
+.B wellblock, block, wblock
+Block devices with partitions and mount points.
+.TP
+.B wellmod, mod, wmod
+Loaded kernel modules, top-10 and grouped by category.
+.TP
+.B wellfetch, fetch, wfetch
+System information display with an ANSI logo.
+.SH OPTIONS
+.TP
+.BI \-\-lang " ru|en|eng"
+Persistently set the report language. \fBru\fR, \fBen\fR and \fBeng\fR are
+accepted. The setting is stored in
+.I ~/.config/wellutils/lang.conf
+and honoured by all tools in the suite.
+.TP
+.BR \-l ", " \-\-lang " LANG"
+Same as \fB\-\-lang\fR.
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.SH ENVIRONMENT
+.TP
+.B XDG_CONFIG_HOME
+Base directory for the persistent language file; defaults to
+.I ~/.config
+.
+.SH FILES
+.TP
+.I ~/.config/wellutils/lang.conf
+Persistent language setting.
+.TP
+.I /usr/share/wellutils/lang.sh
+Translation table shared by the suite.
+.TP
+.I /usr/share/wellutils/box.sh
+Shared box-drawing engine.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellper (1),
+.BR wellhw (1),
+.BR wellmem (1),
+.BR wellsensors (1),
+.BR wellusb (1),
+.BR wellpci (1),
+.BR wellblock (1),
+.BR wellmod (1),
+.BR wellfetch (1)

@@ -1,0 +1,125 @@
+.TH WELLFETCH 1 "August 2026" "wellutils 1.2" "wellutils"
+.SH NAME
+wellfetch \- detailed system information display with an ANSI logo
+.SH SYNOPSIS
+.B wellfetch
+[\fB\-\-lang\fR \fIru|en|auto\fR] [\fB\-\-color\fR \fIalways|auto|never\fR]
+[\fB\-\-plain\fR|\fB\-\-box\fR] [\fB\-\-no\-emoji\fR]
+[\fB\-\-no\-logo\fR|\fB\-\-logo\fR] [\fB\-\-full\fR]
+[\fB\-\-logo\-width\fR \fIn\fR]
+.SH DESCRIPTION
+.B wellfetch
+prints detailed facts about the running system next to a colour logo rendered
+from
+.I /usr/share/wellutils/logo.png
+using half-block characters.
+.PP
+Short sections (user, OS, kernel, uptime, shell, desktop, window manager,
+terminal, theme, icons, font, packages, memory, swap, disk, resolution, audio,
+locale, date) are grouped two per line for compactness; wide sections with
+several values (CPU, GPUs, disks, monitors, peripherals) span a header line
+plus indented continuation lines. Pass
+.B \-\-full
+to fall back to one section per line.
+.PP
+Sections cover the user, OS and architecture, kernel, uptime and boot time,
+shell and its version, desktop environment, window manager, terminal, GTK
+theme/icons/font, CPU model with core/thread count, frequency and load, every
+GPU (with VRAM where nvidia-smi is available), memory and swap usage, the root
+disk and each block device, the connected monitors with their resolutions and
+the primary resolution, audio cards, USB peripherals grouped by type, package
+counts, locale and the current date.
+.PP
+On a terminal the logo and a cyan label column are shown side by side.
+Transparent logo pixels are emitted with the terminal's default background
+attribute, so the real terminal background shows through and the artwork keeps
+its natural square proportions. When the output is piped (or colour is
+disabled) the report degrades to plain text with no escape sequences.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Output language. The default follows the system locale.
+.TP
+.BI \-\-color " always|auto|never"
+Colourize output. \fBauto\fR means "only when attached to a terminal".
+.TP
+.B \-\-plain
+Plain text, no logo, no colour.
+.TP
+.B \-\-box
+Force the side-by-side layout even when piped (use with
+.B \-\-color\fR \fBalways\fR).
+.TP
+.B \-\-no\-emoji
+Drop emoji icons from the label column.
+.TP
+.B \-\-no\-logo
+Report text only, without the logo.
+.TP
+.B \-\-full
+One section per line instead of the compact two-per-line grouping.
+.TP
+.B \-\-logo
+Show the logo (default on a terminal).
+.TP
+.BI \-\-logo\-width " n"
+Logo width in cells. Without it the width is derived from the terminal size.
+.SH CONFIGURATION
+If
+.I ~/.config/wellutils/wellfetch.conf
+(or the file named by
+.B WELLFETCH_CONFIG
+) exists it is sourced after the defaults. It may redefine any
+.B wfv_\fIkey\fR
+value function, set a
+.B WF_VALUE_\fIkey\fR
+override variable, or define
+.B wf_custom
+which prints extra
+.RI "label|value"
+lines. Example:
+.PP
+.nf
+wf_custom() {
+    printf 'Battery|95%%\\n'
+}
+.fi
+.SH ENVIRONMENT
+.TP
+.B COLUMNS
+Terminal width used for the side-by-side layout.
+.TP
+.B WF_BG
+Comma-separated RGB colour used to blend the few semi-transparent logo pixels.
+Transparent pixels themselves are always emitted with the terminal default
+background, so the logo shows through the real background without a painted
+block.
+.TP
+.B WF_KEY
+Alpha threshold (0\-\-255, default 40): pixels below it are treated as fully
+transparent, dropping faint glow noise from the logo.
+.TP
+.B WELLFETCH_CONFIG
+Path to an alternate configuration file.
+.SH FILES
+.TP
+.I ~/.config/wellutils/wellfetch.conf
+Optional user configuration.
+.TP
+.I /usr/share/wellutils/logo.png
+Logo image.
+.TP
+.I /usr/share/wellutils/wfetch_art.py
+PNG-to-ANSI renderer used by the tool.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1),
+.BR wellper (1),
+.BR wellhw (1)

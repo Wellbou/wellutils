@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# wellpci v2 — Beautiful PCI device listing with IDS database lookup
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellpci" _WU_NAME="WellPCI" _WU_VERSION="2.0" _WU_MANUAL=1
+_WU_TAGLINE="PCI device listing with IDS database lookup"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Colors ──────────────────────────────────────────────────────
+R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
+M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
+BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+PCI_IDS="/usr/share/hwdata/pci.ids"
+
+# ─── PCI Class Lookup ────────────────────────────────────────────
+pci_class_name() {
+    local major=${1:0:2}
+    case "$major" in
+        00) t pci_class_legacy ;;    01) t pci_class_storage ;;
+        02) t pci_class_network ;;   03) t pci_class_display ;;
+        04) t pci_class_multimedia ;; 05) t pci_class_memory ;;
+        06) t pci_class_bridge ;;    07) t pci_class_comm ;;
+        08) t pci_class_system ;;    09) t pci_class_input ;;
+        0a) t pci_class_dock ;;      0b) t pci_class_processor ;;
+        0c) t pci_class_serial ;;    0d) t pci_class_wireless ;;
+        ff) t pci_class_vendor ;;    *)  t pci_class_unknown ;;
+    esac
+}
+
+pci_class_color() {
+    local major=${1:0:2}
+    case "$major" in
+        03) printf '%s' "$G" ;; 02) printf '%s' "$C" ;; 01) printf '%s' "$Y" ;;
+        04) printf '%s' "$M" ;; 0c) printf '%s' "$B" ;; 06) printf '%s' "$DIM" ;;
+        *)  printf '%s' "$W" ;;
+    esac
+}
+
+pci_class_icon() {
+    local major=${1:0:2}
+    case "$major" in
+        03) printf ''"$(_emu "🎮")"'' ;; 02) printf ''"$(_emu "🌐")"'' ;; 01) printf ''"$(_emu "💾")"'' ;;
+        04) printf ''"$(_emu "🔊")"'' ;; 0c) printf ''"$(_emu "🔌")"'' ;; 06) printf ''"$(_emu "🌉")"'' ;;
+        08) printf ''"$(_ic "⌨️")"'' ;; 0d) printf ''"$(_emu "📡")"'' ;; *)  printf ''"$(_emu "🔧")"'' ;;
+    esac
+}
+
+# ─── PCI IDS Lookup ──────────────────────────────────────────────
+declare -A PCI_VENDOR_CACHE
+declare -A PCI_DEVICE_CACHE
+
+load_pci_ids() {
+    [[ -f "$PCI_IDS" ]] || return
+    local current_vendor=""
+    while IFS= read -r line; do
+        case "$line" in
+            \#*|"") continue ;;
+            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
+                current_vendor="${line:0:4}"
+                PCI_VENDOR_CACHE["${current_vendor,,}"]="${line:6}"
+                ;;
+            $'\t'[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
+                local devid="${line:1:4}"
+                PCI_DEVICE_CACHE["${current_vendor,,}:${devid,,}"]="${line:6}"
+                ;;
+        esac
+    done < "$PCI_IDS"
+}
+
+pci_vendor_name() {
+    echo "${PCI_VENDOR_CACHE[${1,,}]:-Unknown}"
+}
+
+pci_device_name() {
+    local vid=$1 pid=$2
+    echo "${PCI_DEVICE_CACHE["${vid,,}:${pid,,}"]:-}"
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    load_pci_ids
+
+    local line
+    line=$(printf '═%.0s' $(seq 1 78))
+    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "🌉")"'wellpci — %s                          %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t pci_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+
+    local -a ADDRS=() CLASSES=() DRIVERS=() VENDORS=() DEVICES=() DESCS=() VENDOR_NAMES=() DEVICE_NAMES=()
+    local count=0
+
+    for devdir in /sys/bus/pci/devices/0000:*/; do
+        [[ -d "$devdir" ]] || continue
+        local addr
+        addr=$(basename "$devdir")
+
+        local class vendor device
+        class=$(cat "$devdir/class" 2>/dev/null || echo "000000")
+        class="${class#0x}"
+        vendor=$(cat "$devdir/vendor" 2>/dev/null || echo "0x0000")
+        device=$(cat "$devdir/device" 2>/dev/null || echo "0x0000")
+        local vid="${vendor#0x}" did="${device#0x}"
+
+        local driver_name="none"
+        if [[ -L "$devdir/driver" ]]; then
+            driver_name=$(basename "$(readlink "$devdir/driver")")
+        fi
+
+        local lspci_desc
+        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+
+        local vname dname
+        vname=$(pci_vendor_name "$vid")
+        dname=$(pci_device_name "$vid" "$did")
+        if [[ -z "$dname" ]]; then
+            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f]* //')
+        fi
+
+        local full_desc
+        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+
+        ADDRS+=("$addr")
+        CLASSES+=("$class")
+        DRIVERS+=("$driver_name")
+        VENDORS+=("$vid")
+        DEVICES+=("$did")
+        DESCS+=("$full_desc")
+        VENDOR_NAMES+=("$vname")
+        DEVICE_NAMES+=("$dname")
+        count=$(( count + 1 ))
+    done
+
+    local ids_status
+    if [[ -f $PCI_IDS ]]; then
+        ids_status="${G}$(t loaded)${RESET}"
+    else
+        ids_status="${R}$(t not_found)${RESET}"
+    fi
+
+    printf '  %s│%s  '"$(_ic "📊")"'%s%s:%s %d  |  %s%s:%s %s\n\n' \
+        "$C" "$RESET" "$BOLD" "$(t pci_total)" "$W" "$count" \
+        "$BOLD" "$(t usb_ids_db)" "$W" "$ids_status"
+
+    local prev_major=""
+    for (( i=0; i<count; i++ )); do
+        local addr="${ADDRS[$i]}"
+        local cls="${CLASSES[$i]}"
+        local drv="${DRIVERS[$i]}"
+        local vid="${VENDORS[$i]}"
+        local did="${DEVICES[$i]}"
+        local desc="${DESCS[$i]}"
+        local vname="${VENDOR_NAMES[$i]}"
+        local dname="${DEVICE_NAMES[$i]}"
+        local major="${cls:0:2}"
+
+        if [[ "$major" != "$prev_major" ]]; then
+            local cname
+            cname=$(pci_class_name "${major}0000")
+            local ccolor
+            ccolor=$(pci_class_color "${major}0000")
+            local cicon
+            cicon=$(pci_class_icon "${major}0000")
+
+            [[ -n "$prev_major" ]] && printf '  %s│%s\n' "$C" "$RESET"
+            printf '  %s┌───%s %s %s%s%s%s\n' "$C" "$RESET" "$cicon" "$BOLD" "$ccolor" "$cname" "$RESET"
+        fi
+        prev_major="$major"
+
+        local ccolor
+        ccolor=$(pci_class_color "$cls")
+        local cicon
+        cicon=$(pci_class_icon "$cls")
+
+        local drv_badge
+        if [[ "$drv" == "none" ]]; then
+            drv_badge="${DIM}none${RESET}"
+        else
+            drv_badge="${G}${drv}${RESET}"
+        fi
+
+        printf '  %s│%s  %s %s%s%s  %s%s%s  %s%s%s\n' \
+            "$C" "$RESET" "$cicon" "$BOLD" "$addr" "$RESET" \
+            "$ccolor" "$desc" "$RESET" \
+            "$(t pci_drv):" "$drv_badge"
+    done
+
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 80))" "$RESET"
+
+    printf '\n  %sWellPCI v2.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

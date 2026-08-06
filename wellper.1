@@ -1,0 +1,139 @@
+.TH WELLPER 1 "August 2026" "wellper 1.0" "wellutils"
+.SH NAME
+wellper \- peripheral device report (USB, displays, audio)
+.SH SYNOPSIS
+.B wellper
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellper
+inspects the system and prints a colour-coded report of attached peripherals:
+USB devices (grouped by bus and classified by type), display outputs, and audio
+devices.
+.PP
+Output is auto-scaled: when stdout is a terminal, sections are drawn as adaptive
+boxes that always fit the terminal width; when stdout is a pipe or file, a plain
+text layout is used. Emoji icons are enabled by default and disabled on
+non-UTF-8 locales.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language. The default is \fBauto\fR, which reads the persistent
+setting from \fI~/.config/wellutils/lang.conf\fR and falls back to the current
+locale (Russian when the locale is Russian, otherwise English).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour. In \fBauto\fR mode colour is used
+only on a terminal, and is disabled by the
+.B NO_COLOR
+environment variable or a \fBdumb\fR TERM. \fBalways\fR overrides all detection.
+.TP
+.B \-\-plain
+Force plain text output without box drawing, even on a terminal.
+.TP
+.B \-\-box
+Force box drawing even when stdout is not a terminal.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.BI \-\-groups " LIST"
+Show only USB devices belonging to the comma-separated group list. Valid groups:
+.BR in " (keyboards, mice, tablets, gamepads), "
+.BR media " (cameras, audio, network), "
+.BR other " (storage, printers, phones, hubs, misc), "
+.BR all .
+.TP
+.BI \-\-sections " LIST"
+Show only the comma-separated report sections. Valid sections:
+.BR usb ", " displays ", " audio .
+.TP
+.B \-\-strict
+Exit with status 1 when nothing is detected.
+.TP
+.B \-\-terse
+Print one summary line (counts of USB, displays, audio) and nothing else.
+.TP
+.B \-\-json
+Emit a machine-readable JSON document (validated against
+.IR \-\-sections /\-\-groups ).
+.TP
+.B \-\-debug
+Enable verbose tracing (\fBset \-x\fR).
+.TP
+.B \-\-
+End of options.
+.SH GROUPS
+USB devices are classified into groups:
+.TP
+.B in
+Input devices: keyboards, mice, tablets, gamepads.
+.TP
+.B media
+Cameras/video, audio interfaces, and network adapters.
+.TP
+.B other
+Storage, printers, phones, hubs, and other peripherals.
+.SH SECTIONS
+.TP
+.B usb
+USB device listing grouped by bus.
+.TP
+.B displays
+Connected display outputs.
+.TP
+.B audio
+Audio devices.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Nothing detected and \fB\-\-strict\fR given.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+When set (any value), colour is disabled in auto mode.
+.TP
+.B COLUMNS
+Terminal width used for box scaling (default 100).
+.TP
+.B LANG / LC_MESSAGES
+Locale used to pick the default language.
+.SH FILES
+.TP
+.I /usr/share/wellutils/lang.sh
+Translation table (read-only).
+.TP
+.I /usr/share/wellutils/box.sh
+Adaptive box-drawing engine.
+.TP
+.I ~/.config/wellutils/lang.conf
+Persistent language setting (default \fBRU\fR); written by
+.BR wellutils (1).
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1),
+.BR wellusb (1),
+.BR wellpci (1),
+.BR wellblock (1),
+.BR wellmem (1),
+.BR wellhw (1),
+.BR wellsensors (1),
+.BR wellmod (1)

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# wellutils — launcher for wellutils system utility kit
+# Usage: wellutils [-l LANG] <command> [args]
+#        wellutils --lang RU|ENG   — set language persistently
+#        wellutils --help          — show help
+set -euo pipefail
+
+_WU_DIR="$(dirname "$(readlink -f "$0")")"
+_WU_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
+
+# Colors
+R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
+M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
+BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+show_help() {
+    printf '\n'
+    printf '  %s╔══════════════════════════════════════════════════════╗%s\n' "$C" "$RESET"
+    printf '  %s║%s%s  🛠  wellutils — System Utility Kit                %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$RESET" "$C" "$RESET"
+    printf '  %s╚══════════════════════════════════════════════════════╝%s\n' "$C" "$RESET"
+    printf '\n'
+    printf '  %sUsage:%s\n' "$BOLD" "$RESET"
+    printf '    wellutils <command>              Run a utility\n'
+    printf '    wellutils --lang RU|ENG          Set language (RU or EN)\n'
+    printf '    wellutils --help                 Show this help\n'
+    printf '\n'
+    printf '  %sCommands:%s\n' "$BOLD" "$RESET"
+    printf '    %susb%s       — USB device explorer\n' "$G" "$RESET"
+    printf '    %spci%s       — PCI device explorer\n' "$G" "$RESET"
+    printf '    %sblock%s     — Block device explorer\n' "$G" "$RESET"
+    printf '    %smem%s       — Memory overview\n' "$G" "$RESET"
+    printf '    %smod%s       — Kernel module explorer\n' "$G" "$RESET"
+    printf '    %ssensors%s   — System temperature monitor\n' "$G" "$RESET"
+    printf '    %shw%s         — Hardware report (chat-ready)\n' "$G" "$RESET"
+    printf '    %sper%s         — Peripherals report (USB, displays, audio)\n' "$G" "$RESET"
+    printf '\n'
+    printf '  %sAliases:%s  usb=wellusb  pci=wellpci  block=wellblock\n' "$DIM" "$RESET"
+    printf '                mem=wellmem  mod=wellmod  sensors=wellsensors\n'
+    printf '                hw=wellhw  per=wellper\n'
+    printf '\n'
+
+    local cur_lang="EN"
+    [[ -f "$_WU_LANG_FILE" ]] && cur_lang=$(grep -m1 '^[A-Z]' "$_WU_LANG_FILE" 2>/dev/null | tr -d '[:space:]')
+    [[ -n "${WELLUTILS_LANG:-}" ]] && cur_lang="$WELLUTILS_LANG"
+    printf '  %sCurrent language:%s %s%s%s\n\n' "$DIM" "$RESET" "$BOLD" "$cur_lang" "$RESET"
+}
+
+set_lang() {
+    local lang="${1^^}"
+    case "$lang" in
+        RU|EN)
+            mkdir -p "$(dirname "$_WU_LANG_FILE")"
+            echo "$lang" > "$_WU_LANG_FILE"
+            printf '  %sLanguage set to:%s %s%s%s\n\n' "$G" "$RESET" "$BOLD" "$lang" "$RESET"
+            ;;
+        *)
+            printf '  %sError:%s unknown language "%s". Use RU or EN.\n\n' "$R" "$RESET" "$1"
+            exit 1
+            ;;
+    esac
+}
+
+# Parse args
+CMD=""
+LANG_OVERRIDE=""
+
+while [[ $# -gt 0 ]]; do
+    [[ -n "$CMD" ]] && break    # rest of args belong to the tool
+    case "$1" in
+        --lang|-l)
+            shift
+            LANG_OVERRIDE="${1:-EN}"
+            set_lang "$LANG_OVERRIDE"
+            exit 0
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        --version|-V)
+            printf '%s %s\n' "wellutils" "1.3.0"
+            exit 0
+            ;;
+        usb|wellusb|wusb)    CMD="wellusb";     shift ;;
+        pci|wellpci|wpci)    CMD="wellpci";     shift ;;
+        block|wellblock|wblock) CMD="wellblock";  shift ;;
+        mem|wellmem|wmem)    CMD="wellmem";      shift ;;
+        mod|wellmod|wmod)    CMD="wellmod";      shift ;;
+        sensors|wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
+        hw|wellhw|whw)      CMD="wellhw";        shift ;;
+        per|wellper|wper)   CMD="wellper";       shift ;;
+        *)
+            printf '  %sError:%s unknown command "%s"\n\n' "$R" "$RESET" "$1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$CMD" ]]; then
+    show_help
+    exit 0
+fi
+
+exec "$CMD" "$@"

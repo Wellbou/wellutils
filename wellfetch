@@ -1,0 +1,755 @@
+#!/usr/bin/env bash
+# wellfetch — detailed system info display with ANSI logo (wellutils suite)
+# Style: bash, 2-space indent.
+
+# shellcheck disable=SC2034,SC2059,SC2154
+
+_WU_NAME="wellfetch"
+_WU_VERSION="1.2.0"
+_WU_TAGLINE="detailed system information with logo"
+
+_WU_MANUAL=0
+_WU_EXTRA_PARSE="wf_extra_parse"
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    _WU_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -n "${_WU_LIBDIR:-}" ]]; then
+        . "$_WU_LIBDIR/lang.sh"
+        . "$_WU_LIBDIR/box.sh"
+        . "$_WU_LIBDIR/cli.sh"
+    elif [[ -d "$_WU_DIR/../share/wellutils" ]]; then
+        . "$_WU_DIR/../share/wellutils/lang.sh"
+        . "$_WU_DIR/../share/wellutils/box.sh"
+        . "$_WU_DIR/../share/wellutils/cli.sh"
+    else
+        . /usr/share/wellutils/lang.sh
+        . /usr/share/wellutils/box.sh
+        . /usr/share/wellutils/cli.sh
+    fi
+else
+    . /usr/share/wellutils/lang.sh
+    . /usr/share/wellutils/box.sh
+    . /usr/share/wellutils/cli.sh
+    return 0
+fi
+
+_WF_LOGO=1
+_WF_LWIDTH=0
+_WF_FULL=0
+
+wf_extra_parse() {
+    _WU_EXTRA_CONSUMED=0
+    case "$1" in
+        --no-logo|--text) _WF_LOGO=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --logo)           _WF_LOGO=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --full)           _WF_FULL=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --logo-width)
+            if [[ -n "${2:-}" ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+                _WF_LWIDTH=$2; _WU_EXTRA_CONSUMED=2; return 0
+            fi
+            return 1 ;;
+        --logo-width=*)
+            _WF_LWIDTH="${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+    esac
+    return 1
+}
+
+_WU_EXTRA_HELP="      --no-logo              text only, no logo
+      --logo                show logo (default on tty)
+      --full                one section per line (default: compact pairs)
+      --logo-width N        logo width in cells"
+
+# --- i18n ---------------------------------------------------------------------
+
+wft() {
+    case "${WELLUTILS_LANG:-EN}" in
+        RU)
+            case "$1" in
+                user) printf 'Пользователь' ;; os) printf 'ОС' ;;
+                kernel) printf 'Ядро' ;; uptime) printf 'Аптайм' ;;
+                shell) printf 'Оболочка' ;; desktop) printf 'Окружение' ;;
+                wm) printf 'Окна' ;; terminal) printf 'Терминал' ;;
+                theme) printf 'Тема' ;; icons) printf 'Иконки' ;;
+                font) printf 'Шрифт' ;; cpu) printf 'CPU' ;;
+                gpu) printf 'GPU' ;; mem) printf 'Память' ;;
+                swap) printf 'Своп' ;; disk) printf 'Диск' ;;
+                disks) printf 'Диски' ;; monitors) printf 'Мониторы' ;;
+                resolution) printf 'Разрешение' ;; audio) printf 'Аудио' ;;
+                peripherals) printf 'Периферия' ;; packages) printf 'Пакеты' ;;
+                locale) printf 'Локаль' ;; date) printf 'Дата' ;;
+                p_kbd) printf 'Клавиатура' ;; p_mouse) printf 'Мышь' ;;
+                p_tablet) printf 'Планшет' ;; p_pad) printf 'Геймпад' ;;
+                p_audio) printf 'Аудио' ;; p_cam) printf 'Камера' ;;
+                p_print) printf 'Принтер' ;; p_store) printf 'Накопители' ;;
+                p_net) printf 'Сеть' ;; p_phone) printf 'Телефон' ;;
+                p_hub) printf 'Хаб' ;; p_hid) printf 'HID' ;;
+                p_vend) printf 'Прочее' ;; p_dev) printf 'Устройство' ;;
+            esac ;;
+        *)
+            case "$1" in
+                user) printf 'User' ;; os) printf 'OS' ;;
+                kernel) printf 'Kernel' ;; uptime) printf 'Uptime' ;;
+                shell) printf 'Shell' ;; desktop) printf 'Desktop' ;;
+                wm) printf 'WM' ;; terminal) printf 'Terminal' ;;
+                theme) printf 'Theme' ;; icons) printf 'Icons' ;;
+                font) printf 'Font' ;; cpu) printf 'CPU' ;;
+                gpu) printf 'GPU' ;; mem) printf 'Memory' ;;
+                swap) printf 'Swap' ;; disk) printf 'Disk' ;;
+                disks) printf 'Disks' ;; monitors) printf 'Monitors' ;;
+                resolution) printf 'Resolution' ;; audio) printf 'Audio' ;;
+                peripherals) printf 'Peripherals' ;; packages) printf 'Packages' ;;
+                locale) printf 'Locale' ;; date) printf 'Date' ;;
+                p_kbd) printf 'Keyboard' ;; p_mouse) printf 'Mouse' ;;
+                p_tablet) printf 'Tablet' ;; p_pad) printf 'Gamepad' ;;
+                p_audio) printf 'Audio' ;; p_cam) printf 'Camera' ;;
+                p_print) printf 'Printer' ;; p_store) printf 'Storage' ;;
+                p_net) printf 'Network' ;; p_phone) printf 'Phone' ;;
+                p_hub) printf 'Hub' ;; p_hid) printf 'HID' ;;
+                p_vend) printf 'Other' ;; p_dev) printf 'Device' ;;
+            esac ;;
+    esac
+}
+
+wf_emoji() {
+    case "$1" in
+        user) _ic '👤' ;; os) _ic '🖥️' ;; kernel) _ic '🧠' ;; uptime) _ic '⏰' ;;
+        shell) _ic '🐚' ;; desktop) _ic '🪟' ;; wm) _ic '🎨' ;; terminal) _ic '⌨️' ;;
+        theme) _ic '🎭' ;; icons) _ic '🖌️' ;; font) _ic '🔠' ;; cpu) _ic '🔥' ;;
+        gpu) _ic '🎮' ;; mem) _ic '💾' ;; swap) _ic '🔁' ;; disk) _ic '💽' ;;
+        disks) _ic '💿' ;; monitors) _ic '📺' ;; resolution) _ic '🖼️' ;;
+        audio) _ic '🎚️' ;; peripherals) _ic '🔌' ;; packages) _ic '📦' ;;
+        locale) _ic '🌍' ;; date) _ic '📅' ;;
+    esac
+}
+
+# --- row collection -----------------------------------------------------------
+
+WF_SECS=() WF_LABELS=() WF_VALUES=()
+
+wf_push() {
+    WF_SECS+=("$1") WF_LABELS+=("$2") WF_VALUES+=("$3")
+}
+
+wf_clean() {
+    printf '%s' "$1" | tr -cd '[:print:]\n' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//'
+}
+
+# --- value providers (each pushes one or more rows) ----------------------------
+
+wfv_user() {
+    local u h
+    u=$(id -un 2>/dev/null); [[ -n "$u" ]] || u="${USER:-?}"
+    h=$(hostname 2>/dev/null); [[ -n "$h" ]] || h="${HOSTNAME:-?}"
+    wf_push user "$(wft user)" "$u@$h"
+}
+
+wfv_os() {
+    local p="${WF_OSFILE:-/etc/os-release}" pretty arch
+    if [[ -r "$p" ]]; then
+        pretty=$(awk -F= '/^PRETTY_NAME=/{print $2}' "$p" | tr -d '"')
+    fi
+    arch=$(uname -m 2>/dev/null)
+    if [[ -n "$pretty" ]]; then
+        wf_push os "$(wft os)" "$pretty${arch:+ ($arch)}"
+    else
+        wf_push os "$(wft os)" "—"
+    fi
+}
+
+wfv_kernel() { wf_push kernel "$(wft kernel)" "$(uname -r 2>/dev/null || printf '—')"; }
+
+wfv_uptime() {
+    local s d h m up boot
+    read -r s _ < /proc/uptime 2>/dev/null
+    s=${s%.*}; s=${s:-0}
+    d=$(( s / 86400 )); h=$(( (s % 86400) / 3600 )); m=$(( (s % 3600) / 60 ))
+    if (( d > 0 )); then up="${d}d ${h}h ${m}m"
+    elif (( h > 0 )); then up="${h}h ${m}m"
+    else up="${m}m"; fi
+    if command -v date >/dev/null 2>&1; then
+        boot=$(( $(date +%s) - s ))
+        up+=" · boot $(date -d "@$boot" '+%F %H:%M' 2>/dev/null)"
+    fi
+    wf_push uptime "$(wft uptime)" "$up"
+}
+
+wfv_shell() {
+    local base ver
+    base="${SHELL##*/}"
+    [[ -n "$base" ]] || base="${_WU_SHELL:-?}"
+    case "$base" in
+        bash) ver="${BASH_VERSION%%(*}" ;;
+        zsh)  ver="${ZSH_VERSION:-}" ;;
+        fish) ver="${FISH_VERSION:-}" ;;
+    esac
+    if [[ -n "$ver" ]]; then wf_push shell "$(wft shell)" "$base $ver"
+    else wf_push shell "$(wft shell)" "$base"; fi
+}
+
+wfv_desktop() {
+    local v="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
+    v=$(wf_clean "$v")
+    wf_push desktop "$(wft desktop)" "${v:-—}"
+}
+
+wfv_wm() {
+    local v="${GDMSESSION:-${DESKTOP_SESSION:-${WM:-}}}"
+    v=$(wf_clean "$v")
+    wf_push wm "$(wft wm)" "${v:-—}"
+}
+
+wfv_terminal() {
+    local v="${TERM_PROGRAM:-}"
+    [[ -n "$v" ]] || v="${TERM##*-}"
+    wf_push terminal "$(wft terminal)" "${v:-—}"
+}
+
+wfv_theme() {
+    local v="${GTK_THEME:-}"
+    if [[ -z "$v" ]] && command -v gsettings >/dev/null 2>&1; then
+        v=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")
+    fi
+    v=$(wf_clean "$v")
+    wf_push theme "$(wft theme)" "${v:-—}"
+}
+
+wfv_icons() {
+    local v=""
+    if command -v gsettings >/dev/null 2>&1; then
+        v=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")
+    fi
+    v=$(wf_clean "$v")
+    wf_push icons "$(wft icons)" "${v:-—}"
+}
+
+wfv_font() {
+    local v=""
+    if command -v gsettings >/dev/null 2>&1; then
+        v=$(gsettings get org.gnome.desktop.interface font-name 2>/dev/null | tr -d "'")
+    fi
+    v=$(wf_clean "$v")
+    wf_push font "$(wft font)" "${v:-—}"
+}
+
+wfv_cpu() {
+    local m cores threads freq load
+    m=$(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null | sed 's/  */ /g')
+    cores=$(awk -F': ' '/^cpu cores/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+    threads=$(nproc 2>/dev/null)
+    freq=$(awk -F': ' '/^cpu MHz/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+    load=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
+    wf_push cpu "$(wft cpu)" "${m:-—}"
+    local detail=""
+    if [[ -n "$cores" && -n "$threads" ]]; then
+        detail="${cores} cores / ${threads} threads"
+        if [[ -n "$freq" ]]; then
+            freq=$(awk -v f="$freq" 'BEGIN{printf "%d MHz", f+0.5}')
+            detail+=" @ $freq"
+        fi
+        if [[ -n "$load" ]]; then detail+=" · load $load"; fi
+        wf_push cpu "" "$detail"
+    elif [[ -n "$load" ]]; then
+        wf_push cpu "" "load $load"
+    fi
+}
+
+wfv_gpu() {
+    command -v lspci >/dev/null 2>&1 || { wf_push gpu "$(wft gpu)" "—"; return; }
+    local first=1 line name vram
+    while IFS= read -r line; do
+        name=$(sed -E 's/.*(VGA compatible controller|3D controller|Display controller): //' <<< "$line")
+        name=$(awk '{sub(/^\[[^]]*\] */,""); sub(/ *$/,""); print}' <<< "$name")
+        [[ -n "$name" ]] || continue
+        vram=""
+        if [[ "$name" == *NVIDIA* ]] && command -v nvidia-smi >/dev/null 2>&1; then
+            local mib
+            mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+            [[ "$mib" =~ ^[0-9]+$ ]] && vram="$(( mib / 1024 )) GiB"
+        fi
+        if (( first )); then
+            wf_push gpu "$(wft gpu)" "$name${vram:+ · $vram}"
+            first=0
+        else
+            wf_push gpu "" "$name${vram:+ · $vram}"
+        fi
+    done < <(lspci 2>/dev/null | grep -iE 'VGA compatible|3D controller|Display controller')
+    (( first )) && wf_push gpu "$(wft gpu)" "—"
+}
+
+wfv_mem() {
+    local total avail used pct t
+    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
+    avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)
+    [[ -n "$total" && -n "$avail" ]] || { wf_push mem "$(wft mem)" "—"; return; }
+    used=$(( (total - avail) / 1024 / 1024 ))
+    t=$(( total / 1024 / 1024 ))
+    pct=$(( (total - avail) * 100 / total ))
+    wf_push mem "$(wft mem)" "$used GiB / $t GiB ($pct%)"
+}
+
+wfv_swap() {
+    local total free used pct t
+    total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo 2>/dev/null)
+    [[ -n "$total" && "$total" -gt 0 ]] || return 0
+    free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo 2>/dev/null)
+    used=$(( (total - free) / 1024 / 1024 ))
+    t=$(( total / 1024 / 1024 ))
+    pct=$(( (total - free) * 100 / total ))
+    wf_push swap "$(wft swap)" "$used GiB / $t GiB ($pct%)"
+}
+
+wfv_disk() {
+    local line
+    line=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s %s / %s (%s)", $6, $3, $2, $5}')
+    wf_push disk "$(wft disk)" "${line:-—}"
+}
+
+wfv_disks() {
+    command -v lsblk >/dev/null 2>&1 || return 0
+    local first=1 name type size model
+    while read -r name type size model; do
+        [[ "$type" == "disk" ]] || continue
+        model=$(wf_clean "$model")
+        [[ -n "$model" ]] || model="—"
+        if (( first )); then
+            wf_push disks "$(wft disks)" "$name $model · $size"
+            first=0
+        else
+            wf_push disks "" "$name $model · $size"
+        fi
+    done < <(lsblk -dno NAME,TYPE,SIZE,MODEL 2>/dev/null)
+}
+
+wfv_monitors() {
+    local -a outs modes
+    if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+        local line out geo
+        while IFS= read -r line; do
+            [[ "$line" == *" connected"* ]] || continue
+            out=$(awk '{print $1}' <<< "$line")
+            geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
+            geo=${geo%%+*}
+            outs+=("$out"); modes+=("${geo:-?}")
+        done < <(xrandr --query 2>/dev/null)
+    fi
+    if (( ${#outs[@]} == 0 )); then
+        local d conn mode
+        for d in /sys/class/drm/card*/card*-*/; do
+            [[ -f "$d/status" ]] || continue
+            [[ "$(cat "$d/status" 2>/dev/null)" == "connected" ]] || continue
+            conn=$(basename "$d")
+            mode=$(head -1 "$d/modes" 2>/dev/null)
+            outs+=("$conn"); modes+=("${mode:-?}")
+        done
+    fi
+    local n=${#outs[@]}
+    if (( n == 0 )); then
+        wf_push monitors "$(wft monitors)" "—"; return
+    fi
+    wf_push monitors "$(wft monitors)" "$n"
+    local i
+    for (( i=0; i<n; i++ )); do
+        wf_push monitors "" "${outs[i]} · ${modes[i]}"
+    done
+}
+
+wfv_resolution() {
+    local r
+    if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+        r=$(xrandr --query 2>/dev/null | awk '/ connected primary/{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) {print $i; exit}}')
+        [[ -z "$r" ]] && r=$(xrandr --query 2>/dev/null | awk '/\*/{print $1; exit}')
+        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "${r%%+*}"; return; fi
+    fi
+    if command -v wlr-randr >/dev/null 2>&1; then
+        r=$(wlr-randr 2>/dev/null | awk '/current/{print $1; exit}')
+        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
+    fi
+    wf_push resolution "$(wft resolution)" "—"
+}
+
+wfv_audio() {
+    local n=0 names="" line nm
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]*\[ ]] || continue
+        nm=$(sed -E 's/.*\[([^]]*)\].*/\1/' <<< "$line")
+        nm=$(wf_clean "$nm")
+        [[ -n "$nm" ]] || continue
+        n=$(( n + 1 ))
+        names+="${names:+, }$nm"
+    done < /proc/asound/cards
+    if (( n > 0 )); then wf_push audio "$(wft audio)" "$n: $names"
+    else wf_push audio "$(wft audio)" "—"; fi
+}
+
+wf_classify() {
+    local bclass="$1" prod="$2" mfg="$3"
+    local hay
+    hay=$(printf '%s %s' "$prod" "$mfg" | tr '[:upper:]' '[:lower:]')
+    case "$hay" in
+        *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*)
+            printf '%s' tablet; return ;;
+    esac
+    case "$hay" in
+        *keyboard*|*k63*|*k55*|*k70*|*typewriter*) printf '%s' keyboard; return ;;
+        *mouse*|*trackball*|*deathadder*|*razer*|*logitech*g*|*gaming*mouse*) printf '%s' mouse; return ;;
+        *gamepad*|*controller*|*xbox*|*dualshock*|*joystick*|*fightstick*) printf '%s' gamepad; return ;;
+    esac
+    case "$hay" in
+        *webcam*|*camera*|*cam*) printf '%s' webcam; return ;;
+        *headset*|*headphone*|*headphones*|*earphone*|*microphone*|*audio*|*mic*) printf '%s' audio; return ;;
+    esac
+    case "$hay" in
+        *wlan*|*wireless*lan*|*wifi*|*wi-fi*|*802.11*|*ralink*|*mediatek*|*bluetooth*) printf '%s' network; return ;;
+        *storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*) printf '%s' storage; return ;;
+        *printer*|*scanner*|*mfp*) printf '%s' printer; return ;;
+        *phone*|*huawei*|*honor*|*xiaomi*|*redmi*|*pixel*|*galaxy*|*samsung*|*nokia*|*oppo*|*vivo*|*oneplus*|*realme*|*android*|*mao-lx*)
+            printf '%s' phone; return ;;
+    esac
+    case "$bclass" in
+        0e) printf '%s' webcam ;; 01|04) printf '%s' audio ;;
+        08) printf '%s' storage ;; 07) printf '%s' printer ;;
+        02) printf '%s' network ;; 03) printf '%s' hid ;;
+        09) printf '%s' hub ;; ff) printf '%s' vendor ;;
+        *)  printf '%s' device ;;
+    esac
+}
+
+wf_ptype() {
+    case "$1" in
+        keyboard) wft p_kbd ;; mouse) wft p_mouse ;; tablet) wft p_tablet ;;
+        gamepad)  wft p_pad ;; audio) wft p_audio ;; webcam) wft p_cam ;;
+        printer)  wft p_print ;; storage) wft p_store ;; network) wft p_net ;;
+        phone)    wft p_phone ;; hub) wft p_hub ;; hid) wft p_hid ;;
+        vendor)   wft p_vend ;; *) wft p_dev ;;
+    esac
+}
+
+wf_picon() {
+    case "$1" in
+        keyboard) printf '⌨️' ;; mouse) printf '🖱️' ;; tablet) printf '🎨' ;;
+        gamepad) printf '🎮' ;; audio) printf '🎧' ;; webcam) printf '📷' ;;
+        printer) printf '🖨️' ;; storage) printf '💾' ;; network) printf '📶' ;;
+        phone) printf '📱' ;; hub) printf '🔌' ;; hid) printf '⚙️' ;;
+        *) printf '🔌' ;;
+    esac
+}
+
+wfv_peripherals() {
+    local -A P
+    local devdir base bclass prod mfg type name
+    for devdir in /sys/bus/usb/devices/*; do
+        [[ -d "$devdir" ]] || continue
+        base=$(basename "$devdir")
+        [[ "$base" == usb[0-9]* ]] && continue
+        [[ -r "$devdir/idVendor" ]] || continue
+        bclass=$(cat "$devdir/bDeviceClass" 2>/dev/null)
+        [[ "$bclass" == "09" ]] && continue
+        prod=$(wf_clean "$(cat "$devdir/product" 2>/dev/null)")
+        mfg=$(wf_clean "$(cat "$devdir/manufacturer" 2>/dev/null)")
+        type=$(wf_classify "$bclass" "$prod" "$mfg")
+        name="$prod"
+        [[ -n "$name" ]] || name="$mfg"
+        [[ -n "$name" ]] || continue
+        case ",${P[$type]:-}," in *",$name,"*) continue ;; esac
+        P[$type]+=",$name"
+    done
+    local -a order=(keyboard mouse tablet gamepad audio webcam printer storage network phone hid vendor device)
+    local -a rows=()
+    local t count=0
+    for t in "${order[@]}"; do
+        [[ -n "${P[$t]:-}" ]] || continue
+        rows+=("$t")
+        count=$(( count + $(printf '%s' "${P[$t]}" | tr ',' '\n' | sed '/^$/d' | awk 'END{print NR}') ))
+    done
+    if (( ${#rows[@]} == 0 )); then
+        wf_push peripherals "$(wft peripherals)" "—"
+        return
+    fi
+    wf_push peripherals "$(wft peripherals)" "$count"
+    local first=1
+    for t in "${rows[@]}"; do
+        local names ic label
+        names=$(printf '%s' "${P[$t]}" | tr ',' '\n' | sed '/^$/d' | paste -sd ', ' -)
+        ic=$(wf_picon "$t")
+        label=$(wf_ptype "$t")
+        if (( first )); then
+            wf_push peripherals "" "$(_ic "$ic")$label: $names"
+            first=0
+        else
+            wf_push peripherals "" "$(_ic "$ic")$label: $names"
+        fi
+    done
+}
+
+wfv_packages() {
+    local n=0 pac=0 flat=0
+    if command -v pacman >/dev/null 2>&1; then
+        n=$(pacman -Q 2>/dev/null | wc -l); n=${n:-0}; pac=1
+    fi
+    if command -v flatpak >/dev/null 2>&1; then
+        flat=$(flatpak list 2>/dev/null | wc -l); flat=${flat:-0}
+    fi
+    local parts=() joined p
+    (( pac )) && parts+=("$n pacman")
+    (( flat )) && parts+=("$flat flatpak")
+    if (( ${#parts[@]} )); then
+        joined=""
+        for p in "${parts[@]}"; do
+            [[ -n "$joined" ]] && joined+=", "
+            joined+="$p"
+        done
+        wf_push packages "$(wft packages)" "$joined"
+    else
+        wf_push packages "$(wft packages)" "—"
+    fi
+}
+
+wfv_locale() { wf_push locale "$(wft locale)" "${LANG:-—}"; }
+
+wfv_date() {
+    if command -v date >/dev/null 2>&1; then
+        wf_push date "$(wft date)" "$(date '+%A %d %B %Y %H:%M' 2>/dev/null)"
+    else
+        wf_push date "$(wft date)" "—"
+    fi
+}
+
+wf_custom() { :; }
+
+# --- collection ---------------------------------------------------------------
+
+WF_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font packages cpu gpu mem swap disk disks monitors resolution audio peripherals locale date"
+
+wf_collect() {
+    WF_SECS=() WF_LABELS=() WF_VALUES=()
+    local sec vname
+    for sec in $WF_SECTIONS; do
+        vname="WF_VALUE_${sec}"
+        if [[ -n "${!vname:-}" ]]; then
+            wf_push "$sec" "$(wft "$sec")" "${!vname}"
+        else
+            wfv_${sec}
+        fi
+    done
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        wf_push custom "${line%%|*}" "${line#*|}"
+    done < <(wf_custom 2>/dev/null)
+}
+
+# --- logo ---------------------------------------------------------------------
+
+wf_logo_lines() {
+    local art="$1" lw="$2"
+    WF_LOGO_LINES=""
+    WF_LOGO_ROWS=0
+    if [[ -f "$art" ]] && command -v python3 >/dev/null 2>&1 && [[ -f "$WF_LOGO" ]]; then
+        local cmd=(python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}")
+        if [[ -n "${WF_BG:-}" ]]; then
+            cmd+=(--bg "$WF_BG")
+        fi
+        WF_LOGO_LINES="$("${cmd[@]}" 2>/dev/null)"
+        if [[ -n "$WF_LOGO_LINES" ]]; then
+            WF_LOGO_ROWS="$(printf '%s\n' "$WF_LOGO_LINES" | wc -l)"
+        fi
+    fi
+}
+
+wf_info_line() {
+    local label="$1" value="$2"
+    printf '%s%s:%s %s' "${C}${label}" "${RESET}" "${RESET}" "$value"
+}
+
+# --- compact row layout ------------------------------------------------------
+# Sections are grouped into rows: short sections are paired on one line, while
+# multi-line sections (CPU, GPUs, disks, monitors, peripherals) become a header
+# line plus indented continuation lines. --full disables the pairing.
+
+WF_RTYPE=() WF_RTEXT=() WF_RSUBS=() WF_RITEM=()
+WF_PAIR_CAP=74
+
+wf_item_text() {
+    local i="$1"
+    printf '%s%s' "$(wf_emoji "${WF_SECS[i]}")" "$(wf_info_line "${WF_LABELS[i]}" "${WF_VALUES[i]}")"
+}
+
+wf_item_width() {
+    local i="$1" n
+    n=$(wf_strip_ansi "$(wf_item_text "$i")" | wc -m)
+    printf '%s' "$(( n + 1 ))"
+}
+
+wf_flush_pair() {
+    local -a idx=("$@")
+    (( ${#idx[@]} )) || return 0
+    local out="" item i n k
+    local -a texts=()
+    for i in "${idx[@]}"; do
+        texts+=("$(wf_item_text "$i")")
+    done
+    n=${#texts[@]}
+    for (( k=0; k<n; k++ )); do
+        out+="${texts[k]}"
+        (( k < n - 1 )) && out+="      "
+    done
+    WF_RTYPE+=(pair)
+    WF_RTEXT+=("$out")
+    WF_RSUBS+=("")
+    WF_RITEM+=("$n")
+}
+
+wf_build_rows() {
+    WF_RTYPE=() WF_RTEXT=() WF_RSUBS=() WF_RITEM=()
+    local i n=${#WF_LABELS[@]} j header subs w
+    local -a pend=()
+    local flush_all=0
+    for (( i=0; i<n; i++ )); do
+        [[ -n "${WF_LABELS[i]}" ]] || continue
+        if (( i + 1 < n )) && [[ -z "${WF_LABELS[i + 1]}" ]]; then
+            wf_flush_pair "${pend[@]}"; pend=()
+            header="$(wf_emoji "${WF_SECS[i]}")$(wf_info_line "${WF_LABELS[i]}" "${WF_VALUES[i]}")"
+            subs=""
+            for (( j=i+1; j<n; j++ )); do
+                [[ -z "${WF_LABELS[j]}" ]] || break
+                subs+="${WF_VALUES[j]}"$'\n'
+            done
+            i=$(( j - 1 ))
+            WF_RTYPE+=(block)
+            WF_RTEXT+=("$header")
+            WF_RSUBS+=("${subs%$'\n'}")
+            WF_RITEM+=(1)
+            continue
+        fi
+        if (( _WF_FULL )); then
+            wf_flush_pair "$i"
+            continue
+        fi
+        if (( ${#pend[@]} == 0 )); then
+            pend+=("$i")
+            continue
+        fi
+        w=$(( $(wf_item_width "${pend[0]}") + $(wf_item_width "$i") + 6 ))
+        if (( w <= WF_PAIR_CAP )); then
+            wf_flush_pair "${pend[0]}" "$i"; pend=()
+        else
+            wf_flush_pair "${pend[0]}"; pend=("$i")
+        fi
+    done
+    wf_flush_pair "${pend[@]}"
+}
+
+wf_print_plain() {
+    local i n=${#WF_RTYPE[@]} sub
+    for (( i=0; i<n; i++ )); do
+        printf '%s\n' "${WF_RTEXT[i]}"
+        if [[ "${WF_RTYPE[i]}" == "block" && -n "${WF_RSUBS[i]}" ]]; then
+            while IFS= read -r sub; do
+                [[ -n "$sub" ]] && printf '%s\n' "      $sub"
+            done <<< "${WF_RSUBS[i]}"
+        fi
+    done
+}
+
+wf_collect_info_lines() {
+    WF_INFO_LINES=()
+    local i sub
+    for (( i=0; i<${#WF_RTYPE[@]}; i++ )); do
+        WF_INFO_LINES+=("${WF_RTEXT[i]}")
+        if [[ "${WF_RTYPE[i]}" == "block" ]]; then
+            while IFS= read -r sub; do
+                [[ -n "$sub" ]] && WF_INFO_LINES+=("      $sub")
+            done <<< "${WF_RSUBS[i]}"
+        fi
+    done
+}
+
+wf_strip_ansi() {
+    printf '%s' "$1" | sed $'s/\x1b\\[[0-9;]*m//g'
+}
+
+main() {
+    wf_collect
+    wf_build_rows
+    local n=${#WF_RTYPE[@]}
+    (( n < 1 )) && return 0
+
+    if [[ "$_WF_LOGO" -eq 0 || "$_WU_COLOR_ON" != 1 ]]; then
+        wf_print_plain
+        return 0
+    fi
+
+    # resolve logo + art paths
+    local art=""
+    if [[ -n "${_WU_LIBDIR:-}" ]]; then
+        WF_LOGO="${WF_LOGO:-$_WU_LIBDIR/logo.png}"
+        [[ -f "$_WU_LIBDIR/wfetch_art.py" ]] && art="$_WU_LIBDIR/wfetch_art.py"
+    fi
+    [[ -n "$WF_LOGO" ]] || WF_LOGO="/usr/share/wellutils/logo.png"
+    [[ -n "$art" ]] || art="/usr/share/wellutils/wfetch_art.py"
+
+    # side-by-side: logo | info
+    local cols info_w=0 gap avail lw rows maxr len i
+    cols="${COLUMNS:-$(tput cols 2>/dev/null || printf '80')}"
+    for (( i=0; i<n; i++ )); do
+        len="$(wf_strip_ansi "${WF_RTEXT[i]}" | wc -m)"
+        len=$(( len + WF_RITEM[i] ))
+        local sl
+        sl="$(printf '%s\n' "${WF_RSUBS[i]}" | wc -L)"
+        (( sl > len )) && len=$sl
+        (( len > info_w )) && info_w=$len
+    done
+    gap=4
+    avail=$(( cols - info_w - gap ))
+    if (( _WF_LWIDTH > 0 )); then
+        lw=$_WF_LWIDTH
+    else
+        lw=$(( avail / 2 ))
+        (( lw > 44 )) && lw=44
+        (( lw < 8 )) && lw=8
+    fi
+    (( lw + info_w + gap > cols )) && lw=$(( cols - info_w - gap ))
+    if (( lw < 8 )); then
+        wf_print_plain
+        return 0
+    fi
+
+    wf_logo_lines "$art" "$lw"
+    rows=$WF_LOGO_ROWS
+    (( rows < 1 )) && rows=0
+    wf_collect_info_lines
+    local total=${#WF_INFO_LINES[@]}
+    maxr=$(( rows > total ? rows : total ))
+    local pad="$(printf '%*s' "$(( lw + gap ))")"
+    local sp="$(printf '%*s' "$gap")"
+
+    if (( rows > 0 )); then
+        local -a logo_arr=()
+        while IFS= read -r line; do logo_arr+=("$line"); done <<< "$WF_LOGO_LINES"
+        for (( i=0; i<maxr; i++ )); do
+            if (( i < rows )); then
+                printf '%s%s' "${logo_arr[i]}" "$sp"
+            else
+                printf '%s' "$pad"
+            fi
+            if (( i < total )); then
+                printf '%s\n' "${WF_INFO_LINES[i]}"
+            else
+                printf '\n'
+            fi
+        done
+    else
+        wf_print_plain
+    fi
+    return 0
+}
+
+# config override (function redefinitions or WF_VALUE_<sec>= overrides)
+if [[ -n "${WELLFETCH_CONFIG:-}" ]]; then
+    [[ -f "$WELLFETCH_CONFIG" ]] && . "$WELLFETCH_CONFIG"
+elif [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/wellutils/wellfetch.conf" ]]; then
+    . "${XDG_CONFIG_HOME:-$HOME/.config}/wellutils/wellfetch.conf"
+fi
+
+wu_run main "$@"
+exit $?

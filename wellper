@@ -1,0 +1,746 @@
+#!/usr/bin/env bash
+# wellper — Beautiful peripherals report (USB, displays, audio)
+# Part of wellutils by wellbou_
+# Hardened for AUR: bare Linux, WSL, headless and exotic systems.
+# No hard deps beyond bash + coreutils. Every section degrades gracefully.
+set -euo pipefail
+trap 'exit 3' ERR
+
+VERSION="1.0"
+
+# ─── CLI options ─────────────────────────────────────────────────
+_WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_JSON=0 _WU_TERSE=0
+_WU_STRICT=0 _WU_DEBUG="" _WU_GROUPS="all" _WU_SECTIONS="all" _LANG_ARG=""
+
+usage() {
+    cat <<'EOF'
+Usage: wellper [options]
+
+Peripherals report: USB devices, displays and audio.
+
+Options:
+  -h, --help                 show this help
+  -V, --version              show version
+      --lang ru|en|auto      output language (auto = from locale)
+      --color always|auto|never   colorize output (auto = tty)
+      --plain                plain text, no box drawing
+      --box                  force box drawing even when piped
+      --no-emoji             drop emoji icons
+      --groups LIST          USB groups: input,media,other or all
+      --sections LIST        sections: usb,displays,audio or all
+      --strict               exit 1 when no devices are found
+      --terse                one-line summary
+      --json                 machine-readable JSON
+      --debug                shell tracing
+
+Exit codes: 0 ok, 1 no devices (--strict), 2 bad CLI, 3 runtime error.
+EOF
+}
+
+norm_list() {
+    local out="" tok
+    for tok in ${1//,/ }; do
+        case "$tok" in
+            all) printf '%s' "all"; return 0 ;;
+            in|input) out+=" in" ;;
+            *) out+=" $tok" ;;
+        esac
+    done
+    printf '%s' "${out# }"
+}
+
+parse_args() {
+    while (( $# > 0 )); do
+        case "$1" in
+            -h|--help) usage; exit 0 ;;
+            -V|--version) printf 'WellPer %s\n' "$VERSION"; exit 0 ;;
+            --lang)
+                [[ $# -ge 2 ]] || { printf 'wellper: --lang needs ru|en|auto\n' >&2; exit 2; }
+                _LANG_ARG="$2"; shift 2 ;;
+            --lang=*) _LANG_ARG="${1#*=}"; shift ;;
+            --color)
+                [[ $# -ge 2 ]] || { printf 'wellper: --color needs always|auto|never\n' >&2; exit 2; }
+                _WU_COLOR="$2"; shift 2 ;;
+            --color=*) _WU_COLOR="${1#*=}"; shift ;;
+            --plain) _WU_MODE="plain"; shift ;;
+            --box)   _WU_MODE="box"; shift ;;
+            --no-emoji) _WU_EMOJI="no"; shift ;;
+            --emoji)    _WU_EMOJI="auto"; shift ;;
+            --groups)
+                [[ $# -ge 2 ]] || { printf 'wellper: --groups needs a value\n' >&2; exit 2; }
+                _WU_GROUPS="$2"; shift 2 ;;
+            --groups=*) _WU_GROUPS="${1#*=}"; shift ;;
+            --sections)
+                [[ $# -ge 2 ]] || { printf 'wellper: --sections needs a value\n' >&2; exit 2; }
+                _WU_SECTIONS="$2"; shift 2 ;;
+            --sections=*) _WU_SECTIONS="${1#*=}"; shift ;;
+            --strict) _WU_STRICT=1; shift ;;
+            --terse)  _WU_TERSE=1; shift ;;
+            --json)   _WU_JSON=1; shift ;;
+            --debug)  _WU_DEBUG=1; shift ;;
+            -*) printf 'wellper: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
+            *)  printf 'wellper: unexpected argument %s\n' "$1" >&2; usage >&2; exit 2 ;;
+        esac
+    done
+}
+
+parse_args "$@"
+
+case "${_WU_COLOR,,}" in
+    always|auto|never) : ;;
+    *) printf 'wellper: --color must be always|auto|never\n' >&2; exit 2 ;;
+esac
+case "${_LANG_ARG,,}" in
+    ""|ru|en|auto) : ;;
+    *) printf 'wellper: --lang must be ru|en|auto\n' >&2; exit 2 ;;
+esac
+_WU_GROUPS=$(norm_list "${_WU_GROUPS,,}")
+_WU_SECTIONS=$(norm_list "${_WU_SECTIONS,,}")
+if [[ "$_WU_GROUPS" != "all" ]]; then
+    for g in $_WU_GROUPS; do
+        case "$g" in
+            in|media|other) : ;;
+            *) printf 'wellper: unknown group %s\n' "$g" >&2; exit 2 ;;
+        esac
+    done
+fi
+if [[ "$_WU_SECTIONS" != "all" ]]; then
+    for s in $_WU_SECTIONS; do
+        case "$s" in
+            usb|displays|audio) : ;;
+            *) printf 'wellper: unknown section %s\n' "$s" >&2; exit 2 ;;
+        esac
+    done
+fi
+[[ "$_WU_DEBUG" == "1" ]] && set -x
+
+# ─── Language (before sourcing lang.sh) ─────────────────────────
+case "${_LANG_ARG,,}" in
+    ru) WELLUTILS_LANG=RU ;;
+    en) WELLUTILS_LANG=EN ;;
+    auto)
+        case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
+            ru*) WELLUTILS_LANG=RU ;;
+        esac ;;
+esac
+
+# ─── Shared libs (dirname → /usr/share/wellutils → /etc (compat)) ──
+
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+if [[ -f "$_WU_LIB" ]]; then
+    source "$_WU_LIB"
+else
+    t() { printf '%s' "$1"; }
+fi
+
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+if [[ -f "$_WU_BOX" ]]; then
+    source "$_WU_BOX"
+else
+    # ── Minimal plain fallback — no box drawing, cannot drift ──
+    R= G= Y= B= M= C= W= DIM= BOLD= RESET=
+    _LINES=()
+    pline()     { _LINES+=( " $*" ); }
+    pline_sub() { _LINES+=( "       └─ $*" ); }
+    pline_hw()  { _LINES+=( "  $1 $2: $3" ); }
+    box()       { local icon="$1" title="$2" fn="$3"; _LINES=(); "$fn"; printf '  %s\n' "$title"; for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
+    box_header(){ printf '  %s — %s\n' "$2" "$3"; }
+    banner()    { for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
+    box_top()   { :; }
+    box_row()   { :; }
+    box_bottom(){ :; }
+fi
+
+# ─── Output policy ───────────────────────────────────────────────
+if [[ -t 1 ]]; then _WU_TTY=1; else _WU_TTY=0; fi
+if [[ -z "$_WU_MODE" ]]; then
+    if [[ $_WU_TTY -eq 0 || $_WU_JSON -eq 1 ]]; then _WU_MODE="plain"; else _WU_MODE="box"; fi
+fi
+[[ "$_WU_MODE" == "plain" ]] && _WU_PLAIN=1 || _WU_PLAIN=0
+case "$_WU_COLOR" in
+    always) _WU_COLOR_ON=1 ;;
+    never)  _WU_COLOR_ON=0 ;;
+    *)
+        if [[ $_WU_TTY -eq 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" && "$_WU_MODE" != "plain" ]]; then
+            _WU_COLOR_ON=1
+        else
+            _WU_COLOR_ON=0
+        fi
+        ;;
+esac
+if [[ "$_WU_EMOJI" == "auto" ]]; then
+    case "${LC_ALL:-${LANG:-}}" in
+        C*|POSIX) _WU_EMOJI="no" ;;
+        *) [[ "${TERM:-}" == "dumb" ]] && _WU_EMOJI="no" || _WU_EMOJI="yes" ;;
+    esac
+fi
+if [[ $_WU_COLOR_ON -eq 0 ]]; then
+    R= G= Y= B= M= C= W= DIM= BOLD= RESET=
+fi
+
+_emu()      { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s' "$1"; }
+_ic()       { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$1"; }
+_g_has()    { [[ "$_WU_GROUPS" == "all" || " $_WU_GROUPS " == *" $1 "* ]]; }
+_s_has()    { [[ "$_WU_SECTIONS" == "all" || " $_WU_SECTIONS " == *" $1 "* ]]; }
+
+json_esc() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
+# ─── USB IDs database (optional) ────────────────────────────────
+# ─── USB IDs database (lazy lookups — no full-file scan) ────────
+USB_IDS_FILE=""
+for _p in /usr/share/hwdata/usb.ids /usr/share/usb.ids /usr/share/misc/usb.ids; do
+    if [[ -f "$_p" ]]; then USB_IDS_FILE="$_p"; break; fi
+done
+unset _p
+
+usb_vendor_name() {
+    [[ "$1" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
+    [[ -n "$USB_IDS_FILE" ]] || return 0
+    grep -m1 -E "^${1,,} " "$USB_IDS_FILE" 2>/dev/null \
+        | sed -E 's/^[0-9a-f]{4}[[:space:]]+//' || true
+}
+usb_device_name() {
+    [[ "$1" =~ ^[0-9a-fA-F]{4}$ && "$2" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
+    [[ -n "$USB_IDS_FILE" ]] || return 0
+    awk -v v="${1,,}" -v p="${2,,}" '
+        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v) }
+        insec && $0 ~ "^" "\t" p " " { sub(/^[^ ]+ +/, ""); print; exit }
+    ' "$USB_IDS_FILE"
+}
+
+# ─── Text helpers ───────────────────────────────────────────────
+clean_name() {
+    printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/ /g'
+}
+
+speed_label() {
+    case "$1" in
+        1.5|12)  t usb_speed_12 ;;
+        480)     t usb_speed_480 ;;
+        5000)    t usb_speed_5000 ;;
+        10000)   t usb_speed_10000 ;;
+        20000)   t usb_speed_20000 ;;
+        *)       t usb_speed_unknown "$1" ;;
+    esac
+}
+
+# ─── USB classification ─────────────────────────────────────────
+# Devices usually describe themselves (product/manufacturer strings),
+# so keyword matching on those wins. Composite devices (bDeviceClass
+# 0x00 / 0xEF) are classified from their interface classes: that is
+# how multifunction printers, card readers, webcams and network
+# adapters are recognised even when the product string says nothing.
+
+# Unique bInterfaceClass codes of device $1 (space-separated, e.g. " 07 08").
+iface_classes() {
+    local base="$1" f c out=""
+    for f in /sys/bus/usb/devices/${base}:*/bInterfaceClass; do
+        [[ -r "$f" ]] || continue
+        c=$(cat "$f" 2>/dev/null || true)
+        [[ -n "$c" && " $out " != *" $c "* ]] && out+=" $c"
+    done
+    printf '%s' "$out"
+}
+
+classify() {
+    local bclass="$1" prod="$2" mfg="$3" ifaces="$4"
+    local hay
+    hay=$(printf '%s %s' "$prod" "$mfg" | tr '[:upper:]' '[:lower:]')
+
+    case "$hay" in
+        *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*tablet*)
+            printf '%s' tablet; return ;;
+    esac
+    case "$hay" in
+        *keyboard*|*k63*|*k55*|*k70*|*typewriter*|*gaming*key*|*blackwidow*|*huntsman*|*ornata*|*k552*|*k556*|*k530*|*razer*key*)
+            printf '%s' keyboard; return ;;
+        *mouse*|*trackball*|*deathadder*|*viper*|*basilisk*|*naga*|*mamba*|*lancehead*|*logitech*g*|*gaming*mouse*)
+            printf '%s' mouse; return ;;
+        *gamepad*|*game*pad*|*joystick*|*fightstick*|*arcade*stick*|*x-box*|*xbox*|*360*pad*|*dualshock*|*dual*shock*|*dualsense*|*dual*sense*|*switch*pro*|*joy-con*|*joycon*|*8bitdo*|*8bit*do*|*steam*controller*|*pro*controller*|*wireless*controller*|*wireless*game*|*wolverine*|*gamesir*|*gulikit*|*flydigi*)
+            printf '%s' gamepad; return ;;
+    esac
+    case "$hay" in
+        *webcam*|*camera*)
+            printf '%s' webcam; return ;;
+        *headset*|*headphone*|*headphones*|*earphone*|*microphone*|*audio*|*mic*)
+            printf '%s' audio; return ;;
+    esac
+    case "$hay" in
+        *wlan*|*wireless*lan*|*wifi*|*wi-fi*|*802.11*|*ralink*|*mediatek*|*bluetooth*)
+            printf '%s' network; return ;;
+        *card*reader*|*storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*|*memory*stick*)
+            printf '%s' storage; return ;;
+        *printer*|*scanner*|*mfp*|*inkjet*|*laserjet*|*deskjet*|*officejet*|*multifunction*)
+            printf '%s' printer; return ;;
+        *phone*|*huawei*|*honor*|*xiaomi*|*redmi*|*pixel*|*galaxy*|*samsung*|*nokia*|*oppo*|*vivo*|*oneplus*|*realme*|*android*|*mao-lx*|*iphone*|*ipad*)
+            printf '%s' phone; return ;;
+    esac
+
+    # Composite devices: decide from the interface classes.
+    if [[ -n "$ifaces" ]]; then
+        case " $ifaces " in
+            *" 07 "*) printf '%s' printer; return ;;
+            *" 08 "*) printf '%s' storage; return ;;
+            *" 0e "*) printf '%s' webcam; return ;;
+            *" 02 "*) printf '%s' network; return ;;
+            *" 01 "*|*" 04 "*) printf '%s' audio; return ;;
+            *" 06 "*) printf '%s' data; return ;;
+            *" 09 "*) printf '%s' hub; return ;;
+        esac
+    fi
+
+    case "$bclass" in
+        0e)     printf '%s' webcam ;;
+        01|04)  printf '%s' audio ;;
+        08)     printf '%s' storage ;;
+        07)     printf '%s' printer ;;
+        02)     printf '%s' network ;;
+        03)     printf '%s' hid ;;
+        09)     printf '%s' hub ;;
+        ff)     printf '%s' vendor ;;
+        *)      printf '%s' device ;;
+    esac
+}
+
+type_label() {
+    case "$1" in
+        keyboard) t usb_type_keyboard ;;
+        mouse)    t usb_type_mouse ;;
+        tablet)   t usb_type_tablet ;;
+        gamepad)  t usb_type_gamepad ;;
+        webcam)   t usb_type_webcam ;;
+        audio)    t usb_type_audio ;;
+        storage)  t usb_type_storage ;;
+        printer)  t usb_type_printer ;;
+        network)  t usb_type_network ;;
+        phone)    t usb_type_phone ;;
+        hub)      t usb_type_hub ;;
+        hid)      t usb_type_hid ;;
+        data)     t usb_type_data ;;
+        video)    t usb_type_video ;;
+        vendor)   t usb_type_vendor ;;
+        *)        t usb_type_device ;;
+    esac
+}
+
+icon_for() {
+    case "$1" in
+        keyboard) printf '%s' "$(_ic '⌨️')" ;;
+        mouse)    printf '%s' "$(_ic '🖱️')" ;;
+        tablet)   printf '%s' "$(_ic '🎨')" ;;
+        gamepad)  printf '%s' "$(_ic '🎮')" ;;
+        webcam)   printf '%s' "$(_ic '📷')" ;;
+        audio)    printf '%s' "$(_ic '🎧')" ;;
+        printer)  printf '%s' "$(_ic '🖨️')" ;;
+        phone)    printf '%s' "$(_ic '📱')" ;;
+        network)  printf '%s' "$(_ic '📶')" ;;
+        storage)  printf '%s' "$(_ic '💾')" ;;
+        hub)      printf '%s' "$(_ic '🔌')" ;;
+        hid)      printf '%s' "$(_ic '⚙️')" ;;
+        *)        printf '%s' "$(_ic '🔌')" ;;
+    esac
+}
+
+group_id() {
+    case "$1" in
+        keyboard|mouse|tablet|gamepad) printf 'in' ;;
+        webcam|audio|network)          printf 'media' ;;
+        *)                             printf 'other' ;;
+    esac
+}
+
+# ─── USB collection (sysfs only — no usbutils required) ────────
+USB_VID=() USB_PID=() USB_MFG=() USB_NAME=() USB_SPEED=() USB_DRV=() USB_TYPE=() USB_ICON=() USB_GRP=()
+
+collect_usb() {
+    local devdir
+    for devdir in /sys/bus/usb/devices/*; do
+        [[ -d "$devdir" ]] || continue
+        local base; base=$(basename "$devdir")
+        [[ "$base" == usb[0-9]* ]] && continue          # root hub
+        [[ -r "$devdir/idVendor" ]] || continue
+        local vid pid bclass
+        vid=$(cat "$devdir/idVendor" 2>/dev/null || true); [[ -n "$vid" ]] || continue
+        pid=$(cat "$devdir/idProduct" 2>/dev/null || true)
+        bclass=$(cat "$devdir/bDeviceClass" 2>/dev/null || true)
+        bclass=${bclass:-00}
+        [[ "$bclass" == "09" ]] && continue             # hub
+        local ifaces
+        ifaces=$(iface_classes "$base")
+        [[ "$ifaces" == " 09 " ]] && continue           # hub (class 0x00)
+        local mfg prod
+        mfg=$(clean_name "$(cat "$devdir/manufacturer" 2>/dev/null || true)")
+        prod=$(clean_name "$(cat "$devdir/product" 2>/dev/null || true)")
+        [[ -z "$prod" ]] && prod=$(clean_name "$(usb_device_name "$vid" "$pid")")
+        [[ -z "$mfg" ]] && mfg=$(clean_name "$(usb_vendor_name "$vid")")
+        local type icon grp drv
+        type=$(classify "$bclass" "$prod" "$mfg" "$ifaces")
+        icon=$(icon_for "$type")
+        grp=$(group_id "$type")
+        drv=$(readlink "$devdir/driver" 2>/dev/null || true)
+        [[ -n "$drv" ]] && drv=$(basename "$drv")
+        USB_VID+=("$vid") USB_PID+=("$pid") USB_MFG+=("$mfg") USB_NAME+=("$prod")
+        USB_SPEED+=("$(cat "$devdir/speed" 2>/dev/null || true)")
+        USB_DRV+=("$drv") USB_TYPE+=("$type") USB_ICON+=("$icon") USB_GRP+=("$grp")
+    done
+}
+
+usb_line() {
+    local i="$1"
+    local name="${USB_NAME[$i]:-}" mfg="${USB_MFG[$i]:-}" spd="${USB_SPEED[$i]:-}" \
+          drv="${USB_DRV[$i]:-}" type="${USB_TYPE[$i]:-}" icon="${USB_ICON[$i]:-}"
+    [[ -z "$name" ]] && name=$(t usb_unknown)
+    local meta; meta="$(type_label "$type")"
+    [[ -n "$spd" ]] && meta+=" · $(speed_label "$spd")"
+    pline "  ${icon}${BOLD}${W}${name}${RESET} ${DIM}· ${meta}${RESET}"
+    local subs=() k
+    [[ -n "$mfg" ]] && subs+=( "$(t usb_manufacturer): ${mfg}" )
+    [[ -n "$drv" && "$drv" != "usb" ]] && subs+=( "$(t usb_driver): ${drv}" )
+    for (( k = 0; k < ${#subs[@]}; k++ )); do
+        if (( k == ${#subs[@]} - 1 )); then
+            pline_sub "${subs[$k]}"
+        else
+            _LINES+=( "       ├─ ${DIM}${subs[$k]}${RESET}" )
+        fi
+    done
+}
+
+count_grp() {
+    local grp="$1" i n=0
+    for (( i = 0; i < ${#USB_GRP[@]}; i++ )); do
+        [[ "${USB_GRP[$i]:-}" == "$grp" ]] && n=$(( n + 1 ))
+    done
+    printf '%s' "$n"
+}
+
+render_usb_group() {
+    local grp="$1" i found=0
+    for (( i = 0; i < ${#USB_NAME[@]}; i++ )); do
+        [[ "${USB_GRP[$i]:-}" == "$grp" ]] || continue
+        usb_line "$i"; found=$(( found + 1 ))
+    done
+    if (( found == 0 )); then
+        pline "  ${DIM}$(t per_usb_none)${RESET}"
+    fi
+    return 0
+}
+
+render_usb_in()   { render_usb_group in; }
+render_usb_media(){ render_usb_group media; }
+render_usb_other(){ render_usb_group other; }
+
+# ─── Displays (sysfs EDID, no X required) ───────────────────────
+DISP_NAME=() DISP_VEND=() DISP_MODE=() DISP_CONN=()
+
+read_edid() {
+    local f="$1" B A
+    [[ -r "$f" ]] || { printf '|'; return; }
+    B=$(od -An -v -tx1 "$f" 2>/dev/null) || { printf '|'; return; }
+    A=( $B )
+    (( ${#A[@]} >= 18 )) || { printf '|'; return; }
+    local i c1 c2 c3
+    c1=$(( (0x${A[8]} >> 2) & 0x1f ))
+    c2=$(( ((0x${A[8]} & 0x03) << 3) | ((0x${A[9]} >> 5) & 0x07) ))
+    c3=$(( 0x${A[9]} & 0x1f ))
+    for i in "$c1" "$c2" "$c3"; do
+        if (( i >= 1 && i <= 26 )); then
+            printf "\\$(printf '%03o' "$(( 64 + i ))")"
+        fi
+    done
+    printf '|'
+    local j c
+    for (( i = 0; i + 4 < ${#A[@]}; i++ )); do
+        [[ "${A[$i]}" == "00" && "${A[$((i+1))]}" == "00" && "${A[$((i+2))]}" == "00" && "${A[$((i+3))]}" == "fc" ]] || continue
+        for (( j = i + 5; j < i + 18 && j < ${#A[@]}; j++ )); do
+            c=$(( 0x${A[$j]} ))
+            (( c >= 32 && c <= 126 )) && printf "\\$(printf '%03o' "$c")"
+        done
+        break
+    done
+}
+
+pretty_conn() {
+    case "$1" in
+        *eDP*)  printf '%s' "$(t per_if_edp)" ;;
+        *DP*)   printf '%s' "$(t per_if_dp)" ;;
+        *HDMI*) printf '%s' "$(t per_if_hdmi)" ;;
+        *DVI*)  printf '%s' "$(t per_if_dvi)" ;;
+        *VGA*)  printf '%s' "$(t per_if_vga)" ;;
+        *)      printf '%s' "$1" ;;
+    esac
+}
+
+pnp_vendor() {
+    case "${1^^}" in
+        VSC) printf '%s' "ViewSonic" ;;
+        GSM|LGD) printf '%s' "LG" ;;
+        ACR) printf '%s' "Acer" ;;
+        DEL) printf '%s' "Dell" ;;
+        HWP|HPQ) printf '%s' "HP" ;;
+        SAM|SEC) printf '%s' "Samsung" ;;
+        LEN) printf '%s' "Lenovo" ;;
+        PHL) printf '%s' "Philips" ;;
+        BNQ) printf '%s' "BenQ" ;;
+        AUO) printf '%s' "AU Optronics" ;;
+        BOE) printf '%s' "BOE" ;;
+        SNC) printf '%s' "Sony" ;;
+        NEC) printf '%s' "NEC" ;;
+        TSB) printf '%s' "Toshiba" ;;
+        PAN) printf '%s' "Panasonic" ;;
+        HIT) printf '%s' "Hitachi" ;;
+        APP) printf '%s' "Apple" ;;
+        ASU) printf '%s' "ASUS" ;;
+        IVO) printf '%s' "InfoVision" ;;
+        CMN) printf '%s' "Innolux" ;;
+        *)   printf '%s' "$1" ;;
+    esac
+}
+
+collect_displays() {
+    local d
+    for d in /sys/class/drm/card*/; do
+        [[ -f "$d/status" ]] || continue
+        [[ "$(cat "$d/status" 2>/dev/null || true)" == "connected" ]] || continue
+        local conn mode vend name
+        conn=$(basename "$d")
+        mode=$(head -1 "$d/modes" 2>/dev/null || true)
+        IFS='|' read -r vend name <<< "$(read_edid "$d/edid")"
+        name=$(clean_name "$name")
+        [[ -z "$name" ]] && name="$conn"
+        DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$mode") DISP_CONN+=("$(pretty_conn "$conn")")
+    done
+}
+
+collect_displays_xrandr() {
+    command -v xrandr >/dev/null 2>&1 || return 0
+    [[ -n "${DISPLAY:-}" ]] || return 0
+    local line out geo
+    while IFS= read -r line; do
+        [[ "$line" == *" connected "* ]] || continue
+        out=$(awk '{print $1}' <<< "$line")
+        geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
+        [[ -n "$geo" ]] || continue
+        geo=${geo%%+*}
+        DISP_NAME+=("$out") DISP_VEND+=("") DISP_MODE+=("$geo") DISP_CONN+=("$(pretty_conn "$out")")
+    done < <(xrandr --query 2>/dev/null || true)
+    return 0
+}
+
+render_displays() {
+    if (( ${#DISP_NAME[@]} == 0 )); then
+        pline "  ${DIM}$(t per_displays_none)${RESET}"
+        return
+    fi
+    local i
+    for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
+        local name="${DISP_NAME[$i]:-}" vend="${DISP_VEND[$i]:-}" mode="${DISP_MODE[$i]:-}" conn="${DISP_CONN[$i]:-}"
+        [[ -z "$name" ]] && name="$(t per_unknown)"
+        pline "  $(_ic '🖥️')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
+        local subs=() k
+        [[ -n "$vend" ]] && subs+=( "$(t per_vendor): $(pnp_vendor "$vend")" )
+        [[ -n "$conn" ]] && subs+=( "$(t per_interface): ${conn}" )
+        for (( k = 0; k < ${#subs[@]}; k++ )); do
+            if (( k == ${#subs[@]} - 1 )); then
+                pline_sub "${subs[$k]}"
+            else
+                _LINES+=( "       ├─ ${DIM}${subs[$k]}${RESET}" )
+            fi
+        done
+    done
+}
+
+# ─── Audio (from /proc/asound/cards — no ALSA tools required) ───
+AUDIO_NAME=() AUDIO_DESC=() AUDIO_IDX=()
+
+collect_audio() {
+    [[ -f /proc/asound/cards ]] || return 0
+    local line
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+\[ ]] || continue
+        local idx id desc dn
+        idx=${BASH_REMATCH[1]}
+        id=$(sed -n 's/^ *[0-9]* *\[\([^]]*\)\].*/\1/p' <<< "$line")
+        desc=${line#*": "}
+        if [[ "$line" =~ USB[[:space:]]Device[[:space:]]0x([0-9a-fA-F]+):0x([0-9a-fA-F]+) ]]; then
+            dn=$(usb_device_name "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}")
+            if [[ -n "$dn" ]]; then
+                desc="$dn"
+            else
+                desc="USB Audio (${BASH_REMATCH[1]}:${BASH_REMATCH[2]})"
+            fi
+            id=""
+        elif [[ "$desc" == *" - "* ]]; then
+            desc=${desc#*"- "}
+        fi
+        AUDIO_NAME+=("$id") AUDIO_DESC+=("$(clean_name "$desc")") AUDIO_IDX+=("$idx")
+    done < /proc/asound/cards
+    return 0
+}
+
+render_audio() {
+    local i
+    for (( i = 0; i < ${#AUDIO_DESC[@]}; i++ )); do
+        local desc="${AUDIO_DESC[$i]:-}" idx="${AUDIO_IDX[$i]:-}"
+        [[ -z "$desc" ]] && continue
+        if [[ -n "$idx" ]]; then
+            pline "  $(_ic '🔊')${BOLD}${W}[${idx}] ${desc}${RESET}"
+        else
+            pline "  $(_ic '🔊')${BOLD}${W}${desc}${RESET}"
+        fi
+    done
+}
+
+render_audio_none() {
+    pline "  ${DIM}$(t per_audio_none)${RESET}"
+}
+
+# ─── JSON / terse output ─────────────────────────────────────────
+json_out() {
+    local i first=1 n_usb=0 n_disp=0 n_aud=0
+    _s_has usb      && n_usb=${#USB_NAME[@]}
+    _s_has displays && n_disp=${#DISP_NAME[@]}
+    _s_has audio    && n_aud=${#AUDIO_DESC[@]}
+    printf '{\n'
+    printf '  "tool": "wellper",\n'
+    printf '  "version": "%s",\n' "$VERSION"
+    printf '  "date": "%s",\n' "$(json_esc "$(date '+%Y-%m-%d %H:%M:%S')")"
+    printf '  "summary": {\n'
+    printf '    "usb": %d,\n' "$n_usb"
+    printf '    "displays": %d,\n' "$n_disp"
+    printf '    "audio": %d\n' "$n_aud"
+    printf '  },\n'
+    if _s_has usb; then
+        printf '  "usb": [\n'
+        first=1
+        for (( i = 0; i < ${#USB_NAME[@]}; i++ )); do
+            _g_has "${USB_GRP[$i]:-}" || continue
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "vid": "%s", "pid": "%s", "name": "%s", "vendor": "%s", "type": "%s", "group": "%s", "speed": "%s", "driver": "%s" }' \
+                "$(json_esc "${USB_VID[$i]:-}")" "$(json_esc "${USB_PID[$i]:-}")" \
+                "$(json_esc "${USB_NAME[$i]:-}")" "$(json_esc "${USB_MFG[$i]:-}")" \
+                "$(json_esc "${USB_TYPE[$i]:-}")" "$(json_esc "${USB_GRP[$i]:-}")" \
+                "$(json_esc "${USB_SPEED[$i]:-}")" "$(json_esc "${USB_DRV[$i]:-}")"
+        done
+        printf '\n  ],\n'
+    fi
+    if _s_has displays; then
+        printf '  "displays": [\n'
+        first=1
+        for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "name": "%s", "vendor": "%s", "mode": "%s", "connector": "%s" }' \
+                "$(json_esc "${DISP_NAME[$i]:-}")" "$(json_esc "${DISP_VEND[$i]:-}")" \
+                "$(json_esc "${DISP_MODE[$i]:-}")" "$(json_esc "${DISP_CONN[$i]:-}")"
+        done
+        printf '\n  ],\n'
+    fi
+    if _s_has audio; then
+        printf '  "audio": [\n'
+        first=1
+        for (( i = 0; i < ${#AUDIO_DESC[@]}; i++ )); do
+            [[ -n "${AUDIO_DESC[$i]:-}" ]] || continue
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "index": "%s", "id": "%s", "description": "%s" }' \
+                "$(json_esc "${AUDIO_IDX[$i]:-}")" "$(json_esc "${AUDIO_NAME[$i]:-}")" "$(json_esc "${AUDIO_DESC[$i]:-}")"
+        done
+        printf '\n  ]\n'
+    fi
+    printf '}\n'
+}
+
+terse_out() {
+    local parts=() p
+    _s_has usb      && parts+=( "$(t usb_devices): ${#USB_NAME[@]}" )
+    _s_has displays && parts+=( "$(t per_displays): ${#DISP_NAME[@]}" )
+    _s_has audio    && parts+=( "$(t per_audio): ${#AUDIO_DESC[@]}" )
+    local s
+    s=$(IFS=' · '; printf '%s' "${parts[*]}")
+    printf '%s%s%s\n' "$BOLD" "$s" "$RESET"
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    collect_usb
+    collect_displays
+    if (( ${#DISP_NAME[@]} == 0 )); then collect_displays_xrandr; fi
+    collect_audio
+
+    if [[ $_WU_JSON -eq 1 ]]; then
+        json_out
+        return 0
+    fi
+    if [[ $_WU_TERSE -eq 1 ]]; then
+        terse_out
+        return 0
+    fi
+
+    if [[ "$_WU_MODE" == "plain" ]]; then
+        printf '\n  %s%s %s — %s %s\n\n' "$(_ic '🎮')" "$BOLD" 'wellper' "$(t per_title)" "$RESET"
+    else
+        box_header "$(_ic '🎮')" "wellper" "$(t per_title)"
+    fi
+
+    local total=${#USB_NAME[@]} dcount=${#DISP_NAME[@]} acount=${#AUDIO_DESC[@]}
+    local line="" grp ci
+    if _s_has usb; then
+        line+="${BOLD}$(t usb_devices): ${W}${total}${RESET}"
+    fi
+    if _s_has displays; then
+        [[ -n "$line" ]] && line+="  |  "
+        line+="${BOLD}$(t per_displays): ${W}${dcount}${RESET}"
+    fi
+    if _s_has audio; then
+        [[ -n "$line" ]] && line+="  |  "
+        line+="${BOLD}$(t per_audio): ${W}${acount}${RESET}"
+    fi
+    [[ -n "$line" ]] && printf '\n  %s\n\n' "$line"
+
+    if _s_has usb; then
+        if (( total == 0 )); then
+            box "$(_ic '🔌')" "$(t per_usb)" render_usb_in
+        else
+            for grp in in media other; do
+                _g_has "$grp" || continue
+                ci=$(count_grp "$grp")
+                (( ci > 0 )) || continue
+                case "$grp" in
+                    in)    box "$(_ic '🖱️')" "$(t per_input) (${ci})" render_usb_in ;;
+                    media) box "$(_ic '📷')" "$(t per_media) (${ci})" render_usb_media ;;
+                    other) box "$(_ic '🧩')" "$(t per_other) (${ci})" render_usb_other ;;
+                esac
+            done
+        fi
+    fi
+
+    if _s_has displays; then
+        box "$(_ic '🖥️')" "$(t per_displays) (${dcount})" render_displays
+    fi
+
+    if _s_has audio; then
+        if (( acount > 0 )); then
+            box "$(_ic '🔊')" "$(t per_audio) (${acount})" render_audio
+        else
+            box "$(_ic '🔊')" "$(t per_audio)" render_audio_none
+        fi
+    fi
+
+    printf '\n  %sWellPer v%s | %s%s\n\n' "$DIM" "$VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+
+    if [[ $_WU_STRICT -eq 1 && total -eq 0 && dcount -eq 0 && acount -eq 0 ]]; then
+        exit 1
+    fi
+    return 0
+}
+
+main "$@"

@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# wellhw — Beautiful hardware report (chat-ready)
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
+# JEDEC JEP106 manufacturer table (wellhw resolves dmidecode RAM vendor codes)
+_WU_JEDEC="$(dirname "$(readlink -f "$0")")/jedec.sh"
+[[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/usr/share/wellutils/jedec.sh"
+[[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/etc/wellutils/jedec.sh"
+source "$_WU_JEDEC"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellhw" _WU_NAME="WellHW" _WU_VERSION="1.3"
+_WU_TAGLINE="Beautiful hardware report (chat-ready)"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Helpers ────────────────────────────────────────────────────
+root_run() {
+    if (( EUID == 0 )); then "$@"
+    elif sudo -n true 2>/dev/null; then sudo -n "$@"
+    else "$@"; fi
+}
+
+# ─── Sections ───────────────────────────────────────────────────
+print_cpu() {
+    local model cores threads
+    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+    cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
+    threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
+    pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${model}  ${DIM}($(t hw_cores): ${cores}, $(t hw_threads): ${threads})${RESET}"
+}
+
+print_gpu() {
+    local gpu
+    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1)
+    if [[ -n "$gpu" ]]; then
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "$gpu"
+    else
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${DIM}$(t hw_unknown)${RESET}"
+    fi
+}
+
+print_board() {
+    local vendor name version bios
+    vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null || true)
+    name=$(cat /sys/class/dmi/id/board_name 2>/dev/null || true)
+    version=$(cat /sys/class/dmi/id/board_version 2>/dev/null || true)
+    bios=$(cat /sys/class/dmi/id/bios_vendor 2>/dev/null || true)
+    bios="$bios $(cat /sys/class/dmi/id/bios_version 2>/dev/null || true) ($(cat /sys/class/dmi/id/bios_date 2>/dev/null || true))"
+
+    local board="$vendor $name"
+    [[ -n "$version" ]] && board="$board (v$version)"
+    board="${board//  / }"
+
+    pline_hw "$(_emu '🖥️')" "$(t hw_board)" "${board:-$(t hw_unknown)}"
+    pline_hw "$(_emu '💾')" "$(t hw_bios)" "${bios:-$(t hw_unknown)}"
+}
+
+print_ram() {
+    local mout modules types sizes speeds manufs pns forms concat
+    mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
+    modules=$(awk '/^[[:space:]]*Size: [0-9]+ /{c++} END{print c+0}' <<< "$mout")
+    if (( modules > 0 )); then
+        local msize_mb per_gb
+        msize_mb=$(awk '/^[[:space:]]*Size: [0-9]+ (MiB|GiB)/{if($3=="GiB") s+=$2*1024; else s+=$2} END{print s+0}' <<< "$mout")
+        per_gb=$(( (msize_mb / modules + 512) / 1024 ))
+        mtype=$(awk '/^[[:space:]]*Type: (DDR|LPDDR)/{print $2; exit}' <<< "$mout")
+        mspeed=$(awk '/^[[:space:]]*Speed: [0-9]+ MT\/s/{print $2; exit}' <<< "$mout")
+        mmanuf=$(awk '/^[[:space:]]*Manufacturer:/{sub(/^[[:space:]]*Manufacturer:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        mpn=$(awk '/^[[:space:]]*Part Number:/{sub(/^[[:space:]]*Part Number:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        mform=$(awk '/^[[:space:]]*Form Factor:/{sub(/^[[:space:]]*Form Factor:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        mform="${mform//[$'\t']}"
+
+        local type_label="DDR"
+        case "$mtype" in
+            DDR2|DDR3|DDR4|DDR5) type_label="$mtype" ;;
+            DDR) : ;;
+        esac
+        local speed_txt=""
+        [[ -n "$mspeed" ]] && speed_txt="-${mspeed}"
+
+        local form_label=""
+        [[ -n "$mform" && "$mform" != "DIMM" ]] && form_label=" (${mform})"
+
+        # Resolve JEDEC vendor code if present (e.g. "8313" -> Golden Empire)
+        if [[ "$mmanuf" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+            local dec
+            dec=$(wu_jedec_decode "$mmanuf")
+            [[ -n "$dec" ]] && mmanuf="$dec"
+        fi
+
+        ram_line="${modules}× ${per_gb} GiB ${type_label}${speed_txt}${form_label}"
+
+        local sub_parts=()
+        [[ -n "$mmanuf" ]] && sub_parts+=("$mmanuf")
+        [[ -n "$mpn" ]]  && sub_parts+=("$(t hw_pn): ${mpn}")
+        if ((${#sub_parts[@]})); then
+            printf -v ram_sub "%s | " "${sub_parts[@]}"
+            ram_sub="${ram_sub% | }"
+        fi
+    fi
+
+    # If dmidecode gave nothing, fall back to decode-dimms SPD JSON-less output
+    if [[ -z "$ram_line" ]] && command -v decode-dimms &>/dev/null; then
+        local dout dcount dsize_mb dper dmanu dpart dform
+        dout=$(root_run decode-dimms 2>/dev/null) || dout=""
+        dcount=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
+        if (( dcount > 0 )); then
+            dmanu=$(awk '/^Module Manufacturer/{sub(/^Module Manufacturer[ \t]+/, ""); print; exit}' <<< "$dout")
+            dpart=$(awk '/^Part Number/{sub(/^Part Number[ \t]+/, ""); print; exit}' <<< "$dout")
+            dform=$(awk '/^Module Type/{sub(/^Module Type[ \t]+/, ""); print; exit}' <<< "$dout")   # e.g. UDIMM
+            dsize_mb=$(awk '/^Size/{sub(/^Size[ \t]+/, ""); sub(/ MB.*/,""); print; exit}' <<< "$dout")
+            dper=""
+            [[ "$dsize_mb" =~ ^[0-9]+$ ]] && dper=$(( (dsize_mb + 512) / 1024 ))
+            ram_line="${dcount}× ${dper:+${dper} GiB }${dform:-UDIMM} ${dmanu}"
+            [[ -n "$dpart" ]] && ram_sub="$(t hw_pn): ${dpart}"
+        fi
+    fi
+
+    if [[ -n "$ram_line" ]]; then
+        pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
+        [[ -n "$ram_sub" ]] && pline_sub "$ram_sub"
+    else
+        pline_hw "$(_emu '🧩')" "$(t hw_ram)" "${DIM}$(t hw_ram_none)${RESET}"
+    fi
+}
+
+print_storage() {
+    local rows
+    rows=$(lsblk -nd -o NAME,MODEL,SIZE 2>/dev/null | grep -vE '^(loop|zram|sr)' || true)
+    if [[ -n "$rows" ]]; then
+        local n=0 dev model size
+        while IFS= read -r row; do
+            dev=$(awk '{print $1}' <<< "$row")
+            size=$(awk '{print $NF}' <<< "$row")
+            model=$(awk '{$1=""; $NF=""; gsub(/^ +| +$/, ""); print}' <<< "$row")
+            [[ -z "$model" ]] && model="$(t hw_unknown)"
+            if (( n == 0 )); then
+                pline_hw "$(_emu '💿')" "$(t hw_storage)" "${dev}: ${model} ${DIM}(${size})${RESET}"
+            else
+                pline_sub "${dev}: ${model} ${DIM}(${size})${RESET}"
+            fi
+            n=$((n + 1))
+        done <<< "$rows"
+    else
+        pline_hw "$(_emu '💿')" "$(t hw_storage)" "${DIM}$(t hw_unknown)${RESET}"
+    fi
+}
+
+print_network() {
+    local found=0
+    while IFS= read -r l; do
+        [[ -n "$l" ]] || continue
+        if (( found == 0 )); then
+            pline_hw "$(_emu '🌐')" "$(t hw_network)" "$l"
+        else
+            pline_sub "$l"
+        fi
+        found=$((found + 1))
+    done < <(ls /sys/class/net/ 2>/dev/null | grep -vE '^(lo|virbr|docker|br-|veth)' | \
+        while IFS= read -r dev; do
+            local op
+            op=$(cat "/sys/class/net/$dev/operstate" 2>/dev/null || echo "down")
+            local addr
+            addr=$(cat "/sys/class/net/$dev/address" 2>/dev/null || echo "")
+            printf '%s %s %s\n' "$dev" "$op" "${addr}"
+        done)
+    if (( found == 0 )); then
+        pline_hw "$(_emu '🌐')" "$(t hw_network)" "${DIM}$(t hw_unknown)${RESET}"
+    fi
+}
+
+print_battery() {
+    local cap stat
+    cap=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || true)
+    stat=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null || true)
+    if [[ -n "$cap" ]]; then
+        pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%%${RESET} ${DIM}(${stat})${RESET}"
+    fi
+}
+
+print_cooling() {
+    local found=0
+    for f in /sys/devices/platform/*/fan*_input /sys/class/hwmon/hwmon*/fan*_input; do
+        [[ -r "$f" ]] || continue
+        local rpm
+        rpm=$(cat "$f" 2>/dev/null || echo 0)
+        (( rpm > 0 )) || continue
+        local chip idx label
+        chip=$(basename "$(dirname "$f")")
+        idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
+        [[ "$idx" =~ ^[0-9]+$ ]] || continue
+        label=$(cat "/sys/class/hwmon/hwmon0/device/fan${idx}_label" 2>/dev/null \
+            || cat "/sys/devices/platform/$(basename "$(dirname "$f")")/fan${idx}_label" 2>/dev/null \
+            || echo "$(t hw_cooling) ${idx}")
+        [[ -z "$label" ]] && label="$(t hw_cooling) ${idx}"
+        if (( found == 0 )); then
+            pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "${label} ${W}${rpm}${RESET} ${DIM}RPM (${chip})${RESET}"
+        else
+            pline_sub "${label} ${W}${rpm}${RESET} ${DIM}RPM (${chip})${RESET}"
+        fi
+        found=$((found + 1))
+    done
+    if (( found == 0 )); then
+        pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "${DIM}$(t hw_unknown)${RESET}"
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    box_header "$(_emu '🖥')" "wellhw" "$(t hw_title)"
+
+    box "$(_emu '🧠')" "$(t hw_cpu)" print_cpu
+    box "$(_emu '🎮')" "$(t hw_gpu)" print_gpu
+    box "$(_emu '🖥️')" "$(t hw_board)" print_board
+    box "$(_emu '🧩')" "$(t hw_ram)" print_ram
+    box "$(_emu '💿')" "$(t hw_storage)" print_storage
+    box "$(_emu '🌐')" "$(t hw_network)" print_network
+    box "$(_emu '🌀')" "$(t hw_cooling)" print_cooling
+
+    print_battery
+
+    printf '\n  %sWellHW v1.3 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

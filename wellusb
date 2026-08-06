@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+# wellusb v2 — Beautiful USB device listing with IDS database lookup
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellusb" _WU_NAME="WellUSB" _WU_VERSION="2.0" _WU_MANUAL=1
+_WU_TAGLINE="USB device listing with IDS database lookup"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Colors ──────────────────────────────────────────────────────
+R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
+M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
+BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+USB_IDS="/usr/share/hwdata/usb.ids"
+
+# ─── USB IDs Lookup ─────────────────────────────────────────────
+declare -A USB_VENDOR_CACHE
+declare -A USB_DEVICE_CACHE
+
+load_usb_ids() {
+    [[ -f "$USB_IDS" ]] || return
+    local current_vendor=""
+    while IFS= read -r line; do
+        case "$line" in
+            \#*|"") continue ;;
+            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
+                current_vendor="${line:0:4}"
+                USB_VENDOR_CACHE["${current_vendor,,}"]="${line:6}"
+                ;;
+            $'\t'[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
+                local devid="${line:1:4}"
+                USB_DEVICE_CACHE["${current_vendor,,}:${devid,,}"]="${line:6}"
+                ;;
+        esac
+    done < "$USB_IDS"
+}
+
+usb_vendor_name() {
+    local vid=$1
+    local key="${vid,,}"
+    echo "${USB_VENDOR_CACHE[$key]:-Unknown}"
+}
+
+usb_device_name() {
+    local vid=$1 pid=$2
+    local key="${vid,,}:${pid,,}"
+    echo "${USB_DEVICE_CACHE[$key]:-}"
+}
+
+# ─── Speed helpers ───────────────────────────────────────────────
+iface_classes() {
+    local base="$1" f c out=""
+    for f in /sys/bus/usb/devices/${base}:*/bInterfaceClass; do
+        [[ -r "$f" ]] || continue
+        c=$(cat "$f" 2>/dev/null || true)
+        [[ -n "$c" && " $out " != *" $c "* ]] && out+=" $c"
+    done
+    printf '%s' "$out"
+}
+
+# ─── Speed helpers ───────────────────────────────────────────────
+speed_color() {
+    case "$1" in
+        12)     printf '%s' "$R" ;;
+        480)    printf '%s' "$Y" ;;
+        5000)   printf '%s' "$G" ;;
+        10000)  printf '%s' "$G" ;;
+        *)      printf '%s' "$DIM" ;;
+    esac
+}
+
+speed_name() {
+    case "$1" in
+        12)     t usb_speed_12 ;;
+        480)    t usb_speed_480 ;;
+        5000)   t usb_speed_5000 ;;
+        10000)  t usb_speed_10000 ;;
+        20000)  t usb_speed_20000 ;;
+        *)      t usb_speed_unknown "$1" ;;
+    esac
+}
+
+speed_bar() {
+    case "${1:-0}" in
+        12)     printf '▁' ;;
+        480)    printf '▃' ;;
+        5000)   printf '▅▇' ;;
+        10000)  printf '▅▇█' ;;
+        *)      printf '?' ;;
+    esac
+}
+
+# ─── Device classification ──────────────────────────────────────
+classify_device() {
+    local bclass=$1 product=$2 mfg=$3 vid=$4 pid=$5 ifaces=$6
+    local plow mfglow
+    plow=$(echo "$product" | tr '[:upper:]' '[:lower:]')
+    mfglow=$(echo "$mfg" | tr '[:upper:]' '[:lower:]')
+
+    # Gamepad by name first (composite HID pads usually report 03)
+    if echo "$plow $mfglow" | grep -qi 'gamepad\|joystick\|fightstick\|arcade.*stick\|x-box\|xbox\|360.*pad\|dualshock\|dualsense\|switch.*pro\|joy-con\|joycon\|8bitdo\|steam.*controller\|pro.*controller\|wireless.*controller\|wolverine\|gamesir\|gulikit\|flydigi'; then
+        t usb_type_gamepad
+        return
+    fi
+
+    case "$bclass" in
+        09)  t usb_type_hub ;;
+        0e)
+            if echo "$plow$mfglow" | grep -qi "cam\|webcam\|c210\|c270\|c920\|logitech"; then
+                t usb_type_webcam
+            else
+                t usb_type_video
+            fi
+            ;;
+        03)
+            if echo "$plow$mfglow" | grep -qi "keyboard\|k63\|k55\|k70\|gaming.*key"; then
+                t usb_type_keyboard
+            elif echo "$plow$mfglow" | grep -qi "mouse\|gaming.*mouse\|logitech.*g\|razer"; then
+                t usb_type_mouse
+            elif echo "$plow$mfglow" | grep -qi "tablet\|pen\|star\|xp-pen\|wacom\|huion"; then
+                t usb_type_tablet
+            elif echo "$plow$mfglow" | grep -qi "headset\|headphone\|audio"; then
+                t usb_type_audio
+            else
+                t usb_type_hid
+            fi
+            ;;
+        08)  t usb_type_storage ;;
+        07)  t usb_type_printer ;;
+        01)  t usb_type_audio ;;
+        0a)  t usb_type_data ;;
+        ef)
+            if echo "$plow$mfglow" | grep -qi "phone\|mao\|huawei\|android\|samsung\|pixel"; then
+                t usb_type_phone
+            elif echo "$plow$mfglow" | grep -qi "webcam\|cam"; then
+                t usb_type_webcam
+            else
+                t usb_type_misc
+            fi
+            ;;
+        02)  t usb_type_network ;;
+        04)  t usb_type_audio ;;
+        ff)  t usb_type_vendor ;;
+        00|*)
+            if [[ -n "$ifaces" ]]; then
+                case " $ifaces " in
+                    *" 07 "*) t usb_type_printer ;;
+                    *" 08 "*) t usb_type_storage ;;
+                    *" 0e "*) t usb_type_webcam ;;
+                    *" 02 "*) t usb_type_network ;;
+                    *" 01 "*|*" 04 "*) t usb_type_audio ;;
+                    *" 06 "*) t usb_type_data ;;
+                    *" 09 "*) t usb_type_hub ;;
+                    *) t usb_type_device ;;
+                esac
+            else
+                t usb_type_device
+            fi
+            ;;
+    esac
+}
+
+device_icon() {
+    local bclass=$1 utype=$2
+    case "$utype" in
+        Hub|Хаб)              printf ''"$(_emu "🔌")"'' ;;
+        Keyboard|Клавиатура)   printf ''"$(_ic "⌨️")"'' ;;
+        Mouse|Мышь)            printf ''"$(_ic "🖱️")"'' ;;
+        Webcam|Веб-камера)     printf ''"$(_emu "📷")"'' ;;
+        Graphics*|Графический*) printf ''"$(_emu "🎨")"'' ;;
+        Storage|Накопитель)    printf ''"$(_emu "💾")"'' ;;
+        Printer|Принтер)       printf ''"$(_ic "🖨️")"'' ;;
+        Phone|Телефон)         printf ''"$(_emu "📱")"'' ;;
+        Audio|Аудио)           printf ''"$(_emu "🔊")"'' ;;
+        Network|Сеть)          printf ''"$(_emu "🌐")"'' ;;
+        WiFi)                  printf ''"$(_emu "📡")"'' ;;
+        HID*)                  printf ''"$(_ic "⚙️")"'' ;;
+        Gamepad|Геймпад)       printf ''"$(_emu "🎮")"'' ;;
+        Misc|Прочее)           printf ''"$(_emu "🔧")"'' ;;
+        *)                     printf ''"$(_emu "🔌")"'' ;;
+    esac
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    load_usb_ids
+
+    local line
+    line=$(printf '═%.0s' $(seq 1 72))
+    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb — %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+
+    local -a DEV_BUS=() DEV_VID=() DEV_PID=() DEV_MFG=() DEV_PROD=() DEV_SERIAL=() DEV_SPD=() DEV_DRIVER=()
+    local dev_count=0
+
+    local cur_bus="" cur_vid="" cur_pid="" cur_mfg="" cur_prod="" cur_serial="" cur_spd="" cur_driver=""
+
+    flush_device() {
+        [[ -z "$cur_vid" ]] && return
+        DEV_BUS+=("$cur_bus")
+        DEV_VID+=("$cur_vid")
+        DEV_PID+=("$cur_pid")
+        DEV_MFG+=("$cur_mfg")
+        DEV_PROD+=("$cur_prod")
+        DEV_SERIAL+=("$cur_serial")
+        DEV_SPD+=("$cur_spd")
+        DEV_DRIVER+=("$cur_driver")
+        dev_count=$(( dev_count + 1 ))
+    }
+
+    while IFS= read -r line; do
+        case "$line" in
+            T:\ *)
+                flush_device
+                cur_bus="" cur_vid="" cur_pid="" cur_mfg="" cur_prod="" cur_serial="" cur_spd="" cur_driver=""
+                cur_bus=$(echo "$line" | grep -oP 'Bus=\K\d+')
+                cur_spd=$(echo "$line" | grep -oP 'Spd=\K\S+')
+                ;;
+            P:\ *)
+                cur_vid=$(echo "$line" | grep -oP 'Vendor=\K[0-9a-fA-F]+')
+                cur_pid=$(echo "$line" | grep -oP 'ProdID=\K[0-9a-fA-F]+')
+                ;;
+            S:\ *Manufacturer=*) cur_mfg="${line#*Manufacturer=}" ;;
+            S:\ *Product=*)      cur_prod="${line#*Product=}" ;;
+            S:\ *SerialNumber=*) cur_serial="${line#*SerialNumber=}" ;;
+            I:\ *Driver=*)       cur_driver=$(echo "$line" | grep -oP 'Driver=\K\S+') ;;
+        esac
+    done < <(usb-devices 2>/dev/null)
+    flush_device
+
+    local total_hubs=0 total_devs=0
+    for (( i=0; i<dev_count; i++ )); do
+        [[ "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
+    done
+
+    local ids_status
+    if [[ -f $USB_IDS ]]; then
+        ids_status="${G}$(t loaded)${RESET}"
+    else
+        ids_status="${R}$(t not_found)${RESET}"
+    fi
+
+    printf '  %s│%s  '"$(_ic "📊")"'%s%s:%s %d  |  %s%s:%s %s\n\n' \
+        "$C" "$RESET" "$BOLD" "$(t usb_devices)" "$W" "$dev_count" \
+        "$BOLD" "$(t usb_ids_db)" "$W" "$ids_status"
+
+    local prev_bus=""
+    for (( i=0; i<dev_count; i++ )); do
+        local bus="${DEV_BUS[$i]}"
+        local vid="${DEV_VID[$i]}"
+        local pid="${DEV_PID[$i]}"
+        local mfg="${DEV_MFG[$i]}"
+        local prod="${DEV_PROD[$i]}"
+        local serial="${DEV_SERIAL[$i]}"
+        local spd="${DEV_SPD[$i]}"
+        local driver="${DEV_DRIVER[$i]}"
+
+        local vendor_name="${mfg}"
+        local device_name="${prod}"
+
+        if [[ -z "$vendor_name" ]]; then
+            vendor_name=$(usb_vendor_name "$vid")
+        fi
+        if [[ -z "$device_name" ]]; then
+            device_name=$(usb_device_name "$vid" "$pid")
+        fi
+        if [[ -z "$device_name" ]]; then
+            device_name="$(t usb_unknown)"
+        fi
+
+        local bclass devbase=""
+        bclass=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/../${bus}-*/bDeviceClass" 2>/dev/null | head -1 || echo "00")
+        if [[ -z "$bclass" || "$bclass" == "00" ]]; then
+            for d in /sys/bus/usb/devices/${bus}-*; do
+                [[ -f "$d/idVendor" ]] || continue
+                [[ "$(basename "$d")" == *:* ]] && continue
+                local dvid dpid
+                dvid=$(cat "$d/idVendor" 2>/dev/null)
+                dpid=$(cat "$d/idProduct" 2>/dev/null)
+                if [[ "${dvid,,}" == "${vid,,}" && "${dpid,,}" == "${pid,,}" ]]; then
+                    bclass=$(cat "$d/bDeviceClass" 2>/dev/null || echo "00")
+                    devbase=$(basename "$d")
+                    break
+                fi
+            done
+        fi
+        if [[ -z "$devbase" ]]; then
+            # fall back to the tree path used for bDeviceClass
+            devbase=$(ls -d /sys/bus/usb/devices/usb${bus:+-*}/../${bus}-* 2>/dev/null | head -1 | xargs -r basename 2>/dev/null || true)
+        fi
+
+        local ifaces
+        ifaces=$(iface_classes "${devbase:-${bus}-0}")
+        local utype
+        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces")
+        local icon
+        icon=$(device_icon "$bclass" "$utype")
+        local sc
+        sc=$(speed_color "$spd")
+        local sname
+        sname=$(speed_name "$spd")
+
+        if [[ "$bus" != "$prev_bus" ]]; then
+            [[ -n "$prev_bus" ]] && printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 74))" "$RESET"
+            local hub_spd
+            hub_spd=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/speed" 2>/dev/null || echo "0")
+            printf '\n  %s┌───%s '"$(_ic "🏭")"'%s%s %s%s%s  ' "$C" "$RESET" "$BOLD" "$(t usb_bus)" "$W" "$bus" "$RESET"
+            printf '%s%s%s\n' "$(speed_color "$hub_spd")" "$(speed_name "$hub_spd")" "$RESET"
+            printf '  %s│%s\n' "$C" "$RESET"
+            prev_bus="$bus"
+        fi
+
+        printf '  %s│%s  %s %s%s%s:%s %s\n' \
+            "$C" "$RESET" "$icon" "$BOLD" "$vid" "$RESET" "$pid" "$device_name"
+
+        printf '  %s│%s     %s├─%s %s:  %s%s%s\n' \
+            "$C" "$RESET" "$DIM" "$RESET" "$(t usb_manufacturer)" "$W" "$vendor_name" "$RESET"
+
+        printf '  %s│%s     %s├─%s %s:  %s%s%s\n' \
+            "$C" "$RESET" "$DIM" "$RESET" "$(t usb_speed)" "$sc" "$sname" "$RESET"
+
+        if [[ -n "$driver" && "$driver" != "(none)" ]]; then
+            printf '  %s│%s     %s├─%s %s:  %s%s%s\n' \
+                "$C" "$RESET" "$DIM" "$RESET" "$(t usb_driver)" "$G" "$driver" "$RESET"
+        fi
+
+        if [[ -n "$serial" ]]; then
+            printf '  %s│%s     %s└─%s %s:  %s%s%s\n' \
+                "$C" "$RESET" "$DIM" "$RESET" "$(t usb_serial)" "$DIM" "$serial" "$RESET"
+        else
+            printf '  %s│%s     %s└─%s %s:  %s%s%s\n' \
+                "$C" "$RESET" "$DIM" "$RESET" "$(t usb_type)" "$M" "$utype" "$RESET"
+        fi
+
+        printf '  %s│%s\n' "$C" "$RESET"
+    done
+
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 74))" "$RESET"
+
+    printf '\n  %s%s:%s %s▁%s USB 1.1  %s▃%s USB 2.0  %s▅▇%s USB 3.0  %s▅▇█%s USB 3.1+\n' \
+        "$BOLD" "$(t usb_legend)" "$RESET" "$R" "$RESET" "$Y" "$RESET" "$G" "$RESET" "$G" "$RESET"
+
+    printf '\n  %sWellUSB v2.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

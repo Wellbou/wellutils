@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# wellblock — Beautiful block device listing
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellblock" _WU_NAME="WellBlock" _WU_VERSION="1.0" _WU_MANUAL=1
+_WU_TAGLINE="Block device listing"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Colors ──────────────────────────────────────────────────────
+R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
+M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
+BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+# ─── Size formatting ─────────────────────────────────────────────
+fmt_size() {
+    local bytes=$1
+    if (( bytes >= 1073741824 )); then
+        printf '%s GB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1073741824}")"
+    elif (( bytes >= 1048576 )); then
+        printf '%s MB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1048576}")"
+    elif (( bytes >= 1024 )); then
+        printf '%s KB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1024}")"
+    else
+        printf '%d B' "$bytes"
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    local line
+    line=$(printf '═%.0s' $(seq 1 80))
+
+    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "💾")"'wellblock — %s                       %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t blk_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+
+    local total_disks=0 total_parts=0 total_bytes=0
+
+    local disk_glob disk
+    for disk_glob in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
+        for dev in $disk_glob; do
+            [[ -d "$dev" ]] || continue
+            local bn
+            bn=$(basename "$dev")
+            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == sr* ]] && continue
+            total_disks=$(( total_disks + 1 ))
+        done
+    done
+
+    printf '\n  %s┌───%s '"$(_ic "📊")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t blk_summary)" "$RESET"
+    printf '  %s│%s\n' "$C" "$RESET"
+
+    local disk_glob2 dev
+    for disk_glob2 in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
+        for dev in $disk_glob2; do
+            [[ -d "$dev" ]] || continue
+            local bn
+            bn=$(basename "$dev")
+            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == zram* || "$bn" == sr* ]] && continue
+
+            local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+            size_bytes=$(( size_bytes * 512 ))
+
+            local model_file="$dev/device/model"
+            local name_file="$dev/device/name"
+            local serial_file="$dev/device/serial"
+            local model="Unknown"
+            local serial=""
+            if [[ -f "$model_file" ]]; then
+                model=$(cat "$model_file" | xargs)
+            elif [[ -f "$name_file" ]]; then
+                model=$(cat "$name_file" | xargs)
+            fi
+            [[ -f "$serial_file" ]] && serial=$(cat "$serial_file" | xargs)
+
+            local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
+            local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
+
+        local type_icon type_label type_color
+        if [[ "$removable" == "1" ]]; then
+            type_icon="$(_ic '⏏️')"
+            type_label="$(t blk_removable)"
+            type_color="$M"
+        elif [[ "$rotational" == "0" ]]; then
+            type_icon="$(_emu '⚡')"
+            type_label="$(t blk_ssd)"
+            type_color="$G"
+        else
+            type_icon="$(_emu '💿')"
+            type_label="$(t blk_hdd)"
+            type_color="$Y"
+        fi
+
+        local size_human
+        size_human=$(fmt_size "$size_bytes")
+        total_bytes=$(( total_bytes + size_bytes ))
+
+        printf '  %s│%s  %s %s%s%s%s  %s%-20s%s  %s%s%s  %s%8s%s\n' \
+            "$C" "$RESET" "$type_icon" "$BOLD" "$W" "/dev/$bn" "$RESET" \
+            "$type_color" "$type_label" "$RESET" \
+            "$G" "$model" "$RESET" \
+            "$DIM" "$size_human" "$RESET"
+
+        if [[ -n "$serial" ]]; then
+            printf '  %s│%s     %s%s: %s%s\n' "$C" "$RESET" "$DIM" "$(t blk_serial)" "$serial" "$RESET"
+        fi
+
+        for part in "$dev"/${bn}*; do
+            [[ -d "$part" ]] || continue
+            local pname
+            pname=$(basename "$part")
+            [[ "$pname" == "$bn" ]] && continue
+
+            local psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
+            psize_bytes=$(( psize_bytes * 512 ))
+            local psize_human
+            psize_human=$(fmt_size "$psize_bytes")
+            total_parts=$(( total_parts + 1 ))
+
+            local fstype="" mountpoint=""
+            if command -v lsblk &>/dev/null; then
+                local lsblk_out
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                fstype=$(echo "$lsblk_out" | awk '{print $1}')
+                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
+            fi
+
+            local mp_icon=""
+            [[ -n "$mountpoint" ]] && mp_icon="$(_emu '📁')"
+            [[ "$fstype" == "swap" || "$mountpoint" == "[SWAP]" ]] && mp_icon="$(_emu '🔄')"
+
+            printf '  %s│%s     %s├─ %s%s%s  %s%8s%s' \
+                "$C" "$RESET" "$DIM" "$BOLD" "$W" "$pname" "$DIM" "$psize_human" "$RESET"
+
+            if [[ -n "$fstype" ]]; then
+                printf '  %s%s%s' "$C" "$fstype" "$RESET"
+            fi
+            if [[ -n "$mountpoint" ]]; then
+                printf '  → %s%s%s' "$G" "$mountpoint" "$RESET"
+            fi
+            printf '\n'
+        done
+
+        printf '  %s│%s\n' "$C" "$RESET"
+        done
+    done
+
+    local has_special=0
+    for dev in /sys/block/zram* /sys/block/loop*; do
+        [[ -d "$dev" ]] || continue
+        has_special=1
+        break
+    done
+
+    if (( has_special )); then
+        printf '  %s┌───%s '"$(_ic "🔄")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t blk_virtual)" "$RESET"
+        printf '  %s│%s\n' "$C" "$RESET"
+
+        for dev in /sys/block/zram* /sys/block/loop*; do
+            [[ -d "$dev" ]] || continue
+            local bn
+            bn=$(basename "$dev")
+
+            local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+            size_bytes=$(( size_bytes * 512 ))
+            local size_human
+            size_human=$(fmt_size "$size_bytes")
+
+            local icon="$(_emu '🔄')"
+            [[ "$bn" == loop* ]] && icon="$(_emu '📀')"
+
+            printf '  %s│%s  %s %s%s%s  %s%s%s\n' \
+                "$C" "$RESET" "$icon" "$BOLD" "$W" "$bn" "$DIM" "$size_human" "$RESET"
+        done
+
+        printf '  %s│%s\n' "$C" "$RESET"
+    fi
+
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 82))" "$RESET"
+
+    local total_human
+    total_human=$(fmt_size "$total_bytes")
+    printf '\n  %s│%s  '"$(_ic "📊")"'%s%s:%s %d %s  |  %d %s  |  %s\n' \
+        "$C" "$RESET" "$BOLD" "$(t blk_total)" "$W" \
+        "$total_disks" "$(t blk_disks)" "$total_parts" "$(t blk_partitions)" "$total_human"
+
+    printf '\n  %sWellBlock v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

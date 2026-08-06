@@ -1,0 +1,59 @@
+.TH WELLMOD 1 "August 2026" "wellmod 1.0" "wellutils"
+.SH NAME
+Wellmod \- L i s t s   l o a d e d   k e r n e l   m o d u l e s   w i t h   t h e i r   s i z e s   a n d   d e p e n d e n c i e s ,
+.SH SYNOPSIS
+.B wellmod
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellmod
+.PP
+Lists loaded kernel modules with their sizes and dependencies,
+grouped by usage count.
+.PP
+When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1)

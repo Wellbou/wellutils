@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# wellmod — Beautiful kernel module listing
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellmod" _WU_NAME="WellMod" _WU_VERSION="1.0" _WU_MANUAL=1
+_WU_TAGLINE="Kernel modules listing"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Colors ──────────────────────────────────────────────────────
+R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
+M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
+BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+# ─── Helpers ─────────────────────────────────────────────────────
+fmt_size() {
+    local bytes=$1
+    if (( bytes >= 1048576 )); then
+        printf '%s MB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1048576}")"
+    elif (( bytes >= 1024 )); then
+        printf '%s KB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1024}")"
+    else
+        printf '%d B' "$bytes"
+    fi
+}
+
+size_color() {
+    local bytes=$1
+    if (( bytes >= 1048576 )); then printf '%s' "$R"
+    elif (( bytes >= 262144 )); then printf '%s' "$Y"
+    elif (( bytes >= 65536 )); then printf '%s' "$C"
+    else printf '%s' "$G"
+    fi
+}
+
+module_icon() {
+    local name=$1
+    case "$name" in
+        nvidia*|nouveau*)     printf ''"$(_emu "🎮")"'' ;;
+        snd_*|sound*)         printf ''"$(_emu "🔊")"'' ;;
+        usb_*)                printf ''"$(_emu "🔌")"'' ;;
+        sd*|ahci|ata_*)       printf ''"$(_emu "💾")"'' ;;
+        ext4|xfs|btrfs|vfat)  printf ''"$(_emu "📁")"'' ;;
+        ip_tables|nf_|ipt_)   printf ''"$(_ic "🛡️")"'' ;;
+        nouveau|drm*)         printf ''"$(_ic "🖥️")"'' ;;
+        bluetooth|bt*)        printf ''"$(_emu "📶")"'' ;;
+        vmw_*|vsock*)         printf ''"$(_ic "☁️")"'' ;;
+        ip6*|ipv6*)           printf ''"$(_emu "🌐")"'' ;;
+        rfkill*)              printf ''"$(_emu "📡")"'' ;;
+        *)                    printf ''"$(_emu "📦")"'' ;;
+    esac
+}
+
+# ─── Header ──────────────────────────────────────────────────────
+print_header() {
+    local line
+    line=$(printf '═%.0s' $(seq 1 78))
+    printf '\n'
+    printf '  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "📦")"'wellmod — %s                           %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t mod_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    print_header
+
+    local total=0 total_size=0
+
+    local -a names=() sizes=() used_bys=()
+    while IFS=' ' read -r name size used; do
+        names+=("$name")
+        sizes+=("$size")
+        used_bys+=("$used")
+        total=$(( total + 1 ))
+        total_size=$(( total_size + size ))
+    done < <(awk 'NR>1 {gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
+
+    local total_h
+    total_h=$(fmt_size "$total_size")
+
+    printf '  %s│%s  '"$(_ic "📊")"'%s%s:%s %d  |  %s%s:%s %s\n\n' \
+        "$C" "$RESET" "$BOLD" "$(t mod_total)" "$W" "$total" \
+        "$BOLD" "$(t mod_total_size)" "$W" "$total_h"
+
+    printf '  %s┌───%s '"$(_ic "🏆")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t mod_top10)" "$RESET"
+    printf '  %s│%s\n' "$C" "$RESET"
+
+    local sorted_indices
+    sorted_indices=$(for (( i=0; i<total; i++ )); do
+        echo "$i ${sizes[$i]}"
+    done | sort -k2 -rn | head -10 | awk '{print $1}')
+
+    local rank=0
+    for idx in $sorted_indices; do
+        rank=$(( rank + 1 ))
+        local name="${names[$idx]}"
+        local size="${sizes[$idx]}"
+        local used="${used_bys[$idx]}"
+        local size_h
+        size_h=$(fmt_size "$size")
+        local sc
+        sc=$(size_color "$size")
+        local icon
+        icon=$(module_icon "$name")
+
+        printf '  %s│%s  %s%s%2d.%s %s %-24s%s %s%10s%s' \
+            "$C" "$RESET" "$BOLD" "$W" "$rank" "$RESET" "$icon" "$BOLD" "$name" "$RESET" "$sc" "$size_h" "$RESET"
+
+        if [[ "$used" != "0" ]]; then
+            printf '  %s×%s' "$G" "$used"
+        fi
+        printf '\n'
+    done
+
+    printf '  %s│%s\n' "$C" "$RESET"
+
+    local -A cats=()
+    for (( i=0; i<total; i++ )); do
+        local name="${names[$i]}"
+        local size="${sizes[$i]}"
+        local cat="other"
+        local icon="$(_emu '📦')"
+
+        case "$name" in
+            nvidia*|nouveau*)     cat="gpu_dri"; icon="$(_emu '🎮')" ;;
+            snd_*|sound*|pulse*) cat="audio"; icon="$(_emu '🔊')" ;;
+            usb_*|uas|usb*)      cat="usb"; icon="$(_emu '🔌')" ;;
+            sd*|ahci|ata_*|scsi*) cat="storage"; icon="$(_emu '💾')" ;;
+            ext4|xfs|btrfs|vfat|fuse*) cat="filesystem"; icon="$(_emu '📁')" ;;
+            ip_*|nf_*|ipt_*|ip6*|nft*) cat="networking"; icon="$(_emu '🌐')" ;;
+            bluetooth*|bt*|rfkill*) cat="bluetooth"; icon="$(_emu '📶')" ;;
+            vmw_*|vsock*|vmw*)   cat="virtualization"; icon="$(_ic '☁️')" ;;
+            drm*|fb*|video*)     cat="display"; icon="$(_ic '🖥️')" ;;
+            i2c_*|i801*|smbus*)  cat="bus"; icon="$(_emu '🔗')" ;;
+            rtc*|timer*|hpet*)   cat="timer"; icon="$(_emu '⏰')" ;;
+            intel_*|amd_*|kvm*)  cat="cpu_virt"; icon="$(_emu '🧠')" ;;
+            nfs*|cifs*|fuse*)    cat="netfs"; icon="$(_emu '📂')" ;;
+            mac80211|cfg80211|rt2*) cat="wifi"; icon="$(_emu '📡')" ;;
+        esac
+
+        if [[ -z "${cats[$cat]+x}" ]]; then
+            cats[$cat]="$name:$size"
+        else
+            cats[$cat]="${cats[$cat]}|$name:$size"
+        fi
+    done
+
+    local -a cat_order=("gpu_dri" "audio" "usb" "storage" "filesystem" "networking" "wifi" "bluetooth" "virtualization" "display" "bus" "timer" "cpu_virt" "netfs" "other")
+    local -a cat_keys=("mod_gpu_dri" "mod_audio" "mod_usb" "mod_storage" "mod_filesystem" "mod_networking" "mod_wifi" "mod_bluetooth" "mod_virtualization" "mod_display" "mod_bus" "mod_timer" "mod_cpu_virt" "mod_netfs" "other")
+
+    for ci in "${!cat_order[@]}"; do
+        local catkey="${cat_order[$ci]}"
+        [[ -z "${cats[$catkey]+x}" ]] && continue
+        local entries="${cats[$catkey]}"
+
+        local first_name
+        first_name=$(echo "$entries" | cut -d: -f1)
+        local icon
+        icon=$(module_icon "$first_name")
+
+        local display_name
+        if [[ "$catkey" == "other" ]]; then
+            display_name="Other"
+            [[ "$WELLUTILS_LANG" == "RU" ]] && display_name="Прочее"
+        else
+            display_name=$(t "${cat_keys[$ci]}")
+        fi
+
+        printf '  %s┌───%s %s %s%s%s\n' "$C" "$RESET" "$icon" "$BOLD" "$display_name" "$RESET"
+
+        IFS='|' read -ra items <<< "$entries"
+        for item in "${items[@]}"; do
+            local mname="${item%%:*}"
+            local msize="${item##*:}"
+            local mh
+            mh=$(fmt_size "$msize")
+            local mc
+            mc=$(size_color "$msize")
+
+            printf '  %s│%s  %s %-24s%s %s%10s%s\n' \
+                "$C" "$RESET" "$icon" "$BOLD" "$mname" "$RESET" "$mc" "$mh" "$RESET"
+        done
+        printf '  %s│%s\n' "$C" "$RESET"
+    done
+
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 80))" "$RESET"
+
+    printf '\n  %s%s:%s %s%s%s  %s%s%s  %s%s%s  %s%s%s\n' \
+        "$BOLD" "$(t mod_size_legend)" "$RESET" \
+        "$G" "$(t mod_size_small)" "$RESET" \
+        "$C" "$(t mod_size_med)" "$RESET" \
+        "$Y" "$(t mod_size_large)" "$RESET" \
+        "$R" "$(t mod_size_huge)" "$RESET"
+
+    printf '\n  %sWellMod v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"
