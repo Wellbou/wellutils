@@ -224,6 +224,18 @@ usb_device_name() {
 }
 
 # ─── Text helpers ───────────────────────────────────────────────
+# "USB", "Generic", "OEM" ... are placeholder strings some controllers
+# emit instead of a real manufacturer; treat them as absent.
+junk_manufacturer() {
+    local m
+    m=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ' -_')
+    case "$m" in
+        usb|generic|chip|chips|oem|unknown|none|usbdevice|usbhub)
+            return 0 ;;
+        "") return 0 ;;
+        *)  return 1 ;;
+    esac
+}
 clean_name() {
     printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/ /g'
 }
@@ -386,9 +398,11 @@ collect_usb() {
         [[ "$ifaces" == " 09 " ]] && continue           # hub (class 0x00)
         local mfg prod
         mfg=$(clean_name "$(cat "$devdir/manufacturer" 2>/dev/null || true)")
+        if junk_manufacturer "$mfg"; then
+            mfg=$(clean_name "$(usb_vendor_name "$vid")")
+        fi
         prod=$(clean_name "$(cat "$devdir/product" 2>/dev/null || true)")
         [[ -z "$prod" ]] && prod=$(clean_name "$(usb_device_name "$vid" "$pid")")
-        [[ -z "$mfg" ]] && mfg=$(clean_name "$(usb_vendor_name "$vid")")
         local type icon grp drv
         type=$(classify "$bclass" "$prod" "$mfg" "$ifaces")
         icon=$(icon_for "$type")
