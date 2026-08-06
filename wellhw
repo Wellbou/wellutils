@@ -44,7 +44,7 @@ print_cpu() {
 
 print_gpu() {
     local gpu
-    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1)
+    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1) || gpu=""
     if [[ -n "$gpu" ]]; then
         pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "$gpu"
     else
@@ -69,7 +69,7 @@ print_board() {
 }
 
 print_ram() {
-    local mout modules types sizes speeds manufs pns forms concat
+    local mout modules types sizes speeds manufs pns forms concat ram_line="" ram_sub=""
     mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
     modules=$(awk '/^[[:space:]]*Size: [0-9]+ /{c++} END{print c+0}' <<< "$mout")
     if (( modules > 0 )); then
@@ -97,7 +97,7 @@ print_ram() {
         # Resolve JEDEC vendor code if present (e.g. "8313" -> Golden Empire)
         if [[ "$mmanuf" =~ ^[0-9A-Fa-f]{4}$ ]]; then
             local dec
-            dec=$(wu_jedec_decode "$mmanuf")
+            dec=$(wu_jedec_decode "$mmanuf") || dec=""
             [[ -n "$dec" ]] && mmanuf="$dec"
         fi
 
@@ -184,11 +184,16 @@ print_network() {
 
 print_battery() {
     local cap stat
-    cap=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || true)
-    stat=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null || true)
-    if [[ -n "$cap" ]]; then
-        pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%%${RESET} ${DIM}(${stat})${RESET}"
-    fi
+    local bat
+    for bat in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do
+        [[ -d "$bat" ]] || continue
+        cap=$(cat "$bat/capacity" 2>/dev/null || true)
+        stat=$(cat "$bat/status" 2>/dev/null || true)
+        if [[ -n "$cap" ]]; then
+            pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%%${RESET} ${DIM}(${stat})${RESET}"
+            return
+        fi
+    done
 }
 
 print_cooling() {
@@ -202,10 +207,8 @@ print_cooling() {
         chip=$(basename "$(dirname "$f")")
         idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
         [[ "$idx" =~ ^[0-9]+$ ]] || continue
-        label=$(cat "/sys/class/hwmon/hwmon0/device/fan${idx}_label" 2>/dev/null \
-            || cat "/sys/devices/platform/$(basename "$(dirname "$f")")/fan${idx}_label" 2>/dev/null \
-            || echo "$(t hw_cooling) ${idx}")
-        [[ -z "$label" ]] && label="$(t hw_cooling) ${idx}"
+        # label sits next to the fanN_input file we already found (no hwmon0 hardcode)
+        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "$(t hw_cooling) ${idx}")
         if (( found == 0 )); then
             pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "${label} ${W}${rpm}${RESET} ${DIM}RPM (${chip})${RESET}"
         else

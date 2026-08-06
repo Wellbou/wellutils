@@ -22,40 +22,25 @@ R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
 M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
 
+# ─── USB IDs Lookup (lazy, no associative arrays — bash 3.2) ────
 USB_IDS="/usr/share/hwdata/usb.ids"
-
-# ─── USB IDs Lookup ─────────────────────────────────────────────
-declare -A USB_VENDOR_CACHE
-declare -A USB_DEVICE_CACHE
-
-load_usb_ids() {
-    [[ -f "$USB_IDS" ]] || return
-    local current_vendor=""
-    while IFS= read -r line; do
-        case "$line" in
-            \#*|"") continue ;;
-            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
-                current_vendor="${line:0:4}"
-                USB_VENDOR_CACHE["${current_vendor,,}"]="${line:6}"
-                ;;
-            $'\t'[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
-                local devid="${line:1:4}"
-                USB_DEVICE_CACHE["${current_vendor,,}:${devid,,}"]="${line:6}"
-                ;;
-        esac
-    done < "$USB_IDS"
-}
+_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 usb_vendor_name() {
-    local vid=$1
-    local key="${vid,,}"
-    echo "${USB_VENDOR_CACHE[$key]:-Unknown}"
+    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "Unknown"; return 0; }
+    [[ -f "$USB_IDS" ]] || { printf '%s' "Unknown"; return 0; }
+    awk -v v="$(_wlc "$1")" '
+        /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
+    ' "$USB_IDS"
 }
 
 usb_device_name() {
-    local vid=$1 pid=$2
-    local key="${vid,,}:${pid,,}"
-    echo "${USB_DEVICE_CACHE[$key]:-}"
+    [[ "$1" =~ ^[0-9a-f]{4}$ && "$2" =~ ^[0-9a-f]{4}$ ]] || return 0
+    [[ -f "$USB_IDS" ]] || return 0
+    awk -v v="$(_wlc "$1")" -v p="$(_wlc "$2")" '
+        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v); next }
+        insec && $0 ~ "^" "\t" p "[[:space:]]" { sub(/^[^ ]+ +/, ""); print; exit }
+    ' "$USB_IDS"
 }
 
 # ─── Speed helpers ───────────────────────────────────────────────
@@ -194,8 +179,6 @@ device_icon() {
 
 # ─── Main ────────────────────────────────────────────────────────
 main() {
-    load_usb_ids
-
     local line
     line=$(printf '═%.0s' $(seq 1 72))
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
@@ -225,17 +208,25 @@ main() {
             T:\ *)
                 flush_device
                 cur_bus="" cur_vid="" cur_pid="" cur_mfg="" cur_prod="" cur_serial="" cur_spd="" cur_driver=""
-                cur_bus=$(echo "$line" | grep -oP 'Bus=\K\d+')
-                cur_spd=$(echo "$line" | grep -oP 'Spd=\K\S+')
+                # usb-devices: "T:  Bus=02 Lev=01 ... Spd=480 ..."
+                case "$line" in
+                    *Bus=*)  cur_bus=${line#*Bus=};  cur_bus=${cur_bus%% *} ;;
+                esac
+                case "$line" in
+                    *Spd=*)  cur_spd=${line#*Spd=};  cur_spd=${cur_spd%% *} ;;
+                esac
                 ;;
             P:\ *)
-                cur_vid=$(echo "$line" | grep -oP 'Vendor=\K[0-9a-fA-F]+')
-                cur_pid=$(echo "$line" | grep -oP 'ProdID=\K[0-9a-fA-F]+')
+                # "P:  Vendor=1d6b ProdID=0002 ..."
+                case "$line" in
+                    *Vendor=*) cur_vid=${line#*Vendor=};  cur_vid=${cur_vid%% *} ;;
+                    *ProdID=*) cur_pid=${line#*ProdID=};  cur_pid=${cur_pid%% *} ;;
+                esac
                 ;;
             S:\ *Manufacturer=*) cur_mfg="${line#*Manufacturer=}" ;;
             S:\ *Product=*)      cur_prod="${line#*Product=}" ;;
             S:\ *SerialNumber=*) cur_serial="${line#*SerialNumber=}" ;;
-            I:\ *Driver=*)       cur_driver=$(echo "$line" | grep -oP 'Driver=\K\S+') ;;
+            I:\ *Driver=*)       cur_driver=${line#*Driver=}; cur_driver=${cur_driver%% *} ;;
         esac
     done < <(usb-devices 2>/dev/null)
     flush_device
@@ -280,26 +271,21 @@ main() {
             device_name="$(t usb_unknown)"
         fi
 
-        local bclass devbase=""
-        bclass=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/../${bus}-*/bDeviceClass" 2>/dev/null | head -1 || echo "00")
-        if [[ -z "$bclass" || "$bclass" == "00" ]]; then
-            for d in /sys/bus/usb/devices/${bus}-*; do
-                [[ -f "$d/idVendor" ]] || continue
-                [[ "$(basename "$d")" == *:* ]] && continue
-                local dvid dpid
-                dvid=$(cat "$d/idVendor" 2>/dev/null)
-                dpid=$(cat "$d/idProduct" 2>/dev/null)
-                if [[ "${dvid,,}" == "${vid,,}" && "${dpid,,}" == "${pid,,}" ]]; then
-                    bclass=$(cat "$d/bDeviceClass" 2>/dev/null || echo "00")
-                    devbase=$(basename "$d")
-                    break
-                fi
-            done
-        fi
-        if [[ -z "$devbase" ]]; then
-            # fall back to the tree path used for bDeviceClass
-            devbase=$(ls -d /sys/bus/usb/devices/usb${bus:+-*}/../${bus}-* 2>/dev/null | head -1 | xargs -r basename 2>/dev/null || true)
-        fi
+        # Find the sysfs device node and its bDeviceClass — avoids relying
+        # on any /sys path layout. ID files are already lowercase.
+        local bclass="00" devbase=""
+        for d in /sys/bus/usb/devices/*/; do
+            [[ -r "$d/idVendor" && -r "$d/idProduct" ]] || continue
+            [[ "$(basename "$d")" == *:* ]] && continue
+            local dvid dpid
+            dvid=$(_wlc "$(cat "$d/idVendor" 2>/dev/null)")
+            dpid=$(_wlc "$(cat "$d/idProduct" 2>/dev/null)")
+            if [[ "$dvid" == "$(_wlc "$vid")" && "$dpid" == "$(_wlc "$pid")" ]]; then
+                bclass=$(cat "$d/bDeviceClass" 2>/dev/null || echo "00")
+                devbase=$(basename "$d")
+                break
+            fi
+        done
 
         local ifaces
         ifaces=$(iface_classes "${devbase:-${bus}-0}")

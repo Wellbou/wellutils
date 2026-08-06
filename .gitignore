@@ -1,3 +1,5 @@
 pkg/
 src/
 *.pkg.tar.zst
+backups/
+patch_lookup.py

@@ -8,14 +8,15 @@ _WELLUTILS_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.c
 
 # Read saved language preference
 if [[ -f "$_WELLUTILS_LANG_FILE" ]]; then
-    _WELLUTILS_LANG=$( { grep -m1 '^[A-Z]' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
+    _WELLUTILS_LANG=$( { sed -n '/^[A-Z]/{p;q}' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
 fi
 
 # Env var overrides file
 WELLUTILS_LANG="${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}"
 
-# Validate
-case "${WELLUTILS_LANG^^}" in
+# Validate (uppercase via tr — bash 3.2-compatible, no ${^^})
+WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}" | tr '[:lower:]' '[:upper:]')
+case "$WELLUTILS_LANG" in
     RU) WELLUTILS_LANG="RU" ;;
     *)  WELLUTILS_LANG="EN" ;;
 esac

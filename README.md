@@ -17,6 +17,12 @@ A suite of colourful system and peripheral reporting tools for Arch Linux.
 | `wellfetch`   | System fetch (ASCII/PNG logo, distro info)                 |
 | `wellutils`   | Launcher: `wellutils hw`, `wellutils mem`, ...             |
 
+Short aliases are accepted by the launcher: `wusb`, `wpci`, `wblock`,
+`wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`, `whw`, `wper`,
+`wfetch` (e.g. `wellutils wram --plain`). Note: `wellutils sensors` is
+intentionally *not* an alias — it would shadow the `sensors` binary
+from lm_sensors.
+
 ## Install
 
 AUR: `yay -S wellutils` (once published), or build locally:
@@ -62,7 +68,7 @@ tool [options]
 Required: `bash`, `python`, `coreutils`, `procps-ng`, `hwdata`.
 
 Optional: `pciutils`, `usbutils`, `smartmontools`, `nvme-cli`, `dmidecode`,
-`lm_sensors`, `i2c-tools` (decode-dimms fallback for RAM detail).
+`i2c-tools` (decode-dimms fallback for RAM detail).
 
 ## License
 

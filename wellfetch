@@ -435,8 +435,19 @@ wf_picon() {
 }
 
 wfv_peripherals() {
-    local -A P
     local devdir base bclass prod mfg type name
+    local -a order=(keyboard mouse tablet gamepad audio webcam printer storage network phone hid vendor device)
+
+    # bash 3.2 has no associative arrays: index P by position in $order.
+    wfv_pindex() {
+        local t="$1" i
+        for (( i=0; i<${#order[@]}; i++ )); do
+            [[ "${order[$i]}" == "$t" ]] && { printf '%s' "$i"; return 0; }
+        done
+        printf '%s' "$((${#order[@]} - 1))"
+    }
+
+    local -a P=()
     for devdir in /sys/bus/usb/devices/*; do
         [[ -d "$devdir" ]] || continue
         base=$(basename "$devdir")
@@ -450,16 +461,19 @@ wfv_peripherals() {
         name="$prod"
         [[ -n "$name" ]] || name="$mfg"
         [[ -n "$name" ]] || continue
-        case ",${P[$type]:-}," in *",$name,"*) continue ;; esac
-        P[$type]+=",$name"
+        local pi
+        pi=$(wfv_pindex "$type")
+        case ",${P[$pi]:-}," in *",$name,"*) continue ;; esac
+        P[$pi]+=",$name"
     done
-    local -a order=(keyboard mouse tablet gamepad audio webcam printer storage network phone hid vendor device)
     local -a rows=()
     local t count=0
     for t in "${order[@]}"; do
-        [[ -n "${P[$t]:-}" ]] || continue
+        local pi
+        pi=$(wfv_pindex "$t")
+        [[ -n "${P[$pi]:-}" ]] || continue
         rows+=("$t")
-        count=$(( count + $(printf '%s' "${P[$t]}" | tr ',' '\n' | sed '/^$/d' | awk 'END{print NR}') ))
+        count=$(( count + $(printf '%s' "${P[$pi]}" | tr ',' '\n' | sed '/^$/d' | awk 'END{print NR}') ))
     done
     if (( ${#rows[@]} == 0 )); then
         wf_push peripherals "$(wft peripherals)" "—"
@@ -468,8 +482,9 @@ wfv_peripherals() {
     wf_push peripherals "$(wft peripherals)" "$count"
     local first=1
     for t in "${rows[@]}"; do
-        local names ic label
-        names=$(printf '%s' "${P[$t]}" | tr ',' '\n' | sed '/^$/d' | paste -sd ', ' -)
+        local names ic label pi
+        pi=$(wfv_pindex "$t")
+        names=$(printf '%s' "${P[$pi]}" | tr ',' '\n' | sed '/^$/d' | paste -sd ', ' -)
         ic=$(wf_picon "$t")
         label=$(wf_ptype "$t")
         if (( first )); then

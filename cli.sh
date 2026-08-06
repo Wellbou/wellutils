@@ -15,6 +15,9 @@
 # The tool then calls:  wu_run main "$@"
 # Language/color/emoji flags are honoured; WELLUTILS_LANG is exported for t().
 
+# bash 3.2-compatible lowercase (no ${var,,}; tr is in busybox/base too)
+_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
 _WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_DEBUG="" _WU_LANG_ARG=""
 _WU_MANUAL=${_WU_MANUAL:-0}
 _WU_TOOLNAME=${_WU_TOOLNAME:-${_WU_NAME:-tool}}
@@ -73,16 +76,16 @@ wu_parse() {
         esac
     done
 
-    case "${_WU_COLOR,,}" in
+    case "$(_wlc "$_WU_COLOR")" in
         always|auto|never) : ;;
         *) printf '%s: --color must be always|auto|never\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
-    case "${_WU_LANG_ARG,,}" in
+    case "$(_wlc "$_WU_LANG_ARG")" in
         ""|ru|en|auto) : ;;
         *) printf '%s: --lang must be ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
 
-    case "${_WU_LANG_ARG,,}" in
+    case "$(_wlc "$_WU_LANG_ARG")" in
         ru) WELLUTILS_LANG=RU ;;
         en) WELLUTILS_LANG=EN ;;
         auto)
@@ -142,7 +145,21 @@ _ic()  { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$1"; return 0; }
 
 # Strip hand-drawn box frames from output (byte-safe, locale-independent).
 # Covers U+2500-U+257F (box drawing) plus tab compaction.
-_WU_BOXCHARS=($'\u2500' $'\u2501' $'\u2502' $'\u2503' $'\u2508' $'\u2509' $'\u250A' $'\u250B' $'\u250C' $'\u250D' $'\u250E' $'\u250F' $'\u2510' $'\u2511' $'\u2512' $'\u2513' $'\u2514' $'\u2515' $'\u2516' $'\u2517' $'\u2518' $'\u2519' $'\u251A' $'\u251B' $'\u251C' $'\u251D' $'\u251E' $'\u251F' $'\u2520' $'\u2521' $'\u2522' $'\u2523' $'\u2524' $'\u2525' $'\u2526' $'\u2527' $'\u2528' $'\u2529' $'\u252A' $'\u252B' $'\u252C' $'\u252D' $'\u252E' $'\u252F' $'\u2530' $'\u2531' $'\u2532' $'\u2533' $'\u2534' $'\u2535' $'\u2536' $'\u2537' $'\u2538' $'\u2539' $'\u253A' $'\u253B' $'\u253C' $'\u253D' $'\u253E' $'\u253F' $'\u2540' $'\u2541' $'\u2542' $'\u2543' $'\u2544' $'\u2545' $'\u2546' $'\u2547' $'\u2548' $'\u2549' $'\u254A' $'\u254B' $'\u254C' $'\u254D' $'\u254E' $'\u254F' $'\u2550' $'\u2551' $'\u2552' $'\u2553' $'\u2554' $'\u2555' $'\u2556' $'\u2557' $'\u2558' $'\u2559' $'\u255A' $'\u255B' $'\u255C' $'\u255D' $'\u255E' $'\u255F' $'\u2560' $'\u2561' $'\u2562' $'\u2563' $'\u2564' $'\u2565' $'\u2566' $'\u2567' $'\u2568' $'\u2569' $'\u256A' $'\u256B' $'\u256C' $'\u256D' $'\u256E' $'\u256F' $'\u2570' $'\u2571' $'\u2572' $'\u2573' $'\u2574' $'\u2575' $'\u2576' $'\u2577' $'\u2578' $'\u2579' $'\u257A' $'\u257B' $'\u257C' $'\u257D' $'\u257E' $'\u257F')
+# Built byte-wise (no $'\u...', which requires bash 4.2+).
+_wu_boxchar() {
+    local cp=$1 b1 b2 b3
+    b1=$((0xE0 | (cp >> 12)))
+    b2=$((0x80 | ((cp >> 6) & 0x3F)))
+    b3=$((0x80 | (cp & 0x3F)))
+    printf '%b' "$(printf '\\%03o\\%03o\\%03o' "$b1" "$b2" "$b3")"
+}
+_WU_BOXCHARS=()
+_wu_bc_cp=$((0x2500))
+while ((_wu_bc_cp <= 0x257F)); do
+    _WU_BOXCHARS+=("$(_wu_boxchar "$_wu_bc_cp")")
+    _wu_bc_cp=$((_wu_bc_cp + 1))
+done
+unset _wu_bc_cp _wu_boxchar
 _wu_plainify() {
     local line out="" c
     while IFS= read -r line; do

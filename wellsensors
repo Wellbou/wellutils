@@ -88,7 +88,7 @@ print_cpu() {
     for input_file in "$hwmon"/temp*_input; do
         [[ -f "$input_file" ]] || continue
         local idx
-        idx=$(basename "$input_file" | grep -oP '\d+')
+        idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
         local label_file="${hwmon}/temp${idx}_label"
         local high_file="${hwmon}/temp${idx}_high"
         local crit_file="${hwmon}/temp${idx}_crit"
@@ -162,7 +162,7 @@ print_acpi() {
             for input_file in "$hwmon"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
                 local idx
-                idx=$(basename "$input_file" | grep -oP '\d+')
+                idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
                 local raw_temp
                 raw_temp=$(cat "$input_file")
                 local temp=$(( raw_temp / 1000 ))
@@ -279,7 +279,13 @@ print_disks() {
     for dev in /dev/nvme*n*; do
         [[ -b "$dev" ]] || continue
         local temp
-        temp=$(nvme_run smart-log "$dev" 2>/dev/null | grep -oP 'temperature\s*:\s*\K\d+') || continue
+        temp=$(nvme_run smart-log "$dev" 2>/dev/null | awk '
+            /[Tt]emperature/ {
+                split($0, a, ":")
+                for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
+                    if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
+                }
+            }') || continue
         (( temp > 150 )) && continue
         local color emoji bar
         color=$(temp_color "$temp")
@@ -366,7 +372,7 @@ print_cooling() {
             for fan_file in "$base"/fan*_input; do
                 [[ -f "$fan_file" ]] || continue
                 local fidx rpm color
-                fidx=$(basename "$fan_file" | grep -oP '\d+')
+                fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
                 rpm=$(cat "$fan_file")
                 (( rpm > 0 )) || continue
                 if   (( rpm < 400 )); then color="$R"

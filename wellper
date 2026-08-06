@@ -49,6 +49,9 @@ norm_list() {
     printf '%s' "${out# }"
 }
 
+# bash 3.2-compatible lowercase (no ${var,,}; tr is in coreutils/busybox)
+_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
 parse_args() {
     while (( $# > 0 )); do
         case "$1" in
@@ -86,16 +89,16 @@ parse_args() {
 
 parse_args "$@"
 
-case "${_WU_COLOR,,}" in
+case "$(_wlc "$_WU_COLOR")" in
     always|auto|never) : ;;
     *) printf 'wellper: --color must be always|auto|never\n' >&2; exit 2 ;;
 esac
-case "${_LANG_ARG,,}" in
+case "$(_wlc "$_LANG_ARG")" in
     ""|ru|en|auto) : ;;
     *) printf 'wellper: --lang must be ru|en|auto\n' >&2; exit 2 ;;
 esac
-_WU_GROUPS=$(norm_list "${_WU_GROUPS,,}")
-_WU_SECTIONS=$(norm_list "${_WU_SECTIONS,,}")
+_WU_GROUPS=$(norm_list "$(_wlc "$_WU_GROUPS")")
+_WU_SECTIONS=$(norm_list "$(_wlc "$_WU_SECTIONS")")
 if [[ "$_WU_GROUPS" != "all" ]]; then
     for g in $_WU_GROUPS; do
         case "$g" in
@@ -115,7 +118,7 @@ fi
 [[ "$_WU_DEBUG" == "1" ]] && set -x
 
 # ─── Language (before sourcing lang.sh) ─────────────────────────
-case "${_LANG_ARG,,}" in
+case "$(_wlc "$_LANG_ARG")" in
     ru) WELLUTILS_LANG=RU ;;
     en) WELLUTILS_LANG=EN ;;
     auto)
@@ -207,15 +210,16 @@ unset _p
 usb_vendor_name() {
     [[ "$1" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
     [[ -n "$USB_IDS_FILE" ]] || return 0
-    grep -m1 -E "^${1,,} " "$USB_IDS_FILE" 2>/dev/null \
-        | sed -E 's/^[0-9a-f]{4}[[:space:]]+//' || true
+    awk -v v="$(_wlc "$1")" '
+        /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
+    ' "$USB_IDS_FILE"
 }
 usb_device_name() {
     [[ "$1" =~ ^[0-9a-fA-F]{4}$ && "$2" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
     [[ -n "$USB_IDS_FILE" ]] || return 0
-    awk -v v="${1,,}" -v p="${2,,}" '
-        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v) }
-        insec && $0 ~ "^" "\t" p " " { sub(/^[^ ]+ +/, ""); print; exit }
+    awk -v v="$(_wlc "$1")" -v p="$(_wlc "$2")" '
+        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v); next }
+        insec && $0 ~ "^" "\t" p "[[:space:]]" { sub(/^[^ ]+ +/, ""); print; exit }
     ' "$USB_IDS_FILE"
 }
 
@@ -482,7 +486,7 @@ pretty_conn() {
 }
 
 pnp_vendor() {
-    case "${1^^}" in
+    case "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" in
         VSC) printf '%s' "ViewSonic" ;;
         GSM|LGD) printf '%s' "LG" ;;
         ACR) printf '%s' "Acer" ;;

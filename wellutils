@@ -30,23 +30,27 @@ show_help() {
     printf '    %sblock%s     — Block device explorer\n' "$G" "$RESET"
     printf '    %smem%s       — Memory overview\n' "$G" "$RESET"
     printf '    %smod%s       — Kernel module explorer\n' "$G" "$RESET"
-    printf '    %ssensors%s   — System temperature monitor\n' "$G" "$RESET"
+    printf '    %swellsensors%s — System temperature monitor\n' "$G" "$RESET"
     printf '    %shw%s         — Hardware report (chat-ready)\n' "$G" "$RESET"
     printf '    %sper%s         — Peripherals report (USB, displays, audio)\n' "$G" "$RESET"
+    printf '    %sfetch%s       — System fetch (ASCII/PNG logo)\n' "$G" "$RESET"
     printf '\n'
-    printf '  %sAliases:%s  usb=wellusb  pci=wellpci  block=wellblock\n' "$DIM" "$RESET"
-    printf '                mem=wellmem  mod=wellmod  sensors=wellsensors\n'
-    printf '                hw=wellhw  per=wellper\n'
+    printf '  %sAliases:%s  usb=wellusb  wusb=wellusb  pci=wellpci  wpci=wellpci\n' "$DIM" "$RESET"
+    printf '                block=wellblock  wblock=wellblock  mem=wmem=wellmem\n'
+    printf '                ram=wram=wellram=wellmem  mod=wellmod\n'
+    printf '                wsensors=wellsensors  wtemp=wellsensors  hw=wellhw\n'
+    printf '                whw=wellhw  per=wellper  wper=wellper  fetch=wellfetch\n'
     printf '\n'
 
     local cur_lang="EN"
-    [[ -f "$_WU_LANG_FILE" ]] && cur_lang=$(grep -m1 '^[A-Z]' "$_WU_LANG_FILE" 2>/dev/null | tr -d '[:space:]')
+    [[ -f "$_WU_LANG_FILE" ]] && cur_lang=$(sed -n '/^[A-Z]/{p;q}' "$_WU_LANG_FILE" 2>/dev/null | tr -d '[:space:]')
     [[ -n "${WELLUTILS_LANG:-}" ]] && cur_lang="$WELLUTILS_LANG"
     printf '  %sCurrent language:%s %s%s%s\n\n' "$DIM" "$RESET" "$BOLD" "$cur_lang" "$RESET"
 }
 
 set_lang() {
-    local lang="${1^^}"
+    local lang
+    lang=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
     case "$lang" in
         RU|EN)
             mkdir -p "$(dirname "$_WU_LANG_FILE")"
@@ -81,14 +85,15 @@ while [[ $# -gt 0 ]]; do
             printf '%s %s\n' "wellutils" "1.3.0"
             exit 0
             ;;
-        usb|wellusb|wusb)    CMD="wellusb";     shift ;;
-        pci|wellpci|wpci)    CMD="wellpci";     shift ;;
-        block|wellblock|wblock) CMD="wellblock";  shift ;;
-        mem|wellmem|wmem)    CMD="wellmem";      shift ;;
-        mod|wellmod|wmod)    CMD="wellmod";      shift ;;
-        sensors|wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
-        hw|wellhw|whw)      CMD="wellhw";        shift ;;
-        per|wellper|wper)   CMD="wellper";       shift ;;
+        usb|wellusb|wusb)          CMD="wellusb";     shift ;;
+        pci|wellpci|wpci)          CMD="wellpci";     shift ;;
+        block|wellblock|wblock)    CMD="wellblock";   shift ;;
+        mem|wellmem|wmem|ram|wellram|wram) CMD="wellmem"; shift ;;
+        mod|wellmod|wmod)          CMD="wellmod";     shift ;;
+        wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
+        hw|wellhw|whw)             CMD="wellhw";      shift ;;
+        per|wellper|wper)          CMD="wellper";     shift ;;
+        fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
         *)
             printf '  %sError:%s unknown command "%s"\n\n' "$R" "$RESET" "$1"
             show_help

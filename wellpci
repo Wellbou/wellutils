@@ -57,41 +57,28 @@ pci_class_icon() {
     esac
 }
 
-# ─── PCI IDS Lookup ──────────────────────────────────────────────
-declare -A PCI_VENDOR_CACHE
-declare -A PCI_DEVICE_CACHE
-
-load_pci_ids() {
-    [[ -f "$PCI_IDS" ]] || return
-    local current_vendor=""
-    while IFS= read -r line; do
-        case "$line" in
-            \#*|"") continue ;;
-            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
-                current_vendor="${line:0:4}"
-                PCI_VENDOR_CACHE["${current_vendor,,}"]="${line:6}"
-                ;;
-            $'\t'[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]\ *)
-                local devid="${line:1:4}"
-                PCI_DEVICE_CACHE["${current_vendor,,}:${devid,,}"]="${line:6}"
-                ;;
-        esac
-    done < "$PCI_IDS"
-}
+# ─── PCI IDS Lookup (lazy, bash 3.2) ─────────────────────────────
+_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 pci_vendor_name() {
-    echo "${PCI_VENDOR_CACHE[${1,,}]:-Unknown}"
+    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "Unknown"; return 0; }
+    [[ -f "$PCI_IDS" ]] || { printf '%s' "Unknown"; return 0; }
+    awk -v v="$(_wlc "$1")" '
+        /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
+    ' "$PCI_IDS"
 }
 
 pci_device_name() {
-    local vid=$1 pid=$2
-    echo "${PCI_DEVICE_CACHE["${vid,,}:${pid,,}"]:-}"
+    [[ "$1" =~ ^[0-9a-f]{4}$ && "$2" =~ ^[0-9a-f]{4}$ ]] || return 0
+    [[ -f "$PCI_IDS" ]] || return 0
+    awk -v v="$(_wlc "$1")" -v p="$(_wlc "$2")" '
+        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v); next }
+        insec && $0 ~ "^" "\t" p "[[:space:]]" { sub(/^[^ ]+ +/, ""); print; exit }
+    ' "$PCI_IDS"
 }
 
 # ─── Main ────────────────────────────────────────────────────────
 main() {
-    load_pci_ids
-
     local line
     line=$(printf '═%.0s' $(seq 1 78))
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
@@ -101,7 +88,7 @@ main() {
     local -a ADDRS=() CLASSES=() DRIVERS=() VENDORS=() DEVICES=() DESCS=() VENDOR_NAMES=() DEVICE_NAMES=()
     local count=0
 
-    for devdir in /sys/bus/pci/devices/0000:*/; do
+    for devdir in /sys/bus/pci/devices/*/; do
         [[ -d "$devdir" ]] || continue
         local addr
         addr=$(basename "$devdir")

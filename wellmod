@@ -125,7 +125,20 @@ main() {
 
     printf '  %s│%s\n' "$C" "$RESET"
 
-    local -A cats=()
+    local -a cat_order=("gpu_dri" "audio" "usb" "storage" "filesystem" "networking" "wifi" "bluetooth" "virtualization" "display" "bus" "timer" "cpu_virt" "netfs" "other")
+    local -a cat_keys=("mod_gpu_dri" "mod_audio" "mod_usb" "mod_storage" "mod_filesystem" "mod_networking" "mod_wifi" "mod_bluetooth" "mod_virtualization" "mod_display" "mod_bus" "mod_timer" "mod_cpu_virt" "mod_netfs" "other")
+
+    # bash 3.2 has no associative arrays: keep per-category entries in an
+    # indexed array parallel to cat_order (index = cat_order lookup).
+    wu_cat_index() {
+        local c="$1" i
+        for (( i=0; i<${#cat_order[@]}; i++ )); do
+            [[ "${cat_order[$i]}" == "$c" ]] && { printf '%s' "$i"; return 0; }
+        done
+        printf '%s' "$(( ${#cat_order[@]} - 1 ))"
+    }
+
+    local -a cats=()
     for (( i=0; i<total; i++ )); do
         local name="${names[$i]}"
         local size="${sizes[$i]}"
@@ -149,20 +162,18 @@ main() {
             mac80211|cfg80211|rt2*) cat="wifi"; icon="$(_emu '📡')" ;;
         esac
 
-        if [[ -z "${cats[$cat]+x}" ]]; then
-            cats[$cat]="$name:$size"
+        local ci
+        ci=$(wu_cat_index "$cat")
+        if [[ -z "${cats[$ci]:-}" ]]; then
+            cats[$ci]="$name:$size"
         else
-            cats[$cat]="${cats[$cat]}|$name:$size"
+            cats[$ci]="${cats[$ci]}|$name:$size"
         fi
     done
 
-    local -a cat_order=("gpu_dri" "audio" "usb" "storage" "filesystem" "networking" "wifi" "bluetooth" "virtualization" "display" "bus" "timer" "cpu_virt" "netfs" "other")
-    local -a cat_keys=("mod_gpu_dri" "mod_audio" "mod_usb" "mod_storage" "mod_filesystem" "mod_networking" "mod_wifi" "mod_bluetooth" "mod_virtualization" "mod_display" "mod_bus" "mod_timer" "mod_cpu_virt" "mod_netfs" "other")
-
     for ci in "${!cat_order[@]}"; do
-        local catkey="${cat_order[$ci]}"
-        [[ -z "${cats[$catkey]+x}" ]] && continue
-        local entries="${cats[$catkey]}"
+        [[ -z "${cats[$ci]:-}" ]] && continue
+        local entries="${cats[$ci]}"
 
         local first_name
         first_name=$(echo "$entries" | cut -d: -f1)
@@ -170,7 +181,7 @@ main() {
         icon=$(module_icon "$first_name")
 
         local display_name
-        if [[ "$catkey" == "other" ]]; then
+        if [[ "$cat_order[$ci]" == "other" ]]; then
             display_name="Other"
             [[ "$WELLUTILS_LANG" == "RU" ]] && display_name="Прочее"
         else
