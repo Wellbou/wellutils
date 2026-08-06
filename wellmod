@@ -47,17 +47,18 @@ module_icon() {
     local name=$1
     case "$name" in
         nvidia*|nouveau*)     printf ''"$(_emu "🎮")"'' ;;
-        snd_*|sound*)         printf ''"$(_emu "🔊")"'' ;;
-        usb_*)                printf ''"$(_emu "🔌")"'' ;;
-        sd*|ahci|ata_*)       printf ''"$(_emu "💾")"'' ;;
-        ext4|xfs|btrfs|vfat)  printf ''"$(_emu "📁")"'' ;;
-        ip_tables|nf_|ipt_)   printf ''"$(_ic "🛡️")"'' ;;
-        nouveau|drm*)         printf ''"$(_ic "🖥️")"'' ;;
-        bluetooth|bt*)        printf ''"$(_emu "📶")"'' ;;
-        vmw_*|vsock*)         printf ''"$(_ic "☁️")"'' ;;
-        ip6*|ipv6*)           printf ''"$(_emu "🌐")"'' ;;
-        rfkill*)              printf ''"$(_emu "📡")"'' ;;
-        *)                    printf ''"$(_emu "📦")"'' ;;
+        snd_*|sound*|pulse*)   printf ''"$(_emu "🔊")"'' ;;
+        usb_*|uas|usb*)        printf ''"$(_emu "🔌")"'' ;;
+        sd*|ahci|ata_*|scsi*)  printf ''"$(_emu "💾")"'' ;;
+        ext4|xfs|btrfs|vfat|fuse*) printf ''"$(_emu "📁")"'' ;;
+        ip_*|nf_*|ipt_*|ip6*|nft*) printf ''"$(_emu "🌐")"'' ;;
+        drm*|fb*|video*)        printf ''"$(_ic "🖥️")"'' ;;
+        bluetooth*|bt*|rfkill*) printf ''"$(_emu "📶")"'' ;;
+        vmw_*|vsock*)           printf ''"$(_ic "☁️")"'' ;;
+        i2c_*|i801*|smbus*)     printf ''"$(_emu "🔗")"'' ;;
+        rtc*|timer*|hpet*)      printf ''"$(_emu "⏰")"'' ;;
+        intel_*|amd_*|kvm*)     printf ''"$(_emu "🧠")"'' ;;
+        *)                      printf ''"$(_emu "📦")"'' ;;
     esac
 }
 
