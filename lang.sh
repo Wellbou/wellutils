@@ -37,6 +37,7 @@ _t_EN() {
         usb_type)           printf '%s' "Type" ;;
         usb_unknown)        printf '%s' "Unknown Device" ;;
         usb_legend)         printf '%s' "Legend" ;;
+        usb_speed_15)       printf '%s' "USB 1.0 (1.5 Mbps)" ;;
         usb_speed_12)       printf '%s' "USB 1.1 (12 Mbps)" ;;
         usb_speed_480)      printf '%s' "USB 2.0 (480 Mbps)" ;;
         usb_speed_5000)     printf '%s' "USB 3.0 (5 Gbps)" ;;
@@ -210,6 +211,7 @@ _t_RU() {
         usb_type)           printf '%s' "Тип" ;;
         usb_unknown)        printf '%s' "Неизвестное устройство" ;;
         usb_legend)         printf '%s' "Легенда" ;;
+        usb_speed_15)       printf '%s' "USB 1.0 (1.5 Мбит/с)" ;;
         usb_speed_12)       printf '%s' "USB 1.1 (12 Мбит/с)" ;;
         usb_speed_480)      printf '%s' "USB 2.0 (480 Мбит/с)" ;;
         usb_speed_5000)     printf '%s' "USB 3.0 (5 Гбит/с)" ;;

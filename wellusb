@@ -67,6 +67,7 @@ speed_color() {
 
 speed_name() {
     case "$1" in
+        1.5)    t usb_speed_15 ;;
         12)     t usb_speed_12 ;;
         480)    t usb_speed_480 ;;
         5000)   t usb_speed_5000 ;;
@@ -220,6 +221,8 @@ main() {
                 # "P:  Vendor=1d6b ProdID=0002 ..."
                 case "$line" in
                     *Vendor=*) cur_vid=${line#*Vendor=};  cur_vid=${cur_vid%% *} ;;
+                esac
+                case "$line" in
                     *ProdID=*) cur_pid=${line#*ProdID=};  cur_pid=${cur_pid%% *} ;;
                 esac
                 ;;

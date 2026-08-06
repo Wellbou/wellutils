@@ -114,7 +114,7 @@ main() {
         local icon
         icon=$(module_icon "$name")
 
-        printf '  %s│%s  %s%s%2d.%s %s %-24s%s %s%10s%s' \
+        printf '  %s│%s  %s%s%2d.%s %s %s%-24s%s %s%10s%s' \
             "$C" "$RESET" "$BOLD" "$W" "$rank" "$RESET" "$icon" "$BOLD" "$name" "$RESET" "$sc" "$size_h" "$RESET"
 
         if [[ "$used" != "0" ]]; then
@@ -199,7 +199,7 @@ main() {
             local mc
             mc=$(size_color "$msize")
 
-            printf '  %s│%s  %s %-24s%s %s%10s%s\n' \
+            printf '  %s│%s  %s %s%-24s%s %s%10s%s\n' \
                 "$C" "$RESET" "$icon" "$BOLD" "$mname" "$RESET" "$mc" "$mh" "$RESET"
         done
         printf '  %s│%s\n' "$C" "$RESET"

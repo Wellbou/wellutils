@@ -145,6 +145,20 @@ function Emoji-On {
     if ($script:WU_EMOJI -eq 'yes') { return $true }
     return $script:HAS_VT
 }
+function Apply-WuStyle {
+    # consume $st (parsed flags) into render globals; box/plain override,
+    # otherwise auto-detect plaintext from TTY (no boxes/emoji in pipes).
+    param($st)
+    $script:WU_COLOR = $st.color
+    $script:WU_EMOJI = $st.emoji
+    if ($st.box) {
+        $script:WU_PLAIN = $false
+    } elseif ($st.plain) {
+        $script:WU_PLAIN = $true
+    } else {
+        $script:WU_PLAIN = -not $script:WU_TTY
+    }
+}
 
 # ─── CLI parsing (mirror of cli.sh) ────────────────────────────────
 function Parse-WuArgs {
@@ -301,7 +315,7 @@ function Show-WuMem {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'mem'; exit 0 }
     if ($st.version) { Show-ToolVersion 'mem' }
@@ -333,7 +347,7 @@ function Show-WuHw {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'hw'; exit 0 }
     if ($st.version) { Show-ToolVersion 'hw' }
@@ -383,7 +397,7 @@ function Show-WuUsb {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'usb'; exit 0 }
     if ($st.version) { Show-ToolVersion 'usb' }
@@ -405,7 +419,7 @@ function Show-WuPci {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'pci'; exit 0 }
     if ($st.version) { Show-ToolVersion 'pci' }
@@ -425,7 +439,7 @@ function Show-WuBlock {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'block'; exit 0 }
     if ($st.version) { Show-ToolVersion 'block' }
@@ -455,7 +469,7 @@ function Show-WuMod {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'mod'; exit 0 }
     if ($st.version) { Show-ToolVersion 'mod' }
@@ -474,7 +488,7 @@ function Show-WuSensors {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'sensors'; exit 0 }
     if ($st.version) { Show-ToolVersion 'sensors' }
@@ -501,7 +515,7 @@ function Show-WuPer {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) { Show-ToolUsage 'per'; exit 0 }
     if ($st.version) { Show-ToolVersion 'per' }
@@ -541,11 +555,19 @@ function Write-WuLogo {
     }
     foreach ($l in $logo) { Write-Wu ("{0}{1}{2}" -f $c.M, $l, $c.RESET) }
 }
+function Get-VisLen { param([string]$S)
+    ($S -replace "\x1b\[[0-9;]*m", '').Length
+}
+function Format-WuPair { param($p, [int]$Pad, [bool]$Plain)
+    if ($Plain) { return ("{0}: {1}" -f $p.k, $p.v) }
+    $c = $script:C
+    return ("{0}{1}{2}  {3}{4}{5}" -f $c.B, $p.k.PadRight($Pad + 2), $c.RESET, $c.W, $p.v, $c.RESET)
+}
 function Show-WuFetch {
     param([string[]]$RawArgs)
     $st = Parse-WuArgs -Raw $RawArgs -Extra @('--no-logo', '--full')
     if (-not $st) { exit 2 }
-    $script:WU_COLOR = $st.color; $script:WU_PLAIN = $st.plain; $script:WU_EMOJI = $st.emoji
+    Apply-WuStyle $st
     Init-WuColors
     if ($st.help) {
         Show-ToolUsage 'fetch'
@@ -586,10 +608,24 @@ function Show-WuFetch {
     if ($script:WF_LOGO) { Write-WuLogo }
     $pad = 0
     foreach ($p in $pairs) { if ($p.k.Length -gt $pad) { $pad = $p.k.Length } }
-    $c = $script:C
-    foreach ($p in $pairs) {
-        if ($script:WU_PLAIN) { Write-Wu ("{0}: {1}" -f $p.k, $p.v) }
-        else { Write-Wu ("{0}{1}{2}  {3}{4}{5}" -f $c.B, $p.k.PadRight($pad + 2), $c.RESET, $c.W, $p.v, $c.RESET) }
+    if ($script:WF_FULL -or $script:WU_PLAIN) {
+        foreach ($p in $pairs) { Write-Wu (Format-WuPair $p $pad $script:WU_PLAIN) }
+    } else {
+        # default: pair short sections on one line (gap 6, cap 74 like bash)
+        $pending = $null
+        foreach ($p in $pairs) {
+            if ($null -eq $pending) { $pending = $p; continue }
+            $l1 = Format-WuPair $pending $pad $false
+            $l2 = Format-WuPair $p $pad $false
+            if ((Get-VisLen $l1) + 6 + (Get-VisLen $l2) -le 74) {
+                Write-Wu ($l1 + (' ' * 6) + $l2)
+                $pending = $null
+            } else {
+                Write-Wu $l1
+                $pending = $p
+            }
+        }
+        if ($null -ne $pending) { Write-Wu (Format-WuPair $pending $pad $false) }
     }
     Write-Wu ''
 }
@@ -601,9 +637,10 @@ function Show-LauncherHelp {
     if ($script:WU_PLAIN) {
         Write-Wu 'wellutils — System Utility Kit (Windows)'
     } else {
-        $bar = '═' * 44
+        $title = 'wellutils — System Utility Kit (Windows)'
+        $bar = '═' * ($title.Length + 4)
         Write-Wu ("{0}╔{1}╗{2}" -f $c.Cc, $bar, $c.RESET)
-        Write-Wu ("{0}║{1}  {2} wellutils — System Utility Kit (Windows){3}║{4}" -f $c.Cc, $c.RESET, $c.BOLD, $c.RESET, $c.Cc)
+        Write-Wu ("{0}║{1}  {2} {3}║{4}" -f $c.Cc, $c.RESET, $c.BOLD, (($title) + ($c.RESET)), $c.Cc)
         Write-Wu ("{0}╚{1}╝{2}" -f $c.Cc, $bar, $c.RESET)
     }
     Write-Wu ''

@@ -52,7 +52,8 @@ set_lang() {
     local lang
     lang=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
     case "$lang" in
-        RU|EN)
+        RU|EN|ENG)
+            [[ "$lang" == "ENG" ]] && lang="EN"
             mkdir -p "$(dirname "$_WU_LANG_FILE")"
             echo "$lang" > "$_WU_LANG_FILE"
             printf '  %sLanguage set to:%s %s%s%s\n\n' "$G" "$RESET" "$BOLD" "$lang" "$RESET"
