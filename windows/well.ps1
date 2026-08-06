@@ -183,6 +183,7 @@ function Parse-WuArgs {
     if ($st.color -notin @('always', 'auto', 'never')) { Wu-Fail '--color must be always|auto|never'; return $null }
     if ($st.lang -eq 'ru') { $script:WU_LANG = 'RU' }
     elseif ($st.lang -eq 'en') { $script:WU_LANG = 'EN' }
+    if ($st.debug) { $script:WU_DEBUG = $true; Set-PSDebug -Trace 1 }
     return $st
 }
 function Wu-Fail { param([string]$Msg)
@@ -322,7 +323,7 @@ function Show-WuMem {
     Write-WuRow (T total)  (Format-Kb $total)
     Write-WuRow (T used)   ((Format-Kb $used) + '   ' + (Write-WuBar $pct))
     Write-WuRow (T free)   (Format-Kb $free)
-    Write-WuRow (T available) (Format-Kb ([double]$os[0].TotalVisibleMemorySize - [double]$os[0].FreePhysicalMemory))
+    Write-WuRow (T available) (Format-Kb $free)
     Write-WuRow 'Pagefile' (Format-Kb ([double]$os[0].TotalVirtualMemorySize - [double]$os[0].FreeVirtualMemory))
     Write-Wu ''
 }
@@ -576,10 +577,9 @@ function Show-WuFetch {
     $pairs.Add(@{ k = (T user); v = (Get-WuUser) })
     if ($cpu.Count -gt 0) { $pairs.Add(@{ k = (T cpu); v = (Fmt-Val $cpu[0].Name (T unknown)) }) }
     if ($gpu.Count -gt 0) { $pairs.Add(@{ k = (T gpu); v = (Fmt-Val $gpu[0].Name (T unknown)) }) }
-    $os2 = Get-WuCim 'Win32_OperatingSystem'
-    if ($os2.Count -gt 0) {
-        $tot = [double]$os2[0].TotalVisibleMemorySize
-        $fre = [double]$os2[0].FreePhysicalMemory
+    if ($os.Count -gt 0) {
+        $tot = [double]$os[0].TotalVisibleMemorySize
+        $fre = [double]$os[0].FreePhysicalMemory
         $pairs.Add(@{ k = (T ram); v = ((Format-Kb $fre) + ' / ' + (Format-Kb $tot)) })
     }
     $pairs.Add(@{ k = (T shell); v = $PSVersionTable.PSVersion.ToString() })
