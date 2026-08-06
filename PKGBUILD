@@ -60,13 +60,13 @@ sha256sums=('6ada541e44f7151d8ca90a820613b5d85b4d900354f925dde2b072acd878d075'
             'ed1b91e44fdb34392428b6f53c26321085c8e1ee325428b389c31e1b7a3cd31e'
             '48cee132ad9365940538def87fbe8c355a25ee11f8c750ec52244ac509ac9104'
             '2c82bb7f2907ab4e9bcd80a71debdda175cd16f8fe6b962b5f05e1077423ec94'
-            'b42a16572a0e1b2c8abc66e33a50cf876b0d275a4e4572c54231bf8d76c4c642'
+            '2a2ef1f96497f45278ab6808e0583761b48fafd47cfdb53d3a36157dc0e66799'
             '996bd8e27adffaacb774a2135155c0e9d32f15189679c51563f66f29215c778f'
             '84b9103f0b9125178ba351729c97ecde37bb4ee15aba1a34c3d0fca5a576e35e'
-            'a2664c6d24cb5f0e5f3c1461d7ee3cc6555ea4ba9c71727d37426f6fdc9e34d6'
-            'a98c8b95cb7f1184de02846dee8122a48b83550d209a64f83f0fedf749b78c06'
+            '83bdf87e805a90ab22908d5a02fa90d3709e675b2427f7506bd7e5d9d297864f'
+            'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
             'a048bbf8c6df62a8700a4e2af8d764a13728650459bcba11087a406cf8a3c3c0'
-            '79566a7b95fb6d14bf3fdd72fab8b21e71a04c2dee8b65fbe36d3f8244d8bea3'
+            '8760310175f070d2d456f2b2ef57f25d5a24839990b909dd949f33d830692455'
             '8e21a1f517077ba7a1e687c743bf0f1801b8796118c6e2df0615ef7365740183'
             '3518a7fbcc90eb621e856d914e34ddf194e6f1974ce7b824cbf7ce2906669268'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
@@ -112,6 +112,18 @@ package() {
         wellfetch \
         wellutils \
         "${pkgdir}/usr/bin/"
+    ln -s wellusb      "${pkgdir}/usr/bin/wusb"
+    ln -s wellpci      "${pkgdir}/usr/bin/wpci"
+    ln -s wellblock    "${pkgdir}/usr/bin/wblock"
+    ln -s wellmem      "${pkgdir}/usr/bin/wmem"
+    ln -s wellmem      "${pkgdir}/usr/bin/wram"
+    ln -s wellmem      "${pkgdir}/usr/bin/wellram"
+    ln -s wellmod      "${pkgdir}/usr/bin/wmod"
+    ln -s wellsensors  "${pkgdir}/usr/bin/wsensors"
+    ln -s wellsensors  "${pkgdir}/usr/bin/wtemp"
+    ln -s wellhw       "${pkgdir}/usr/bin/whw"
+    ln -s wellper      "${pkgdir}/usr/bin/wper"
+    ln -s wellfetch    "${pkgdir}/usr/bin/wfetch"
     install -m644 \
         lang.sh \
         box.sh \

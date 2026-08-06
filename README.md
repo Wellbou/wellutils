@@ -18,9 +18,10 @@ and a lightweight, zero-dependency PowerShell port for Windows 10/11.
 | `wellfetch`   | System fetch (ASCII/PNG logo, distro info)                 |
 | `wellutils`   | Launcher: `wellutils hw`, `wellutils mem`, ...             |
 
-Short aliases are accepted by the launcher: `wusb`, `wpci`, `wblock`,
-`wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`, `whw`, `wper`,
-`wfetch` (e.g. `wellutils wram --plain`). Note: `wellutils sensors` is
+Short aliases are installed as commands (symlinks): `wusb`, `wpci`,
+`wblock`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`, `whw`,
+`wper`, `wfetch` — e.g. `wtemp --plain`. The launcher also accepts them
+as arguments: `wellutils wram --plain`. Note: `wellutils sensors` is
 intentionally *not* an alias — it would shadow the `sensors` binary
 from lm_sensors.
 
