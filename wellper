@@ -299,7 +299,7 @@ classify() {
             printf '%s' storage; return ;;
         *printer*|*scanner*|*mfp*|*inkjet*|*laserjet*|*deskjet*|*officejet*|*multifunction*)
             printf '%s' printer; return ;;
-        *phone*|*huawei*|*honor*|*xiaomi*|*redmi*|*pixel*|*galaxy*|*samsung*|*nokia*|*oppo*|*vivo*|*oneplus*|*realme*|*android*|*mao-lx*|*iphone*|*ipad*)
+        *phone*|*mobile*|*android*|*galaxy*|*pixel*|*mao-lx*|*redmi*|*oneplus*|*realme*|*iphone*|*ipad*)
             printf '%s' phone; return ;;
     esac
 
