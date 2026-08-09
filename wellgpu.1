@@ -1,0 +1,62 @@
+.TH WELLGPU 1 "August 2026" "wellgpu 1.0" "wellutils"
+.SH NAME
+Wellgpu \- graphics adapter overview: bus, vendor, driver and live NVIDIA statistics
+.SH SYNOPSIS
+.B wellgpu
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellgpu
+.PP
+Lists graphics adapters (VGA and 3D controllers) with their PCI bus
+address, vendor, device model and the kernel driver in use. When an
+NVIDIA adapter with the proprietary driver is present, a second section
+shows live statistics from \fBnvidia-smi\fR: driver version, VRAM usage,
+temperature, utilization, GPU/memory clocks, power draw and fan speed.
+.PP
+When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1), .BR wellcpu (1), .BR wellblock (1)

@@ -13,17 +13,25 @@ and a lightweight, zero-dependency PowerShell port for Windows 10/11.
 | `wellusb`     | USB device listing with hwdata IDS lookup                  |
 | `wellpci`     | PCI device listing with class descriptions                 |
 | `wellblock`   | Block devices, partitions, mount points                    |
+| `wellcpu`     | CPU topology, frequencies, features, per-core load         |
+| `wellgpu`     | Graphics adapters: bus, vendor, driver, live NVIDIA stats  |
 | `wellmod`     | Loaded kernel modules                                      |
 | `wellsensors` | Temperatures and fans (hwmon / lm_sensors / nvidia-smi)    |
 | `wellfetch`   | System fetch (ASCII/PNG logo, distro info)                 |
 | `wellutils`   | Launcher: `wellutils hw`, `wellutils mem`, ...             |
 
 Short aliases are installed as commands (symlinks): `wusb`, `wpci`,
-`wblock`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`, `whw`,
-`wper`, `wfetch` — e.g. `wtemp --plain`. The launcher also accepts them
-as arguments: `wellutils wram --plain`. Note: `wellutils sensors` is
-intentionally *not* an alias — it would shadow the `sensors` binary
-from lm_sensors.
+`wblock`, `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`,
+`wsensors`/`wtemp`, `whw`, `wper`, `wfetch` — e.g. `wtemp --plain`. The
+launcher also accepts them as arguments: `wellutils wram --plain`. Note:
+`wellutils sensors` is intentionally *not* an alias — it would shadow
+the `sensors` binary from lm_sensors.
+
+`wellblock` takes an optional argument `[N|device]` to show a detail
+view for a single disk: partitions and a S.M.A.R.T. health report
+(overall status plus the critical attributes table) read via
+`smartctl` with passwordless sudo when available. Example:
+`wblock 0` (first disk), `wblock sdb` or `wblock /dev/sdb`.
 
 ## Install
 
@@ -91,13 +99,18 @@ tool [options]
   The ID table ships as `/usr/share/wellutils/jedec.sh`.
 - **No root needed**: everything is read from sysfs/`/proc`; dmidecode and
   decode-dimms are used with passwordless sudo when available (optional).
+- **S.M.A.R.T. health in `wellblock`**: the per-disk detail view checks
+  the overall health and flags failing critical attributes (reallocated
+  sectors, pending/uncorrectable errors, CRC errors) in colour.
 
 ## Dependencies
 
 Required: `bash`, `python`, `coreutils`, `procps-ng`, `hwdata`.
 
-Optional: `pciutils`, `usbutils`, `smartmontools`, `nvme-cli`, `dmidecode`,
-`i2c-tools` (decode-dimms fallback for RAM detail).
+Optional: `pciutils`, `usbutils`, `smartmontools` (wellsensors and
+wellblock S.M.A.R.T.), `nvme-cli`, `dmidecode`, `i2c-tools`
+(decode-dimms fallback for RAM detail), `util-linux` (lscpu for
+wellcpu).
 
 ## License
 

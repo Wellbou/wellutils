@@ -1,0 +1,63 @@
+.TH WELLCPU 1 "August 2026" "wellcpu 1.0" "wellutils"
+.SH NAME
+Wellcpu \- CPU overview: model, topology, caches, per-core load and frequencies
+.SH SYNOPSIS
+.B wellcpu
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellcpu
+.PP
+Reports the processor: model name, architecture, socket/core/thread
+topology, base and maximum frequencies, cache hierarchy (L1d/L1i/L2/L3),
+notable instruction-set features (AVX, AVX2, AVX-512, AES, ...),
+virtualization support, hypervisor detection and the current cpufreq
+governor. A second section shows live per-core utilization with a load
+bar and the current per-core frequency read from sysfs.
+.PP
+When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1), .BR wellgpu (1), .BR wellblock (1)

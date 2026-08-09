@@ -59,7 +59,7 @@ temp_bar() {
 
 temp_emoji() {
     local t=$1
-    if   (( t < 35 )); then printf ''"$(_ic "❄️")"''
+    if   (( t < 35 )); then printf ''"$(_emu "❄️")"''
     elif (( t < 50 )); then printf ''"$(_emu "🌊")"''
     elif (( t < 65 )); then printf ''"$(_emu "🔥")"''
     elif (( t < 80 )); then printf ''"$(_emu "🌋")"''
@@ -86,6 +86,7 @@ valid_temp() {
 
 tline() {
     local emoji="$1" label="$2" temp="$3" bar="$4" suffix="${5:-}"
+    emoji="${emoji% }"
     local color pad_l val
     color=$(temp_color "$temp")
     pad_l=$(_wu_pad_r "$label" 14)
@@ -413,9 +414,9 @@ print_cooling() {
     done
 
     pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${real_fan} $(t sens_devices)${RESET}"
-    pline_hw "$(_ic '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
+    pline_hw "$(_emu '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
     pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
-    (( acpi_fan > 0 )) && pline_hw "$(_ic '📋')" "$(t sens_acpi_fans)" "${DIM}${acpi_fan}${RESET}"
+    (( acpi_fan > 0 )) && pline_hw "$(_emu '📋')" "$(t sens_acpi_fans)" "${DIM}${acpi_fan}${RESET}"
 
     if (( real_fan == 0 )); then
         pline "${DIM}$(t sens_no_fan_rpm)${RESET}"
@@ -512,7 +513,7 @@ main() {
     box "$(_emu '🧠')" "$(t sens_sys_overview)" print_system
     box "$(_emu '🔥')" "$(t sens_cpu_cores)" print_cpu
     box "$(_emu '🎮')" "$(t sens_gpu)" print_gpu
-    box "$(_ic '🌡️')" "$(t sens_acpi)" print_acpi
+    box "$(_emu '🌡️')" "$(t sens_acpi)" print_acpi
     box "$(_emu '📡')" "$(t sens_thermal)" print_thermal_zones
     box "$(_emu '🔌')" "$(t sens_sensors)" print_network_temp
     box "$(_emu '💾')" "$(t sens_storage)" print_disks

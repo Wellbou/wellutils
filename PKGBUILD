@@ -2,20 +2,21 @@
 # PKGBUILD for the wellutils suite of system/peripheral reporting tools.
 
 pkgname=wellutils
-pkgver=1.3.0
+pkgver=1.4.0
 pkgrel=1
-pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellmod, wellfetch)"
+pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
 license=('MIT')
 depends=('bash' 'python' 'coreutils' 'procps-ng' 'hwdata')
 optdepends=(
-    'pciutils: PCI descriptions and listing (wellpci, wellhw)'
+    'pciutils: PCI descriptions and listing (wellpci, wellhw, wellgpu)'
     'usbutils: USB device enumeration (wellusb)'
-    'smartmontools: disk temperature monitoring (wellsensors)'
+    'smartmontools: disk temperature monitoring (wellsensors) and S.M.A.R.T. health (wellblock)'
     'nvme-cli: NVMe temperature monitoring (wellsensors)'
     'dmidecode: detailed memory info (wellhw)'
     'i2c-tools: decode-dimms SPD fallback for RAM detail (wellhw)'
+    'util-linux: lscpu topology info (wellcpu)'
 )
 source=(
     'wellper'
@@ -25,6 +26,8 @@ source=(
     'wellusb'
     'wellpci'
     'wellblock'
+    'wellcpu'
+    'wellgpu'
     'wellmod'
     'wellutils'
     'wellfetch'
@@ -42,12 +45,16 @@ source=(
     'wellusb.1'
     'wellblock.1'
     'wellpci.1'
+    'wellcpu.1'
+    'wellgpu.1'
     'wellmod.1'
     'wellsensors.1'
     'wellhw.bash'
     'wellmem.bash'
     'wellusb.bash'
     'wellblock.bash'
+    'wellcpu.bash'
+    'wellgpu.bash'
     'wellpci.bash'
     'wellmod.bash'
     'wellsensors.bash'
@@ -56,291 +63,20 @@ source=(
     'wellutils.bash'
     'LICENSE'
 )
-==> Получение исходных файлов...
-  -> Найден wellper
-  -> Найден wellhw
-  -> Найден wellmem
-  -> Найден wellsensors
-  -> Найден wellusb
-  -> Найден wellpci
-  -> Найден wellblock
-  -> Найден wellmod
-  -> Найден wellutils
-  -> Найден wellfetch
-  -> Найден lang.sh
-  -> Найден box.sh
-  -> Найден cli.sh
-  -> Найден jedec.sh
-  -> Найден wfetch_art.py
-  -> Найден logo.png
-  -> Найден wellper.1
-  -> Найден wellutils.1
-  -> Найден wellfetch.1
-  -> Найден wellhw.1
-  -> Найден wellmem.1
-  -> Найден wellusb.1
-  -> Найден wellblock.1
-  -> Найден wellpci.1
-  -> Найден wellmod.1
-  -> Найден wellsensors.1
-  -> Найден wellhw.bash
-  -> Найден wellmem.bash
-  -> Найден wellusb.bash
-  -> Найден wellblock.bash
-  -> Найден wellpci.bash
-  -> Найден wellmod.bash
-  -> Найден wellsensors.bash
-  -> Найден wellfetch.bash
-  -> Найден wellper.bash
-  -> Найден wellutils.bash
-  -> Найден LICENSE
-==> Подсчёт контрольных сумм исходных файлов...
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 59: ==: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 60: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 61: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 62: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 63: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 64: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 65: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 66: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 67: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 68: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 69: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 70: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 71: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 72: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 73: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 74: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 75: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 76: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 77: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 78: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 79: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 80: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 81: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 82: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 83: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 84: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 85: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 86: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 87: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 88: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 89: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 90: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 91: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 92: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 93: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 94: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 95: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 96: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 97: ==: command not found
-==> Получение исходных файлов...
-  -> Найден wellper
-  -> Найден wellhw
-  -> Найден wellmem
-  -> Найден wellsensors
-  -> Найден wellusb
-  -> Найден wellpci
-  -> Найден wellblock
-  -> Найден wellmod
-  -> Найден wellutils
-  -> Найден wellfetch
-  -> Найден lang.sh
-  -> Найден box.sh
-  -> Найден cli.sh
-  -> Найден jedec.sh
-  -> Найден wfetch_art.py
-  -> Найден logo.png
-  -> Найден wellper.1
-  -> Найден wellutils.1
-  -> Найден wellfetch.1
-  -> Найден wellhw.1
-  -> Найден wellmem.1
-  -> Найден wellusb.1
-  -> Найден wellblock.1
-  -> Найден wellpci.1
-  -> Найден wellmod.1
-  -> Найден wellsensors.1
-  -> Найден wellhw.bash
-  -> Найден wellmem.bash
-  -> Найден wellusb.bash
-  -> Найден wellblock.bash
-  -> Найден wellpci.bash
-  -> Найден wellmod.bash
-  -> Найден wellsensors.bash
-  -> Найден wellfetch.bash
-  -> Найден wellper.bash
-  -> Найден wellutils.bash
-  -> Найден LICENSE
-==> Подсчёт контрольных сумм исходных файлов...
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 59: ==: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 60: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 61: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 62: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 63: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 64: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 65: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 66: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 67: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 68: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 69: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 70: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 71: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 72: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 73: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 74: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 75: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 76: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 77: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 78: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 79: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 80: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 81: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 82: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 83: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 84: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 85: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 86: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 87: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 88: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 89: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 90: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 91: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 92: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 93: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 94: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 95: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 96: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 97: ==: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 98: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 99: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 100: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 101: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 102: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 103: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 104: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 105: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 106: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 107: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 108: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 109: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 110: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 111: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 112: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 113: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 114: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 115: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 116: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 117: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 118: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 119: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 120: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 121: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 122: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 123: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 124: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 125: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 126: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 127: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 128: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 129: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 130: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 131: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 132: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 133: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 134: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 135: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 136: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 137: ==: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 138: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 139: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 140: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 141: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 142: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 143: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 144: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 145: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 146: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 147: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 148: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 149: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 150: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 151: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 152: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 153: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 154: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 155: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 156: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 157: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 158: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 159: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 160: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 161: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 162: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 163: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 164: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 165: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 166: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 167: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 168: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 169: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 170: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 171: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 172: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 173: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 174: -: command not found
-/home/wellbou_/.wellutils-src/PKGBUILD: строка 175: ==: command not found
-==> Получение исходных файлов...
-  -> Найден wellper
-  -> Найден wellhw
-  -> Найден wellmem
-  -> Найден wellsensors
-  -> Найден wellusb
-  -> Найден wellpci
-  -> Найден wellblock
-  -> Найден wellmod
-  -> Найден wellutils
-  -> Найден wellfetch
-  -> Найден lang.sh
-  -> Найден box.sh
-  -> Найден cli.sh
-  -> Найден jedec.sh
-  -> Найден wfetch_art.py
-  -> Найден logo.png
-  -> Найден wellper.1
-  -> Найден wellutils.1
-  -> Найден wellfetch.1
-  -> Найден wellhw.1
-  -> Найден wellmem.1
-  -> Найден wellusb.1
-  -> Найден wellblock.1
-  -> Найден wellpci.1
-  -> Найден wellmod.1
-  -> Найден wellsensors.1
-  -> Найден wellhw.bash
-  -> Найден wellmem.bash
-  -> Найден wellusb.bash
-  -> Найден wellblock.bash
-  -> Найден wellpci.bash
-  -> Найден wellmod.bash
-  -> Найден wellsensors.bash
-  -> Найден wellfetch.bash
-  -> Найден wellper.bash
-  -> Найден wellutils.bash
-  -> Найден LICENSE
-==> Подсчёт контрольных сумм исходных файлов...
 sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             'a73aed1a546a2b51a75e0c72a6089ffb1c78836cd6f27fcae97f2e13e06a4425'
             '6d6c56a71f6f2e3833093563bb2611741735abfda0871a96a3f73ac5d821b154'
-            '9491ee58fd984789cda4f617d177af456f87515d0c2ba69fc0050b8517437c38'
+            'e91a39ca47f26168a496e3215623a24319bc2950b1b35ead005ae9046dfff112'
             'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
             '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
-            'c025634ca7b000cf953711d1105f646e672a072c44c6d1dc8a8e9c4fbe5ade19'
+            'ca055d13b045b10da0951d5e5739d49eb3d3b0f6803463832e5918031d68c9b6'
+            '0f10842ae346cd1a07c7dfbf97bb52d4b8fba952d3f26f600237a3a123342001'
+            'c42ef9d21089fe9dc78508c8b90346f7c2a5d08142998c653bbf37cdab6ac7e4'
             '76bc517a6cc2282b3d2ee3db5d27ee6833a5e038a7eea39d107b9ddcd6351b25'
             'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
             '992be100d7f06a8af730a4f37f42a8750ee83de009cd40a13152e7a080820547'
-            'a630fd4b59efb3ca6cd74e8b1ca39eb7937c297115a2c979099d5f249fcc9239'
-            '69e57e93d3d092f04f00d4e323d5c175d14be4a46b780682d9ff97d8637aadf0'
+            'adbe6f5566c186ccff46d7ce3c5e7e490589370939c034c49eb866a2136c49ff'
+            '5f96872a83f8da1023dd968699a55ab86ef9ed7dbafb91125f968a0d459e1254'
             '4a424185c31cda2e2ae63c28cef637adcf9985c640c0659ae41400cceb08e38f'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
             '0494269aa998bc49758e28d2017baf2544ef39a052e4cf2e1633389fe233cb2c'
@@ -351,14 +87,18 @@ sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             '7d368b936845e34ec55c0962f9fb607107912674103dca02a48971469f2011f1'
             '4ff2c133892f8246ec300a9c64c3c4982ea7f652d67ad8813dc213fcae86fdd8'
             '2100185f2889540ed4d2a493bdfafb5d0fbc6705f5c4e6538099e49914fcc6bf'
-            'd49bc8bb69ecd439a7db061867d2d65162845c8390d5e9ee351350647f342abb'
+            '32f7144315656138ecf5464ff169b3cd52f5f5069628ac7c3e3f08a72e129294'
             'f91dc1f470d69e0001d58e8352dbfc7f9c16c74ae56ad0dd0a2e8d6b27bfe902'
+            '0de35fc9d0b771a062411c7f507724b90bdb4a261fdb5a348b207e500fe7a689'
+            '7b40dd117e69c4fa414807384cf64ba8d32c12ba2aec29d216bc53db26c53ec3'
             '281f05744b419496774653924fda607943b08478d67a3ab9bb99964079cd5822'
             'fce62fbc31d268a9871aa4cc780a93c374fa25df3d427a268314ee32d6cc168c'
             'ea0b99ea63fd8c56da90fee6b2e868a219e3619ec7df6d8f4ed02626df4440de'
             'b06eaf83caa00f6ad9db76c864dc840b42f5278b7fa7795230c5e2c6fab2e0af'
             'aab92eb09c77bcb4264577924bfd085958deaf7ff000ea0f57cf95558f459bf6'
-            '62f2089dd072a455c8c78fe3492be70e0e2d3ecfab617962ab8b4f2e3c30c778'
+            'd637658e8823bb5428d5ce2213d2e0baa89f9df8b289d1818d2bdc5134199c8c'
+            '62e5b7f7e34b13bd8dba954d13ef0d1622c11996aa4ea6e081340690e70cde7c'
+            '0dac243abc47816451304b27c7a3befd4c05f97b0c92ca2d291de77181b5ac59'
             '7c0eb0565dce2fb7adcd8e764b9bd37bac13c8034d1fdd01272de61440c4e872'
             '96e24d96006ad0b3405f01f3e5ad571039717224ab07781e2bff7a3c6f9e3fcf'
             '1882deedfe1ac5e6c85fd946b2f8bd22ba6915d0e385f966aab8e55cd9bd5ed0'
@@ -381,6 +121,8 @@ package() {
         wellusb \
         wellpci \
         wellblock \
+        wellcpu \
+        wellgpu \
         wellmod \
         wellfetch \
         wellutils \
@@ -388,6 +130,8 @@ package() {
     ln -s wellusb      "${pkgdir}/usr/bin/wusb"
     ln -s wellpci      "${pkgdir}/usr/bin/wpci"
     ln -s wellblock    "${pkgdir}/usr/bin/wblock"
+    ln -s wellcpu      "${pkgdir}/usr/bin/wcpu"
+    ln -s wellgpu      "${pkgdir}/usr/bin/wgpu"
     ln -s wellmem      "${pkgdir}/usr/bin/wmem"
     ln -s wellmem      "${pkgdir}/usr/bin/wram"
     ln -s wellmem      "${pkgdir}/usr/bin/wellram"
@@ -414,6 +158,8 @@ package() {
         wellusb.1 \
         wellblock.1 \
         wellpci.1 \
+        wellcpu.1 \
+        wellgpu.1 \
         wellmod.1 \
         wellsensors.1 \
         "${pkgdir}/usr/share/man/man1/"
@@ -435,6 +181,12 @@ package() {
     install -m644 \
         wellblock.bash \
         "${pkgdir}/usr/share/bash-completion/completions/wellblock"
+    install -m644 \
+        wellcpu.bash \
+        "${pkgdir}/usr/share/bash-completion/completions/wellcpu"
+    install -m644 \
+        wellgpu.bash \
+        "${pkgdir}/usr/share/bash-completion/completions/wellgpu"
     install -m644 \
         wellpci.bash \
         "${pkgdir}/usr/share/bash-completion/completions/wellpci"

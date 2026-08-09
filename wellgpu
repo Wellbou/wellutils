@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# wellgpu — Beautiful GPU overview (adapters, driver, live stats)
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
+# ─── Rare-hardware guards ─────────────────────────────────────────
+command -v awk    >/dev/null 2>&1 || awk()    { :; }
+command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
+command -v lspci  >/dev/null 2>&1 || lspci()  { :; }
+command -v nvidia-smi >/dev/null 2>&1 || nvidia-smi() { :; }
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellgpu" _WU_NAME="WellGPU" _WU_VERSION="1.0"
+_WU_TAGLINE="Beautiful GPU overview (adapters, driver, live stats)"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+
+# ─── Adapter list (machine-readable, quoted) ─────────────────────
+# lspci -mmnn:  01:00.0 "VGA compatible controller [0300]" "NVIDIA Corporation [10de]" "GP107 [GeForce GTX 1050 Ti] [1c82]" ...
+gpu_adapters() {
+    _GPU_BUS=() _GPU_VENDOR=() _GPU_DEVICE=()
+    local line bus vendor device
+    while IFS= read -r line; do
+        [[ "$line" =~ '"VGA compatible controller' || "$line" =~ '"3D controller' ]] || continue
+        set -- $line
+        bus=$1
+        vendor=$(printf '%s' "$line" | awk -F'"' '{print $4}')
+        device=$(printf '%s' "$line" | awk -F'"' '{print $6}')
+        [[ -z "$device" ]] && device="$vendor" && vendor=""
+        _GPU_BUS+=("$bus")
+        _GPU_VENDOR+=("$vendor")
+        _GPU_DEVICE+=("$device")
+    done < <(lspci -mmnn 2>/dev/null)
+}
+
+gpu_driver() {
+    # /sys/bus/pci/devices/0000:01:00.0/driver -> nvidia
+    local bus="$1" drv
+    drv=$(readlink "/sys/bus/pci/devices/0000:${bus}/driver" 2>/dev/null || true)
+    printf '%s' "$(basename "$drv")"
+}
+
+# ─── Sections ───────────────────────────────────────────────────
+print_gpu_list() {
+    gpu_adapters
+
+    if (( ${#_GPU_BUS[@]} == 0 )); then
+        pline "${DIM}$(t gpu_none)${RESET}"
+        return
+    fi
+
+    local i bus vendor device drv
+    for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
+        bus=${_GPU_BUS[$i]}
+        vendor=${_GPU_VENDOR[$i]}
+        device=${_GPU_DEVICE[$i]}
+        drv=$(gpu_driver "$bus")
+
+        if (( i == 0 )); then
+            pline_hw "$(_emu '🎮')" "$(t gpu_bus) 0" "${device}${vendor:+  ${DIM}(${vendor})${RESET}}"
+        else
+            pline_sub "${device}${vendor:+  ${DIM}(${vendor})${RESET}}"
+        fi
+        [[ -n "$drv" ]] && pline_sub "$(t gpu_driver): ${W}${drv}${RESET}  ${DIM}${bus}${RESET}"
+    done
+}
+
+print_nvidia() {
+    local out line
+    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed \
+        --format=csv,noheader,nounits 2>/dev/null) || out=""
+    [[ -z "$out" ]] && { pline "${DIM}$(t gpu_nvidia_none)${RESET}"; return; }
+
+    local idx name drv memtot memused temp util clk_sm clk_mem pow fan
+    local n=0
+    while IFS= read -r line; do
+        IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
+        name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
+        drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
+        memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
+        memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
+        for i in temp util clk_sm clk_mem pow fan; do
+            eval "$i=\$(printf '%s' \"\$$i\" | sed 's/^ *//;s/ *\$//')"
+        done
+
+        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name"
+        pline_hw "$(_emu '💾')" "$(t gpu_driver)" "$drv"
+
+        local temp_txt=""
+        [[ "$temp" =~ ^[0-9]+$ ]] && temp_txt="$temp°C" || temp_txt="$(t blk_smart_unknown)"
+        pline_hw "$(_emu '🌡️')" "$(t gpu_temp)" "$temp_txt"
+
+        local mem_txt=""
+        if [[ "$memused" =~ ^[0-9]+$ && "$memtot" =~ ^[0-9]+$ ]]; then
+            mem_txt="$memused / $memtot MiB"
+            if (( memtot > 0 )); then
+                mem_txt="$mem_txt  ${DIM}$(( memused * 100 / memtot ))%${RESET}"
+            fi
+        else
+            mem_txt="$(t blk_smart_unknown)"
+        fi
+        pline_hw "$(_emu '🧩')" "$(t gpu_vram)" "$mem_txt"
+
+        local util_txt=""
+        [[ "$util" =~ ^[0-9]+$ ]] && util_txt="$util%" || util_txt="$(t blk_smart_unknown)"
+        pline_hw "$(_emu '⚡')" "$(t gpu_util)" "$util_txt"
+
+        local clk_txt=""
+        if [[ "$clk_sm" =~ ^[0-9]+$ && "$clk_mem" =~ ^[0-9]+$ ]]; then
+            local clk_gpu="" clk_mem_txt=""
+            if (( clk_sm >= 1000 )); then clk_gpu="$(awk "BEGIN {printf \"%.2f\", $clk_sm/1000}") GHz"; else clk_gpu="${clk_sm} MHz"; fi
+            if (( clk_mem >= 1000 )); then clk_mem_txt="$(awk "BEGIN {printf \"%.2f\", $clk_mem/1000}") GHz"; else clk_mem_txt="${clk_mem} MHz"; fi
+            clk_txt="$clk_gpu  ${DIM}/  mem $clk_mem_txt${RESET}"
+        else
+            clk_txt="$(t blk_smart_unknown)"
+        fi
+        pline_hw "$(_emu '🕐')" "$(t gpu_clocks)" "$clk_txt"
+
+        local pow_txt=""
+        [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]] && pow_txt="${pow} W" || pow_txt="$(t blk_smart_unknown)"
+        pline_hw "$(_emu '🔌')" "$(t gpu_power)" "$pow_txt"
+
+        local fan_txt=""
+        [[ "$fan" =~ ^[0-9]+$ ]] && fan_txt="$fan%" || fan_txt="$(t blk_smart_unknown)"
+        pline_hw "$(_emu '🌀')" "$(t gpu_fan)" "$fan_txt"
+        n=$((n + 1))
+    done <<< "$out"
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    box_header "$(_emu '🎮')" "wellgpu" "$(t gpu_title)"
+
+    box "$(_emu '🖥️')" "$(t gpu_summary)" print_gpu_list
+
+    if command -v nvidia-smi &>/dev/null; then
+        box "$(_emu '⚡')" "$(t gpu_detail)" print_nvidia
+    fi
+
+    printf '\n  %sWellGPU v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

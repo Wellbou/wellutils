@@ -8,21 +8,33 @@ _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
 # ─── CLI (shared cli.sh) ──────────────────────────────────
-_WU_TOOLNAME="wellblock" _WU_NAME="WellBlock" _WU_VERSION="1.0" _WU_MANUAL=1
-_WU_TAGLINE="Block device listing"
+_WU_TOOLNAME="wellblock" _WU_NAME="WellBlock" _WU_VERSION="1.1" _WU_MANUAL=1
+_WU_TAGLINE="Block device listing (use 'wellblock [N|device]' for disk detail + S.M.A.R.T.)"
+_WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, /dev/sda)"
+_WU_EXTRA_PARSE="_wblock_arg"
 _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
 source "$_WU_CLI"
 
 
-# ─── Colors ──────────────────────────────────────────────────────
-R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
-M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
-BOLD=$'\033[1m'  RESET=$'\033[0m'
+# ─── CLI arg: optional disk index or name ────────────────────────
+_WU_DISK_ARG=""
+_wblock_arg() {
+    case "$1" in
+        /dev/*) _WU_DISK_ARG="${1#/dev/}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        sd*|hd*|vd*|nvme*|mmcblk*|sr*) _WU_DISK_ARG="$1"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        *[!0-9]*|"") return 1 ;;
+        *) _WU_DISK_ARG="$1"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+    esac
+}
 
-# ─── Size formatting ─────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────
 fmt_size() {
     local bytes=$1
     if (( bytes >= 1073741824 )); then
@@ -36,60 +48,272 @@ fmt_size() {
     fi
 }
 
+# Ordered list of physical disk sysfs paths (summary + index resolution).
+wblock_disks() {
+    local glob dev
+    for glob in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
+        for dev in $glob; do
+            [[ -d "$dev" ]] || continue
+            local bn
+            bn=$(basename "$dev")
+            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == sr* ]] && continue
+            printf '%s\n' "$dev"
+        done
+    done
+}
+
+disk_model() {
+    local dev="$1" model="" name_file="$dev/device/name"
+    local model_file="$dev/device/model"
+    if [[ -e "$model_file" ]]; then
+        model=$(cat "$model_file" 2>/dev/null | xargs) || model=""
+    fi
+    if [[ -z "$model" && -e "$name_file" ]]; then
+        model=$(cat "$name_file" 2>/dev/null | xargs) || model=""
+    fi
+    printf '%s' "${model:-$(t hw_unknown)}"
+}
+
+# ─── Detail: S.M.A.R.T. via smartctl ─────────────────────────────
+root_run() {
+    if (( EUID == 0 )); then "$@"
+    elif sudo -n true 2>/dev/null; then sudo -n "$@"
+    else "$@"; fi
+}
+
+wblock_smart() {
+    local devnode="/dev/$(basename "$_WU_DETAIL_DEV")"
+    if ! command -v smartctl &>/dev/null; then
+        pline "${DIM}$(t blk_smart_na)${RESET}"
+        return
+    fi
+
+    local out
+    out=$(root_run smartctl -a "$devnode" 2>/dev/null) || out=""
+
+    # S.M.A.R.T. unavailable for the device (e.g. USB card readers)
+    if ! grep -q 'SMART overall-health' <<< "$out" && ! grep -q 'SMART Health Information' <<< "$out"; then
+        pline "${DIM}$(t blk_smart_no)${RESET}"
+        return
+    fi
+
+    local risk=0 overall
+    overall=$(awk '/SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$out")
+    [[ "$overall" == "FAILED" ]] && risk=2
+
+    local attrs=""
+    attrs=$(awk '
+        /^Vendor Specific SMART Attributes/ { inattrs=1; next }
+        inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
+            id=$1; name=$2; val=$4; worst=$5; thr=$6; type=$7; upd=$8; wf=$9
+            raw=$10; for (i=11; i<=NF; i++) raw=raw " " $i
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", raw)
+            printf "%s|%s|%s|%s|%s|%s\n", id, name, val, worst, thr, raw
+        }
+        inattrs && /^SMART Error Log/ { exit }
+    ' <<< "$out")
+
+    if [[ -z "$attrs" ]]; then
+        # NVMe: report the key health fields instead of an attribute table
+        local temp used spare
+        temp=$(awk '/^Temperature:[[:space:]]+[0-9]+/ {print $2; exit}' <<< "$out")
+        used=$(awk '/^Percentage Used:/ {print $3; exit}' <<< "$out")
+        spare=$(awk '/^Available Spare:/ {print $3; exit}' <<< "$out")
+        local verdict
+        if (( risk )); then verdict="${R}$(t blk_smart_fail)${RESET}"
+        else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
+        pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "${verdict}"
+        [[ -n "$temp" ]] && pline_sub "Temperature: ${W}${temp}°C${RESET}"
+        [[ -n "$used" ]] && pline_sub "Percentage Used: ${W}${used}%${RESET}"
+        [[ -n "$spare" ]] && pline_sub "Available Spare: ${W}${spare}%${RESET}"
+        return
+    fi
+
+    local id name val worst thr raw
+    local n=0
+    while IFS='|' read -r id name val worst thr raw; do
+        local line_color="$DIM" flag=""
+        case "$id" in
+            5|187|197|198|200|201)
+                if (( 10#$raw > 0 )); then
+                    line_color="$Y"; flag="  ${Y}($(t blk_smart_risk))${RESET}"
+                    (( risk < 1 )) && risk=1
+                fi ;;
+        esac
+        if (( n == 0 )); then
+            local verdict
+            if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
+            elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
+            else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
+            pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "$verdict"
+            pline ""
+            pline "${DIM}  #    $(t blk_smart_attr)      $(t blk_smart_value) $(t blk_smart_worst) $(t blk_smart_thresh)  $(t blk_smart_raw)${RESET}"
+        fi
+        _LINES+=( "  ${line_color}$(printf '%-3s %-20s %5s %5s %5s   %s' "$id" "$name" "$val" "$worst" "$thr" "$raw")${RESET}${flag}" )
+        n=$((n + 1))
+    done <<< "$attrs"
+
+    if (( n == 0 )); then
+        local verdict
+        if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
+        elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
+        else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
+        pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "$verdict"
+    fi
+}
+
+# ─── Detail view ─────────────────────────────────────────────────
+wblock_detail() {
+    local dev="$1" devnode="/dev/$(basename "$dev")"
+    local bn
+    bn=$(basename "$dev")
+    _WU_DETAIL_DEV="$dev"
+
+    box_header "$(_emu '💾')" "wellblock" "$devnode"
+
+    box "$(_emu '📊')" "$(t blk_detail)" detail_info
+    box "$(_emu '🗂️')" "$(t blk_parts)" detail_parts
+    box "$(_emu '🛡️')" "$(t blk_smart)" wblock_smart
+
+    printf '\n  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+detail_info() {
+    local dev=$_WU_DETAIL_DEV bn
+    bn=$(basename "$dev")
+    local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+    size_bytes=$(( size_bytes * 512 ))
+    size_human=$(fmt_size "$size_bytes")
+
+    local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
+    local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
+    if [[ "$removable" == "1" ]]; then
+        type_label="$(t blk_removable)"; type_color="$M"
+    elif [[ "$rotational" == "0" ]]; then
+        type_label="$(t blk_ssd)"; type_color="$G"
+    else
+        type_label="$(t blk_hdd)"; type_color="$Y"
+    fi
+
+    serial=""
+    [[ -e "$dev/device/serial" ]] && serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || true
+    fwrev=""
+    [[ -e "$dev/device/fwrev" ]] && fwrev=$(cat "$dev/device/fwrev" 2>/dev/null | xargs) || true
+    [[ -e "$dev/device/firmware_rev" ]] && fwrev=$(cat "$dev/device/firmware_rev" 2>/dev/null | xargs) || true
+    transport=""
+    if command -v lsblk &>/dev/null; then
+        transport=$(lsblk -dn -o TRAN "/dev/$bn" 2>/dev/null) || true
+    fi
+
+    pline_hw "$(_emu '💾')" "$(t blk_model)" "$(disk_model "$dev")"
+    pline_hw "$(_emu '🔢')" "$(t blk_serial)" "${serial:-$(t blk_smart_unknown)}"
+    [[ -n "$fwrev" ]] && pline_hw "$(_emu '📝')" "$(t blk_firmware)" "$fwrev"
+    pline_hw "$(_emu '📏')" "$(t blk_size)" "$size_human"
+    pline_hw "$(_emu '🏷️')" "$(t blk_type)" "$type_color$type_label$RESET"
+    [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}"
+}
+
+detail_parts() {
+    local dev=$_WU_DETAIL_DEV bn
+    bn=$(basename "$dev")
+    local found=0 part
+    for part in "$dev"/${bn}*; do
+        [[ -d "$part" ]] || continue
+        local pname
+        pname=$(basename "$part")
+        [[ "$pname" == "$bn" ]] && continue
+
+        local psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
+        psize_bytes=$(( psize_bytes * 512 ))
+        local psize_human
+        psize_human=$(fmt_size "$psize_bytes")
+
+        local fstype="" mountpoint=""
+        if command -v lsblk &>/dev/null; then
+            local lsblk_out
+            lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+            fstype=$(echo "$lsblk_out" | awk '{print $1}')
+            mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
+        fi
+
+        local mp_icon=""
+        [[ -n "$mountpoint" ]] && mp_icon="$(_emu '📁')"
+        [[ "$fstype" == "swap" || "$mountpoint" == "[SWAP]" ]] && mp_icon="$(_emu '🔄')"
+
+        local line="  ├─ ${BOLD}${W}${pname}${RESET}  ${DIM}${psize_human}${RESET}"
+        [[ -n "$fstype" ]] && line="$line  $fstype"
+        [[ -n "$mountpoint" ]] && line="$line  ${mp_icon}→ ${G}${mountpoint}${RESET}"
+        _LINES+=( "$line" )
+        found=1
+    done
+    (( found )) || _LINES+=( "  ${DIM}$(t blk_smart_unknown)${RESET}" )
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
     local line
     line=$(printf '═%.0s' {1..80})
 
+    if [[ -n "$_WU_DISK_ARG" ]]; then
+        local target_dev="" dev
+        if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
+            local n=0
+            while IFS= read -r dev; do
+                if (( n == _WU_DISK_ARG )); then target_dev="$dev"; break; fi
+                n=$(( n + 1 ))
+            done < <(wblock_disks)
+        else
+            for dev in $(wblock_disks); do
+                if [[ "$(basename "$dev")" == "$_WU_DISK_ARG" ]]; then target_dev="$dev"; break; fi
+            done
+        fi
+        if [[ -z "$target_dev" ]]; then
+            printf '%s: disk %s not found\n' "$_WU_TOOLNAME" "$_WU_DISK_ARG" >&2
+            exit 3
+        fi
+        _WU_DETAIL_DEV="$target_dev"
+        wblock_detail "$target_dev"
+        return
+    fi
+
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  '"$(_ic "💾")"'wellblock — %s                       %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t blk_title)" "$RESET" "$C" "$RESET"
+    local hw_title hw_ic hw_pad
+    hw_title="wellblock — $(t blk_title)"
+    hw_ic="$(_ic '💾')"
+    hw_pad=$(( 82 - 5 - ${#hw_title} ))
+    [[ -z "$hw_ic" ]] && hw_pad=$(( hw_pad + 3 ))
+    (( hw_pad < 1 )) && hw_pad=1
+    printf '  %s║%s  %s%s%s%*s%s║%s\n' "$C" "$RESET" "$hw_ic" "${BOLD}${W}" "$hw_title" "$hw_pad" "" "$RESET" "$C"
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
 
-    local total_disks=0 total_parts=0 total_bytes=0
-
-    local disk_glob disk
-    for disk_glob in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
-        for dev in $disk_glob; do
-            [[ -d "$dev" ]] || continue
-            local bn
-            bn=$(basename "$dev")
-            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == sr* ]] && continue
-            total_disks=$(( total_disks + 1 ))
-        done
-    done
+    local total_disks=0 total_parts=0 total_bytes=0 dev
+    while IFS= read -r dev; do
+        total_disks=$(( total_disks + 1 ))
+    done < <(wblock_disks)
 
     printf '\n  %s┌───%s '"$(_ic "📊")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t blk_summary)" "$RESET"
     printf '  %s│%s\n' "$C" "$RESET"
 
-    local disk_glob2 dev
-    for disk_glob2 in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
-        for dev in $disk_glob2; do
-            [[ -d "$dev" ]] || continue
-            local bn
-            bn=$(basename "$dev")
-            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == zram* || "$bn" == sr* ]] && continue
+    while IFS= read -r dev; do
+        local bn
+        bn=$(basename "$dev")
 
-            local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
-            size_bytes=$(( size_bytes * 512 ))
+        local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+        size_bytes=$(( size_bytes * 512 ))
 
-            local model_file="$dev/device/model"
-            local name_file="$dev/device/name"
-            local serial_file="$dev/device/serial"
-            local model="Unknown"
-            local serial=""
-            if [[ -f "$model_file" ]]; then
-                model=$(cat "$model_file" | xargs)
-            elif [[ -f "$name_file" ]]; then
-                model=$(cat "$name_file" | xargs)
-            fi
-            [[ -f "$serial_file" ]] && serial=$(cat "$serial_file" | xargs)
+        local model
+        model=$(disk_model "$dev")
+        local serial=""
+        if [[ -e "$dev/device/serial" ]]; then
+            serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || serial=""
+        fi
 
-            local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
-            local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
+        local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
+        local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
 
         local type_icon type_label type_color
         if [[ "$removable" == "1" ]]; then
-            type_icon="$(_ic '⏏️')"
+            type_icon="$(_emu '⏏️')"
             type_label="$(t blk_removable)"
             type_color="$M"
         elif [[ "$rotational" == "0" ]]; then
@@ -153,8 +377,7 @@ main() {
         done
 
         printf '  %s│%s\n' "$C" "$RESET"
-        done
-    done
+    done < <(wblock_disks)
 
     local has_special=0
     for dev in /sys/block/zram* /sys/block/loop*; do
@@ -195,7 +418,7 @@ main() {
         "$C" "$RESET" "$BOLD" "$(t blk_total)" "$W" \
         "$total_disks" "$(t blk_disks)" "$total_parts" "$(t blk_partitions)" "$total_human"
 
-    printf '\n  %sWellBlock v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

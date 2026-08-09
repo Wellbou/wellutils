@@ -1,7 +1,7 @@
-# bash completion for wellblock
+# bash completion for wellcpu
 # Part of wellutils by wellbou_
 
-_wellblock() {
+_wellcpu() {
     local cur prev
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -27,9 +27,8 @@ _wellblock() {
             ;;
     esac
 
-    COMPREPLY=( $(compgen -W "$(ls /sys/block/ 2>/dev/null)" -- "$cur") )
     return 0
 }
 
-complete -F _wellblock wellblock
-complete -F _wellblock wblock
+complete -F _wellcpu wellcpu
+complete -F _wellcpu wcpu

@@ -113,16 +113,18 @@ pline_sub() {
 
 pline_hw() {
     local emoji="$1" label="$2" value="$3" pad_l
+    emoji="${emoji% }"
     pad_l=$(_wu_pad_r "${label}:" 13)
     _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${value}${RESET}" )
 }
 
 box() {
     local icon="$1" title="$2" fn="$3"
+    icon="${icon% }"
     _LINES=()
     "$fn"
     if [[ "$_WU_PLAIN" == "1" ]]; then
-        printf '  %s%s%s\n' "$icon" "${BOLD}${W}${title}${RESET}"
+        printf '  %s %s%s\n' "$icon" "${BOLD}${W}${title}${RESET}"
         for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done
         return 0
     fi
@@ -135,6 +137,7 @@ box() {
 
 box_top() {
     local icon="$1" title="$2" width="$3"
+    icon="${icon% }"
     local iconw titlew fill title_max
     iconw=$(vislen "$icon")
     titlew=$(vislen "$title")
@@ -144,12 +147,12 @@ box_top() {
         titlew=$title_max
         title=$(wucap "$title" "$title_max")
     fi
-    fill=$(( width - iconw - titlew - 6 ))
+    fill=$(( width - iconw - titlew - 5 ))
     (( fill < 1 )) && fill=1
     local rline
     printf -v rline '%*s' "$fill" ''
     rline=${rline// /─}
-    printf '  %s┌─── %s %s %s%s┐%s\n' "$C" "$RESET" "$icon" "${BOLD}${W}${title}${RESET}" "$C$rline" "$RESET"
+    printf '  %s┌─── %s%s %s%s┐%s\n' "$C" "$RESET" "$icon" "${BOLD}${W}${title}${RESET}" "$C$rline" "$RESET"
 }
 
 box_row() {

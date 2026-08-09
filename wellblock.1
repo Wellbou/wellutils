@@ -1,15 +1,21 @@
-.TH WELLBLOCK 1 "August 2026" "wellblock 1.0" "wellutils"
+.TH WELLBLOCK 1 "August 2026" "wellblock 1.1" "wellutils"
 .SH NAME
-Wellblock \- L i s t s   b l o c k   d e v i c e s   ( S A T A / N V M e / M M C / v i r t i o )   w i t h   m o d e l s ,   s i z e s ,
+Wellblock \- lists block devices (SATA/NVMe/MMC/virtio) with models, sizes, S.M.A.R.T. status
 .SH SYNOPSIS
 .B wellblock
-[\fIOPTIONS\fR]
+[\fIOPTIONS\fR] [\fIN\fR | \fIDEVICE\fR]
 .SH DESCRIPTION
 .B wellblock
 .PP
 Lists block devices (SATA/NVMe/MMC/virtio) with models, sizes,
 serial numbers, SSD/HDD/removable classification, partitions with
 filesystem and mount point, plus virtual devices such as zram and loop.
+.PP
+With an optional argument (a zero-based disk index or a device name such
+as \fBsda\fR, \fBnvme0n1\fR or \fB/dev/sdb\fR) a detail view is printed for
+that disk: model, serial, firmware, size, type, transport, partitions and
+the S.M.A.R.T. status with a health verdict and the full attribute table
+(requires \fBsmartmontools\fR; root/sudo needed for \fBsmartctl\fR).
 .PP
 When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
 .SH OPTIONS
@@ -37,6 +43,10 @@ Disable emoji icons.
 .TP
 .B \-\-debug
 Enable verbose tracing.
+.TP
+.BI N | device
+Disk detail view: a zero-based index from the summary order, or a device
+name (\fBsda\fR, \fBnvme0n1\fR, \fB/dev/sdb\fR).
 .SH EXIT STATUS
 .TP
 .B 0
@@ -46,7 +56,7 @@ Success.
 Invalid command-line usage.
 .TP
 .B 3
-Unexpected runtime error.
+Requested disk not found, or runtime error.
 .SH ENVIRONMENT
 .TP
 .B WELLUTILS_LANG
@@ -57,4 +67,4 @@ Disables colour in auto mode.
 .SH AUTHOR
 wellbou_
 .SH SEE ALSO
-.BR wellutils (1)
+.BR wellutils (1), .BR wellcpu (1), .BR wellgpu (1)
