@@ -101,7 +101,7 @@ print_all() {
 
     ml() {
         local label="$1" color="$2" value="$3"
-        _LINES+=( "  ${BOLD}$(printf '%-14s' "${label}:")${RESET}  ${color}$(printf '%8s' "$value")${RESET}" )
+        _LINES+=( "  ${BOLD}$(_wu_pad_r "${label}:" 14)${RESET}  ${color}$(printf '%8s' "$value")${RESET}" )
     }
     ml "$(t mem_total)" "$W" "$total_h"
     ml "$(t mem_used)" "$R" "$used_h"

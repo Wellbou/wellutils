@@ -113,7 +113,7 @@ pline_sub() {
 
 pline_hw() {
     local emoji="$1" label="$2" value="$3" pad_l
-    pad_l=$(printf '%-13s' "${label}:")
+    pad_l=$(_wu_pad_r "${label}:" 13)
     _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${value}${RESET}" )
 }
 

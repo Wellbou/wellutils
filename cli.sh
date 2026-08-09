@@ -156,6 +156,15 @@ for (( _cp=0x2500; _cp<=0x257F; _cp++ )); do
     printf -v '_WU_BOXCHARS[_wi]' '%b' "$_oc"
 done
 unset _cp _b1 _b2 _b3 _oc _wi
+_wu_pad_r() {
+    # right-pad to N display columns; bash %-Ns pads by *bytes*, so labels
+    # with multibyte text (Cyrillic) never align — count chars instead
+    local s="$1" n="$2" k
+    k=$(( n - ${#s} ))
+    (( k > 0 )) || k=0
+    printf '%s%*s' "$s" "$k" ''
+}
+
 _wu_plainify() {
     local line out="" c
     while IFS= read -r line; do

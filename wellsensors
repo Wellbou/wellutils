@@ -88,7 +88,7 @@ tline() {
     local emoji="$1" label="$2" temp="$3" bar="$4" suffix="${5:-}"
     local color pad_l val
     color=$(temp_color "$temp")
-    pad_l=$(printf '%-14s' "$label")
+    pad_l=$(_wu_pad_r "$label" 14)
     val=$(printf '%4d°C' "$temp")
     _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${color}${val}${RESET}  ${bar}${suffix}" )
 }

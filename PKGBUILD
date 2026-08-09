@@ -173,10 +173,166 @@ source=(
   -> Найден wellutils.bash
   -> Найден LICENSE
 ==> Подсчёт контрольных сумм исходных файлов...
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 59: ==: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 60: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 61: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 62: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 63: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 64: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 65: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 66: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 67: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 68: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 69: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 70: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 71: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 72: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 73: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 74: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 75: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 76: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 77: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 78: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 79: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 80: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 81: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 82: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 83: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 84: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 85: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 86: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 87: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 88: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 89: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 90: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 91: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 92: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 93: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 94: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 95: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 96: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 97: ==: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 98: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 99: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 100: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 101: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 102: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 103: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 104: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 105: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 106: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 107: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 108: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 109: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 110: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 111: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 112: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 113: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 114: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 115: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 116: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 117: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 118: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 119: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 120: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 121: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 122: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 123: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 124: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 125: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 126: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 127: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 128: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 129: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 130: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 131: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 132: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 133: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 134: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 135: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 136: /home/wellbou_/.wellutils-src/PKGBUILD:: Нет такого файла или каталога
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 137: ==: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 138: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 139: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 140: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 141: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 142: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 143: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 144: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 145: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 146: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 147: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 148: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 149: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 150: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 151: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 152: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 153: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 154: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 155: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 156: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 157: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 158: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 159: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 160: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 161: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 162: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 163: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 164: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 165: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 166: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 167: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 168: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 169: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 170: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 171: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 172: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 173: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 174: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 175: ==: command not found
+==> Получение исходных файлов...
+  -> Найден wellper
+  -> Найден wellhw
+  -> Найден wellmem
+  -> Найден wellsensors
+  -> Найден wellusb
+  -> Найден wellpci
+  -> Найден wellblock
+  -> Найден wellmod
+  -> Найден wellutils
+  -> Найден wellfetch
+  -> Найден lang.sh
+  -> Найден box.sh
+  -> Найден cli.sh
+  -> Найден jedec.sh
+  -> Найден wfetch_art.py
+  -> Найден logo.png
+  -> Найден wellper.1
+  -> Найден wellutils.1
+  -> Найден wellfetch.1
+  -> Найден wellhw.1
+  -> Найден wellmem.1
+  -> Найден wellusb.1
+  -> Найден wellblock.1
+  -> Найден wellpci.1
+  -> Найден wellmod.1
+  -> Найден wellsensors.1
+  -> Найден wellhw.bash
+  -> Найден wellmem.bash
+  -> Найден wellusb.bash
+  -> Найден wellblock.bash
+  -> Найден wellpci.bash
+  -> Найден wellmod.bash
+  -> Найден wellsensors.bash
+  -> Найден wellfetch.bash
+  -> Найден wellper.bash
+  -> Найден wellutils.bash
+  -> Найден LICENSE
+==> Подсчёт контрольных сумм исходных файлов...
 sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             'a73aed1a546a2b51a75e0c72a6089ffb1c78836cd6f27fcae97f2e13e06a4425'
-            'a67ce447b6f78cf44007769157e2729c04427d75246d71dd6bc5af9f2aa222e0'
-            '04d9903e45653fe00f8efbe1868585738c5c1d39d4b37ea8d6387572ee4e8252'
+            '6d6c56a71f6f2e3833093563bb2611741735abfda0871a96a3f73ac5d821b154'
+            '9491ee58fd984789cda4f617d177af456f87515d0c2ba69fc0050b8517437c38'
             'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
             '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
             'c025634ca7b000cf953711d1105f646e672a072c44c6d1dc8a8e9c4fbe5ade19'
@@ -184,8 +340,8 @@ sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
             '992be100d7f06a8af730a4f37f42a8750ee83de009cd40a13152e7a080820547'
             'a630fd4b59efb3ca6cd74e8b1ca39eb7937c297115a2c979099d5f249fcc9239'
-            '8e21a1f517077ba7a1e687c743bf0f1801b8796118c6e2df0615ef7365740183'
-            'f7b5839271514b0eef6a040bc4b1363fe1833535c0a8fe618186cb4ce41fd5f2'
+            '69e57e93d3d092f04f00d4e323d5c175d14be4a46b780682d9ff97d8637aadf0'
+            '4a424185c31cda2e2ae63c28cef637adcf9985c640c0659ae41400cceb08e38f'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
             '0494269aa998bc49758e28d2017baf2544ef39a052e4cf2e1633389fe233cb2c'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'
