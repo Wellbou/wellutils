@@ -95,17 +95,95 @@ source=(
   -> Найден wellutils.bash
   -> Найден LICENSE
 ==> Подсчёт контрольных сумм исходных файлов...
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 59: ==: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 60: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 61: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 62: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 63: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 64: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 65: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 66: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 67: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 68: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 69: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 70: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 71: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 72: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 73: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 74: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 75: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 76: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 77: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 78: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 79: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 80: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 81: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 82: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 83: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 84: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 85: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 86: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 87: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 88: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 89: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 90: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 91: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 92: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 93: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 94: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 95: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 96: -: command not found
+/home/wellbou_/.wellutils-src/PKGBUILD: строка 97: ==: command not found
+==> Получение исходных файлов...
+  -> Найден wellper
+  -> Найден wellhw
+  -> Найден wellmem
+  -> Найден wellsensors
+  -> Найден wellusb
+  -> Найден wellpci
+  -> Найден wellblock
+  -> Найден wellmod
+  -> Найден wellutils
+  -> Найден wellfetch
+  -> Найден lang.sh
+  -> Найден box.sh
+  -> Найден cli.sh
+  -> Найден jedec.sh
+  -> Найден wfetch_art.py
+  -> Найден logo.png
+  -> Найден wellper.1
+  -> Найден wellutils.1
+  -> Найден wellfetch.1
+  -> Найден wellhw.1
+  -> Найден wellmem.1
+  -> Найден wellusb.1
+  -> Найден wellblock.1
+  -> Найден wellpci.1
+  -> Найден wellmod.1
+  -> Найден wellsensors.1
+  -> Найден wellhw.bash
+  -> Найден wellmem.bash
+  -> Найден wellusb.bash
+  -> Найден wellblock.bash
+  -> Найден wellpci.bash
+  -> Найден wellmod.bash
+  -> Найден wellsensors.bash
+  -> Найден wellfetch.bash
+  -> Найден wellper.bash
+  -> Найден wellutils.bash
+  -> Найден LICENSE
+==> Подсчёт контрольных сумм исходных файлов...
 sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             'a73aed1a546a2b51a75e0c72a6089ffb1c78836cd6f27fcae97f2e13e06a4425'
             'a67ce447b6f78cf44007769157e2729c04427d75246d71dd6bc5af9f2aa222e0'
-            '06273162d9c621d911e4a5f12471aa226702f2711dce59ec36a161d104db71a1'
+            '04d9903e45653fe00f8efbe1868585738c5c1d39d4b37ea8d6387572ee4e8252'
             'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
             '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
             'c025634ca7b000cf953711d1105f646e672a072c44c6d1dc8a8e9c4fbe5ade19'
             '76bc517a6cc2282b3d2ee3db5d27ee6833a5e038a7eea39d107b9ddcd6351b25'
             'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
             '992be100d7f06a8af730a4f37f42a8750ee83de009cd40a13152e7a080820547'
-            '8760310175f070d2d456f2b2ef57f25d5a24839990b909dd949f33d830692455'
+            'a630fd4b59efb3ca6cd74e8b1ca39eb7937c297115a2c979099d5f249fcc9239'
             '8e21a1f517077ba7a1e687c743bf0f1801b8796118c6e2df0615ef7365740183'
             'f7b5839271514b0eef6a040bc4b1363fe1833535c0a8fe618186cb4ce41fd5f2'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'

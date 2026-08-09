@@ -177,6 +177,7 @@ _t_EN() {
         sens_min)           printf '%s' "MIN" ;;
         sens_avg)           printf '%s' "AVG" ;;
         sens_max)           printf '%s' "MAX" ;;
+        sens_acpi_fans)     printf '%s' "ACPI fan control interface(s)" ;;
         hw_title)           printf '%s' "Hardware Report" ;;
         hw_cpu)             printf '%s' "CPU" ;;
         hw_gpu)             printf '%s' "GPU" ;;
@@ -351,6 +352,7 @@ _t_RU() {
         sens_min)           printf '%s' "МИН" ;;
         sens_avg)           printf '%s' "СРД" ;;
         sens_max)           printf '%s' "МАКС" ;;
+        sens_acpi_fans)     printf '%s' "ACPI-интерфейсы управления вентиляторами" ;;
         hw_title)           printf '%s' "Отчёт о железе" ;;
         hw_cpu)             printf '%s' "CPU" ;;
         hw_gpu)             printf '%s' "GPU" ;;

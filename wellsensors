@@ -351,8 +351,12 @@ print_disks() {
 }
 
 print_cooling() {
-    local total_powerclamp=0 total_fan=0 total_processor=0
+    local total_powerclamp=0 total_processor=0 acpi_fan=0
 
+    # ACPI thermal cooling devices are *control interfaces*, not fans:
+    # they always sit at cur=0..max=1 and would only mislead a user into
+    # thinking the box has N physical fans. So count them only for the
+    # "control interfaces" footnote, never as fans.
     for dev_dir in /sys/class/thermal/cooling_device*/; do
         [[ -d "$dev_dir" ]] || continue
         local type_file="${dev_dir}type"
@@ -366,18 +370,15 @@ print_cooling() {
 
         case "$dtype" in
             *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
-            *Fan*) total_fan=$(( total_fan + 1 )) ;;
+            *Fan*) acpi_fan=$(( acpi_fan + 1 )) ;;
             *Processor*) total_processor=$(( total_processor + cur )) ;;
         esac
     done
 
-    pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${total_fan} $(t sens_devices)${RESET}"
-    pline_hw "$(_ic '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
-    pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
-
-    # Обороты чип-вентиляторов (fan*_input): атрибуты могут лежать как в каталоге
-    # hwmon, так и на platform-устройстве (f71882fg и др. старые драйверы)
-    local chip_fan=0
+    # Real fans: only chips that actually report RPM (fan*_input). Fans fed
+    # straight from molex/PSU have no tachometer at all and never show up
+    # here — that is correct, we must not invent them.
+    local real_fan=0
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         local hname=""
@@ -399,6 +400,7 @@ print_cooling() {
                 fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
                 rpm=$(cat "$fan_file")
                 (( rpm > 0 )) || continue
+                real_fan=$(( real_fan + 1 ))
                 if   (( rpm < 400 )); then color="$R"
                 elif (( rpm < 800 )); then color="$Y"
                 else                       color="$C"
@@ -406,11 +408,16 @@ print_cooling() {
                 local rpmval
                 rpmval=$(printf '%4d RPM' "$rpm")
                 _LINES+=( "  $(_ic '💨')${BOLD}${W}$(t sens_fan)${fidx}${RESET} ${color}${rpmval}${RESET}  ${DIM}(${hname})${RESET}" )
-                chip_fan=1
             done
         done
     done
-    if (( chip_fan == 0 )); then
+
+    pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${real_fan} $(t sens_devices)${RESET}"
+    pline_hw "$(_ic '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
+    pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
+    (( acpi_fan > 0 )) && pline_hw "$(_ic '📋')" "$(t sens_acpi_fans)" "${DIM}${acpi_fan}${RESET}"
+
+    if (( real_fan == 0 )); then
         pline "${DIM}$(t sens_no_fan_rpm)${RESET}"
     fi
 }
