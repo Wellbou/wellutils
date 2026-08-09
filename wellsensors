@@ -60,6 +60,23 @@ temp_emoji() {
     fi
 }
 
+# hwmon reads: skip sensors reporting fault/alarm (wire cut, unpopulated
+# thermistor) or the classic 127 C "open circuit" marker.
+valid_temp() {
+    local input_file="$1" temp="$2"
+    (( temp <= 0 || temp >= 125 )) && return 1
+    local idx
+    idx=$(basename "$input_file" | tr -cd '0-9')
+    local base="${input_file%_input}"
+    local fault_file="${base}_fault"
+    local alarm_file="${base}_alarm"
+    local crit_alarm_file="${base}_crit_alarm"
+    [[ -f "$fault_file" && "$(cat "$fault_file" 2>/dev/null || true)" == "1" ]] && return 1
+    [[ -f "$alarm_file" && "$(cat "$alarm_file" 2>/dev/null || true)" == "1" ]] && return 1
+    [[ -f "$crit_alarm_file" && "$(cat "$crit_alarm_file" 2>/dev/null || true)" == "1" ]] && return 1
+    return 0
+}
+
 tline() {
     local emoji="$1" label="$2" temp="$3" bar="$4" suffix="${5:-}"
     local color pad_l val
@@ -167,7 +184,7 @@ print_acpi() {
                 raw_temp=$(cat "$input_file")
                 local temp=$(( raw_temp / 1000 ))
 
-                (( temp <= 0 || temp > 200 )) && continue
+                valid_temp "$input_file" "$temp" || continue
 
                 local color emoji bar
                 color=$(temp_color "$temp")
@@ -237,7 +254,7 @@ print_network_temp() {
             for input_file in "$base"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
                 local temp=$(( $(cat "$input_file") / 1000 ))
-                (( temp <= 0 || temp > 200 )) && continue
+                valid_temp "$input_file" "$temp" || continue
 
                 local color emoji bar
                 color=$(temp_color "$temp")
