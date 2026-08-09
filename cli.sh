@@ -145,21 +145,17 @@ _ic()  { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$1"; return 0; }
 
 # Strip hand-drawn box frames from output (byte-safe, locale-independent).
 # Covers U+2500-U+257F (box drawing) plus tab compaction.
-# Built byte-wise (no $'\u...', which requires bash 4.2+).
-_wu_boxchar() {
-    local cp=$1 b1 b2 b3
-    b1=$((0xE0 | (cp >> 12)))
-    b2=$((0x80 | ((cp >> 6) & 0x3F)))
-    b3=$((0x80 | (cp & 0x3F)))
-    printf '%b' "$(printf '\\%03o\\%03o\\%03o' "$b1" "$b2" "$b3")"
-}
+# Built in a single fork-free loop (was 256 subshells per launch).
 _WU_BOXCHARS=()
-_wu_bc_cp=$((0x2500))
-while ((_wu_bc_cp <= 0x257F)); do
-    _WU_BOXCHARS+=("$(_wu_boxchar "$_wu_bc_cp")")
-    _wu_bc_cp=$((_wu_bc_cp + 1))
+for (( _cp=0x2500; _cp<=0x257F; _cp++ )); do
+    _b1=$((0xE0 | (_cp >> 12)))
+    _b2=$((0x80 | ((_cp >> 6) & 0x3F)))
+    _b3=$((0x80 | (_cp & 0x3F)))
+    _wi=$(( _cp - 0x2500 ))
+    printf -v _oc '\\%03o\\%03o\\%03o' "$_b1" "$_b2" "$_b3"
+    printf -v '_WU_BOXCHARS[_wi]' '%b' "$_oc"
 done
-unset _wu_bc_cp _wu_boxchar
+unset _cp _b1 _b2 _b3 _oc _wi
 _wu_plainify() {
     local line out="" c
     while IFS= read -r line; do

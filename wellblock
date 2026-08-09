@@ -39,7 +39,7 @@ fmt_size() {
 # ─── Main ────────────────────────────────────────────────────────
 main() {
     local line
-    line=$(printf '═%.0s' $(seq 1 80))
+    line=$(printf '═%.0s' {1..80})
 
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
     printf '  %s║%s%s  '"$(_ic "💾")"'wellblock — %s                       %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t blk_title)" "$RESET" "$C" "$RESET"
@@ -187,7 +187,7 @@ main() {
         printf '  %s│%s\n' "$C" "$RESET"
     fi
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 82))" "$RESET"
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..82})" "$RESET"
 
     local total_human
     total_human=$(fmt_size "$total_bytes")

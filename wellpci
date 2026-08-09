@@ -80,7 +80,7 @@ pci_device_name() {
 # ─── Main ────────────────────────────────────────────────────────
 main() {
     local line
-    line=$(printf '═%.0s' $(seq 1 78))
+    line=$(printf '═%.0s' {1..78})
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
     printf '  %s║%s%s  '"$(_ic "🌉")"'wellpci — %s                          %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t pci_title)" "$RESET" "$C" "$RESET"
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
@@ -183,7 +183,7 @@ main() {
             "$(t pci_drv):" "$drv_badge"
     done
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 80))" "$RESET"
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..80})" "$RESET"
 
     printf '\n  %sWellPCI v2.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }

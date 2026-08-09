@@ -10,6 +10,12 @@ _WU_TAGLINE="detailed system information with logo"
 
 _WU_MANUAL=0
 _WU_EXTRA_PARSE="wf_extra_parse"
+# ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
+command -v awk    >/dev/null 2>&1 || awk()    { :; }
+command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
+command -v df     >/dev/null 2>&1 || df()     { :; }
+command -v uptime >/dev/null 2>&1 || uptime() { :; }
+command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     _WU_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,14 +41,15 @@ fi
 
 _WF_LOGO=1
 _WF_LWIDTH=0
-_WF_FULL=0
+_WF_ALL=0
 
 wf_extra_parse() {
     _WU_EXTRA_CONSUMED=0
     case "$1" in
         --no-logo|--text) _WF_LOGO=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --logo)           _WF_LOGO=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
-        --full)           _WF_FULL=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --all)            _WF_ALL=1; WF_SECTIONS="$WF_ALL_SECTIONS"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --full)           _WF_ALL=1; WF_SECTIONS="$WF_ALL_SECTIONS"; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --logo-width)
             if [[ -n "${2:-}" ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
                 _WF_LWIDTH=$2; _WU_EXTRA_CONSUMED=2; return 0
@@ -56,7 +63,7 @@ wf_extra_parse() {
 
 _WU_EXTRA_HELP="      --no-logo              text only, no logo
       --logo                show logo (default on tty)
-      --full                one section per line (default: compact pairs)
+      --all                 show all sections (audio, resolution, peripherals…)
       --logo-width N        logo width in cells"
 
 # --- i18n ---------------------------------------------------------------------
@@ -320,9 +327,18 @@ wfv_disks() {
     done < <(lsblk -dno NAME,TYPE,SIZE,MODEL 2>/dev/null)
 }
 
+# xrandr is slow (~60ms); run it once per invocation into a global.
+_WF_XRANDR=""
+wf_xrandr_fill() {
+    if [[ -z "$_WF_XRANDR" ]]; then
+        _WF_XRANDR=$(xrandr --query 2>/dev/null)
+    fi
+}
+
 wfv_monitors() {
     local -a outs modes
     if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+        wf_xrandr_fill
         local line out geo
         while IFS= read -r line; do
             [[ "$line" == *" connected"* ]] || continue
@@ -330,7 +346,7 @@ wfv_monitors() {
             geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
             geo=${geo%%+*}
             outs+=("$out"); modes+=("${geo:-?}")
-        done < <(xrandr --query 2>/dev/null)
+        done <<< "$_WF_XRANDR"
     fi
     if (( ${#outs[@]} == 0 )); then
         local d conn mode
@@ -356,9 +372,11 @@ wfv_monitors() {
 wfv_resolution() {
     local r
     if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-        r=$(xrandr --query 2>/dev/null | awk '/ connected primary/{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) {print $i; exit}}')
-        [[ -z "$r" ]] && r=$(xrandr --query 2>/dev/null | awk '/\*/{print $1; exit}')
-        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "${r%%+*}"; return; fi
+        wf_xrandr_fill
+        r=$(awk '/ connected primary/{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) {print $i; exit}}' <<< "$_WF_XRANDR")
+        [[ -z "$r" ]] && r=$(awk '/\*/{print $1; exit}' <<< "$_WF_XRANDR")
+        r=${r%%+*}; r=${r%%\*}
+        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
     fi
     if command -v wlr-randr >/dev/null 2>&1; then
         r=$(wlr-randr 2>/dev/null | awk '/current/{print $1; exit}')
@@ -533,7 +551,8 @@ wf_custom() { :; }
 
 # --- collection ---------------------------------------------------------------
 
-WF_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font packages cpu gpu mem swap disk disks monitors resolution audio peripherals locale date"
+WF_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale"
+WF_ALL_SECTIONS="$WF_SECTIONS audio resolution peripherals date"
 
 wf_collect() {
     WF_SECS=() WF_LABELS=() WF_VALUES=()
@@ -560,11 +579,23 @@ wf_logo_lines() {
     WF_LOGO_LINES=""
     WF_LOGO_ROWS=0
     if [[ -f "$art" ]] && command -v python3 >/dev/null 2>&1 && [[ -f "$WF_LOGO" ]]; then
-        local cmd=(python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}")
-        if [[ -n "${WF_BG:-}" ]]; then
-            cmd+=(--bg "$WF_BG")
+        local cache_dir="${WF_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/wellutils}"
+        local key="$(md5sum "$WF_LOGO" "$art" 2>/dev/null | md5sum | cut -d' ' -f1)"
+        local cached="$cache_dir/logo-${lw}-${WF_KEY:-40}-${key}"
+        if [[ -f "$cached" ]]; then
+            WF_LOGO_LINES="$(cat "$cached")"
+        else
+            local cmd=(python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}")
+            if [[ -n "${WF_BG:-}" ]]; then
+                cmd+=(--bg "$WF_BG")
+            fi
+            WF_LOGO_LINES="$("${cmd[@]}" 2>/dev/null)"
+            if [[ -n "$WF_LOGO_LINES" ]]; then
+                mkdir -p "$cache_dir" 2>/dev/null
+                printf '%s\n' "$WF_LOGO_LINES" > "$cached" 2>/dev/null
+                # cache rows count alongside to stay consistent
+            fi
         fi
-        WF_LOGO_LINES="$("${cmd[@]}" 2>/dev/null)"
         if [[ -n "$WF_LOGO_LINES" ]]; then
             WF_LOGO_ROWS="$(printf '%s\n' "$WF_LOGO_LINES" | wc -l)"
         fi
@@ -577,81 +608,29 @@ wf_info_line() {
 }
 
 # --- compact row layout ------------------------------------------------------
-# Sections are grouped into rows: short sections are paired on one line, while
-# multi-line sections (CPU, GPUs, disks, monitors, peripherals) become a header
-# line plus indented continuation lines. --full disables the pairing.
+# Every section becomes a single row: "label: value" followed by
+# indented continuation lines for multi-line sections (CPU, GPUs, disks…).
+# The logo is drawn on the left, info column height matches the logo.
 
 WF_RTYPE=() WF_RTEXT=() WF_RSUBS=() WF_RITEM=()
-WF_PAIR_CAP=74
-
-wf_item_text() {
-    local i="$1"
-    printf '%s%s' "$(wf_emoji "${WF_SECS[i]}")" "$(wf_info_line "${WF_LABELS[i]}" "${WF_VALUES[i]}")"
-}
-
-wf_item_width() {
-    local i="$1" n
-    n=$(wf_strip_ansi "$(wf_item_text "$i")" | wc -m)
-    printf '%s' "$(( n + 1 ))"
-}
-
-wf_flush_pair() {
-    local -a idx=("$@")
-    (( ${#idx[@]} )) || return 0
-    local out="" item i n k
-    local -a texts=()
-    for i in "${idx[@]}"; do
-        texts+=("$(wf_item_text "$i")")
-    done
-    n=${#texts[@]}
-    for (( k=0; k<n; k++ )); do
-        out+="${texts[k]}"
-        (( k < n - 1 )) && out+="      "
-    done
-    WF_RTYPE+=(pair)
-    WF_RTEXT+=("$out")
-    WF_RSUBS+=("")
-    WF_RITEM+=("$n")
-}
 
 wf_build_rows() {
     WF_RTYPE=() WF_RTEXT=() WF_RSUBS=() WF_RITEM=()
-    local i n=${#WF_LABELS[@]} j header subs w
-    local -a pend=()
-    local flush_all=0
+    local i n=${#WF_LABELS[@]} j header subs
     for (( i=0; i<n; i++ )); do
         [[ -n "${WF_LABELS[i]}" ]] || continue
-        if (( i + 1 < n )) && [[ -z "${WF_LABELS[i + 1]}" ]]; then
-            wf_flush_pair "${pend[@]}"; pend=()
-            header="$(wf_emoji "${WF_SECS[i]}")$(wf_info_line "${WF_LABELS[i]}" "${WF_VALUES[i]}")"
-            subs=""
-            for (( j=i+1; j<n; j++ )); do
-                [[ -z "${WF_LABELS[j]}" ]] || break
-                subs+="${WF_VALUES[j]}"$'\n'
-            done
-            i=$(( j - 1 ))
-            WF_RTYPE+=(block)
-            WF_RTEXT+=("$header")
-            WF_RSUBS+=("${subs%$'\n'}")
-            WF_RITEM+=(1)
-            continue
-        fi
-        if (( _WF_FULL )); then
-            wf_flush_pair "$i"
-            continue
-        fi
-        if (( ${#pend[@]} == 0 )); then
-            pend+=("$i")
-            continue
-        fi
-        w=$(( $(wf_item_width "${pend[0]}") + $(wf_item_width "$i") + 6 ))
-        if (( w <= WF_PAIR_CAP )); then
-            wf_flush_pair "${pend[0]}" "$i"; pend=()
-        else
-            wf_flush_pair "${pend[0]}"; pend=("$i")
-        fi
+        header="$(wf_emoji "${WF_SECS[i]}")$(wf_info_line "${WF_LABELS[i]}" "${WF_VALUES[i]}")"
+        subs=""
+        for (( j=i+1; j<n; j++ )); do
+            [[ -z "${WF_LABELS[j]}" ]] || break
+            subs+="${WF_VALUES[j]}"$'\n'
+        done
+        i=$(( j - 1 ))
+        WF_RTYPE+=(block)
+        WF_RTEXT+=("$header")
+        WF_RSUBS+=("${subs%$'\n'}")
+        WF_RITEM+=(1)
     done
-    wf_flush_pair "${pend[@]}"
 }
 
 wf_print_plain() {
@@ -703,7 +682,7 @@ main() {
     [[ -n "$WF_LOGO" ]] || WF_LOGO="/usr/share/wellutils/logo.png"
     [[ -n "$art" ]] || art="/usr/share/wellutils/wfetch_art.py"
 
-    # side-by-side: logo | info
+    # side-by-side: logo (left) | info column (right, height = logo height)
     local cols info_w=0 gap avail lw rows maxr len i
     cols="${COLUMNS:-$(tput cols 2>/dev/null || printf '80')}"
     for (( i=0; i<n; i++ )); do
@@ -729,12 +708,46 @@ main() {
         return 0
     fi
 
+    # native image support (kitty/iTerm2) beats ASCII half-blocks
+    local gfx=""
+    if [[ -z "${WF_GFX:-}" || "${WF_GFX:-}" == "auto" ]] && command -v python3 >/dev/null 2>&1; then
+        case "${TERM:-}" in xterm-kitty) gfx="kitty" ;; esac
+        case "${TERM_PROGRAM:-}" in
+            WezTerm|foot|ghostty|konsole) gfx="kitty" ;;
+            iTerm.app|mintty)             gfx="iterm" ;;
+        esac
+        [[ -n "${ITERM_PROFILE:-}" ]] && gfx="iterm"
+    fi
+    case "${WF_GFX:-}" in
+        off|none)    gfx="" ;;
+        auto|"")     : ;;
+        *)           gfx="$WF_GFX" ;;
+    esac
+    if [[ -n "$gfx" && -n "$art" && -f "$WF_LOGO" ]]; then
+        python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}" --gfx "$gfx" 2>/dev/null
+        wf_print_plain
+        return 0
+    fi
+
     wf_logo_lines "$art" "$lw"
     rows=$WF_LOGO_ROWS
     (( rows < 1 )) && rows=0
     wf_collect_info_lines
     local total=${#WF_INFO_LINES[@]}
-    maxr=$(( rows > total ? rows : total ))
+    if (( rows > 0 )); then
+        # trim the info column to the logo height, mark the hidden tail
+        local shown=$(( rows - 1 ))
+        (( shown < 0 )) && shown=0
+        if (( total > rows )); then
+            local hidden=$(( total - shown ))
+            WF_INFO_LINES=("${WF_INFO_LINES[@]:0:shown}")
+            WF_INFO_LINES+=("  ${DIM}⋯ +${hidden}${RESET}")
+        fi
+        total=${#WF_INFO_LINES[@]}
+        maxr=$(( rows > total ? rows : total ))
+    else
+        maxr=$total
+    fi
     local pad="$(printf '%*s' "$(( lw + gap ))")"
     local sp="$(printf '%*s' "$gap")"
 

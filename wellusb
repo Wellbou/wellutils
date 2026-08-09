@@ -181,7 +181,7 @@ device_icon() {
 # ─── Main ────────────────────────────────────────────────────────
 main() {
     local line
-    line=$(printf '═%.0s' $(seq 1 72))
+    line=$(printf '═%.0s' {1..72})
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
     printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb — %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
@@ -302,7 +302,7 @@ main() {
         sname=$(speed_name "$spd")
 
         if [[ "$bus" != "$prev_bus" ]]; then
-            [[ -n "$prev_bus" ]] && printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 74))" "$RESET"
+            [[ -n "$prev_bus" ]] && printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..74})" "$RESET"
             local hub_spd
             hub_spd=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/speed" 2>/dev/null || echo "0")
             printf '\n  %s┌───%s '"$(_ic "🏭")"'%s%s %s%s%s  ' "$C" "$RESET" "$BOLD" "$(t usb_bus)" "$W" "$bus" "$RESET"
@@ -336,7 +336,7 @@ main() {
         printf '  %s│%s\n' "$C" "$RESET"
     done
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 74))" "$RESET"
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..74})" "$RESET"
 
     printf '\n  %s%s:%s %s▁%s USB 1.1  %s▃%s USB 2.0  %s▅▇%s USB 3.0  %s▅▇█%s USB 3.1+\n' \
         "$BOLD" "$(t usb_legend)" "$RESET" "$R" "$RESET" "$Y" "$RESET" "$G" "$RESET" "$G" "$RESET"

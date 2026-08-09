@@ -143,6 +143,13 @@ _WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
 if [[ -f "$_WU_BOX" ]]; then
     source "$_WU_BOX"
+# ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
+command -v awk    >/dev/null 2>&1 || awk()    { :; }
+command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
+command -v df     >/dev/null 2>&1 || df()     { :; }
+command -v uptime >/dev/null 2>&1 || uptime() { :; }
+command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
+command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
 else
     # ── Minimal plain fallback — no box drawing, cannot drift ──
     R= G= Y= B= M= C= W= DIM= BOLD= RESET=

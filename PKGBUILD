@@ -56,22 +56,60 @@ source=(
     'wellutils.bash'
     'LICENSE'
 )
-sha256sums=(
-            '2476874611a0e0a57b0debbea978362006abe0b905aac792dbc5f841324a60d1'
-            'ed1b91e44fdb34392428b6f53c26321085c8e1ee325428b389c31e1b7a3cd31e'
-            '48cee132ad9365940538def87fbe8c355a25ee11f8c750ec52244ac509ac9104'
-            '7c17ff3cfaf9be258682a6d92de341785b315202ab7684e7c76ac0f649ea1285'
-            '2a2ef1f96497f45278ab6808e0583761b48fafd47cfdb53d3a36157dc0e66799'
-            '996bd8e27adffaacb774a2135155c0e9d32f15189679c51563f66f29215c778f'
-            '84b9103f0b9125178ba351729c97ecde37bb4ee15aba1a34c3d0fca5a576e35e'
-            '83bdf87e805a90ab22908d5a02fa90d3709e675b2427f7506bd7e5d9d297864f'
+==> Получение исходных файлов...
+  -> Найден wellper
+  -> Найден wellhw
+  -> Найден wellmem
+  -> Найден wellsensors
+  -> Найден wellusb
+  -> Найден wellpci
+  -> Найден wellblock
+  -> Найден wellmod
+  -> Найден wellutils
+  -> Найден wellfetch
+  -> Найден lang.sh
+  -> Найден box.sh
+  -> Найден cli.sh
+  -> Найден jedec.sh
+  -> Найден wfetch_art.py
+  -> Найден logo.png
+  -> Найден wellper.1
+  -> Найден wellutils.1
+  -> Найден wellfetch.1
+  -> Найден wellhw.1
+  -> Найден wellmem.1
+  -> Найден wellusb.1
+  -> Найден wellblock.1
+  -> Найден wellpci.1
+  -> Найден wellmod.1
+  -> Найден wellsensors.1
+  -> Найден wellhw.bash
+  -> Найден wellmem.bash
+  -> Найден wellusb.bash
+  -> Найден wellblock.bash
+  -> Найден wellpci.bash
+  -> Найден wellmod.bash
+  -> Найден wellsensors.bash
+  -> Найден wellfetch.bash
+  -> Найден wellper.bash
+  -> Найден wellutils.bash
+  -> Найден LICENSE
+==> Подсчёт контрольных сумм исходных файлов...
+sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
+            'a73aed1a546a2b51a75e0c72a6089ffb1c78836cd6f27fcae97f2e13e06a4425'
+            'a67ce447b6f78cf44007769157e2729c04427d75246d71dd6bc5af9f2aa222e0'
+            '06273162d9c621d911e4a5f12471aa226702f2711dce59ec36a161d104db71a1'
+            'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
+            '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
+            'c025634ca7b000cf953711d1105f646e672a072c44c6d1dc8a8e9c4fbe5ade19'
+            '76bc517a6cc2282b3d2ee3db5d27ee6833a5e038a7eea39d107b9ddcd6351b25'
             'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
-            'a048bbf8c6df62a8700a4e2af8d764a13728650459bcba11087a406cf8a3c3c0'
+            '992be100d7f06a8af730a4f37f42a8750ee83de009cd40a13152e7a080820547'
             '8760310175f070d2d456f2b2ef57f25d5a24839990b909dd949f33d830692455'
             '8e21a1f517077ba7a1e687c743bf0f1801b8796118c6e2df0615ef7365740183'
-            '3518a7fbcc90eb621e856d914e34ddf194e6f1974ce7b824cbf7ce2906669268'
+            'f7b5839271514b0eef6a040bc4b1363fe1833535c0a8fe618186cb4ce41fd5f2'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
-            'e9cb3f5cf4720b556c724076631d565f328d8191f3c038db9cbcb1b0d444b515'
+            '0494269aa998bc49758e28d2017baf2544ef39a052e4cf2e1633389fe233cb2c'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'
             '257e2402b4c68c31f18512845f8e030beaf715e1047d2477fc0abe241e5a605b'
             '91a1529b392c2f658fbebd880f395c85d76c86085357aecbb50685e2245d110f'

@@ -65,7 +65,7 @@ module_icon() {
 # ─── Header ──────────────────────────────────────────────────────
 print_header() {
     local line
-    line=$(printf '═%.0s' $(seq 1 78))
+    line=$(printf '═%.0s' {1..78})
     printf '\n'
     printf '  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
     printf '  %s║%s%s  '"$(_ic "📦")"'wellmod — %s                           %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t mod_title)" "$RESET" "$C" "$RESET"
@@ -206,7 +206,7 @@ main() {
         printf '  %s│%s\n' "$C" "$RESET"
     done
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' $(seq 1 80))" "$RESET"
+    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..80})" "$RESET"
 
     printf '\n  %s%s:%s %s%s%s  %s%s%s  %s%s%s  %s%s%s\n' \
         "$BOLD" "$(t mod_size_legend)" "$RESET" \

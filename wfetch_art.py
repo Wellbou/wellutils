@@ -24,6 +24,7 @@ import sys
 import termios
 import time
 import zlib
+import base64
 
 
 def decode_png(path):
@@ -163,15 +164,122 @@ def query_term_bg():
     return (chan(m.group(1)), chan(m.group(2)), chan(m.group(3)))
 
 
+def encode_png_rgba(w, h, px):
+    """Minimal RGBA8 PNG encoder (stdlib only) — used for kitty/iTerm2 output."""
+    def chunk(typ, data):
+        c = struct.pack(">I", len(data)) + typ + data
+        crc = zlib.crc32(typ + data) & 0xFFFFFFFF
+        return c + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    rows = bytearray()
+    stride = w * 4
+    for y in range(h):
+        rows.append(0)
+        rows += px[y * stride:(y + 1) * stride]
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+            + chunk(b"IEND", b""))
+
+
+def resize_rgba(px, w, h, new_w, new_h):
+    """Nearest-neighbour RGBA downsample (fast, good enough for scaled art)."""
+    out = bytearray(new_w * new_h * 4)
+    for oy in range(new_h):
+        sy = (oy * h) // new_h
+        for ox in range(new_w):
+            sx = (ox * w) // new_w
+            src = (sy * w + sx) * 4
+            dst = (oy * new_w + ox) * 4
+            out[dst:dst + 4] = px[src:src + 4]
+    return out
+
+
+def read_terminal_response(timeout=0.5):
+    """Read until BEL or ST (ESC \\); parse 'i=NNN' image id out of it."""
+    if not sys.stdin.isatty():
+        return None
+    fd = sys.stdin.fileno()
+    try:
+        attrs = termios.tcgetattr(fd)
+    except Exception:
+        return None
+    new = termios.tcgetattr(fd)
+    new[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
+    new[6][termios.VMIN] = 0
+    new[6][termios.VTIME] = 1
+    data = b""
+    try:
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if not r:
+                continue
+            chunk = os.read(fd, 256)
+            if not chunk:
+                break
+            data += chunk
+            if b"\x1b\\" in data or b"\x07" in data:
+                break
+    finally:
+        try:
+            termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        except Exception:
+            pass
+    m = re.search(rb"[;,]i=(\d+)", data)
+    return int(m.group(1)) if m else None
+
+
+def emit_kitty(png, px_w, px_h, cols, rows):
+    """Transmit + place an image via the kitty graphics protocol.
+
+    The terminal answers with an image id (U=1) which we read back, then draw
+    the image scaled to `cols` cells x `rows` cells at the cursor position.
+    Supported by kitty, wezterm, konsole 23.04+, ghostty and foot.
+    """
+    b64 = base64.b64encode(png).decode("ascii")
+    sys.stdout.write("\x1b_Ga=T,f=100,s=%d,v=%d,U=1,m=1;%s\x1b\\" % (px_w, px_h, b64))
+    sys.stdout.flush()
+    iid = read_terminal_response()
+    if iid is None:
+        sys.stdout.write("\n")
+        return
+    sys.stdout.write("\x1b_Ga=p,i=%d,q=2,c=%d,r=%d\x1b\\" % (iid, cols, rows))
+    sys.stdout.flush()
+    sys.stdout.write("\n")
+
+
+def emit_iterm(png, px_w):
+    """iTerm2 inline image (OSC 1337). width in px; height keeps aspect."""
+    b64 = base64.b64encode(png).decode("ascii")
+    sys.stdout.write("\x1b]1337;File=name=logo.png;inline=1;width=%dpx;preserveAspectRatio=1;height=auto:%s\x07" % (px_w, b64))
+    sys.stdout.write("\n")
+
+
+def detect_gfx():
+    """Pick the best image protocol for this terminal: kitty | iterm | none."""
+    term = os.environ.get("TERM", "")
+    prog = os.environ.get("TERM_PROGRAM", "")
+    if term == "xterm-kitty" or prog == "WezTerm" or prog == "foot" \
+            or prog == "ghostty" or prog == "konsole":
+        return "kitty"
+    if prog == "iTerm.app" or os.environ.get("ITERM_PROFILE") or prog == "mintty":
+        return "iterm"
+    return "none"
+
+
 def main():
     args = sys.argv[1:]
     if not args:
-        sys.stderr.write("usage: wfetch_art.py <logo.png> [--width N] [--bg R,G,B] [--key N]\n")
+        sys.stderr.write("usage: wfetch_art.py <logo.png> [--width N] [--bg R,G,B] [--key N] [--gfx auto|kitty|iterm|none]\n")
         sys.exit(2)
     path = args[0]
     width = 48
     bg = None
     key = 40
+    gfx = None
     i = 1
     while i < len(args):
         if args[i] == "--width" and i + 1 < len(args):
@@ -183,18 +291,35 @@ def main():
         elif args[i] == "--key" and i + 1 < len(args):
             key = max(0, min(255, int(args[i + 1])))
             i += 2
+        elif args[i] == "--gfx" and i + 1 < len(args):
+            gfx = args[i + 1]
+            i += 2
         else:
             i += 1
+    if gfx == "auto":
+        gfx = detect_gfx()
+    if gfx == "none":
+        gfx = None
+    w, h, bd, ct, pal, raw = decode_png(path)
+    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
+    rows = max(2, int(round(0.5 * h / w * width)))
+    out_h = rows * 2  # output pixel height
+    if gfx in ("kitty", "iterm"):
+        # nearest-neighbour downscale to the requested cell size, then foist
+        # the real PNG bytes at the terminal (no external encoder needed)
+        px_w = max(4, int(w / max(1, int(w / (max(1, width * 4))))))
+        px_h = max(4, int(px_w * h / w))
+        small = resize_rgba(img, w, h, px_w, px_h)
+        png = encode_png_rgba(px_w, px_h, small)
+        if gfx == "kitty":
+            emit_kitty(png, px_w, px_h, width, rows)
+        else:
+            emit_iterm(png, px_w)
+        sys.exit(0)
     if bg is None:
         bg = query_term_bg()
     if bg is None:
         bg = (22, 20, 32)
-    w, h, bd, ct, pal, raw = decode_png(path)
-    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
-    # A terminal cell is roughly twice as tall as wide, and each half-block
-    # already carries 2 vertical samples, so a square image needs width/2 rows.
-    rows = max(2, int(round(0.5 * h / w * width)))
-    out_h = rows * 2  # output pixel height
     lines = []
     for oy in range(rows):
         y0 = int((oy * 2 + 0.5) * h / out_h)
