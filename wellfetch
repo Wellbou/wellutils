@@ -759,24 +759,9 @@ main() {
     wf_collect_info_lines
     local total=${#WF_INFO_LINES[@]}
 
-    # The logo never truncates the info column: when there is room it grows
-    # (up to the space the terminal offers) to match the content height. On
-    # narrow terminals the info simply continues below the logo.
-    if (( rows > 0 && total > rows && _WF_LWIDTH == 0 )); then
-        local need=$(( ( total * lw + rows - 1 ) / rows ))
-        local maxw=$(( cols - info_w - gap ))
-        (( maxw > 60 )) && maxw=60
-        if (( need > lw )); then
-            (( need > maxw )) && need=$maxw
-            if (( need > lw )); then
-                wf_logo_lines "$art" "$need"
-                rows=$WF_LOGO_ROWS
-                (( rows < 1 )) && rows=0
-                lw=$need
-            fi
-        fi
-    fi
-
+    # The logo keeps its classic size (min(avail/2, 44)): it never truncates
+    # the info column — on narrow terminals the info simply continues below
+    # the logo. Growing the logo made it look rectangular, so no growth.
     maxr=$(( rows > total ? rows : total ))
     # Snug pad: info column sits right next to the trimmed logo, not at the
     # edge of the old (wider) canvas.
