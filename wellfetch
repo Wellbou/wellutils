@@ -599,7 +599,31 @@ wf_logo_lines() {
         if [[ -n "$WF_LOGO_LINES" ]]; then
             WF_LOGO_ROWS="$(printf '%s\n' "$WF_LOGO_LINES" | wc -l)"
         fi
+        _wf_trim_logo
     fi
+}
+
+# Drop the transparent margins around the ASCII logo so its real height and
+# width are known: leading/trailing blank rows and leading empty cells.
+_wf_trim_logo() {
+    local -a arr=()
+    local line i start=-1 end=-1 kept="" o
+    while IFS= read -r line; do arr+=("$line"); done <<< "$WF_LOGO_LINES"
+    for (( i=0; i<${#arr[@]}; i++ )); do
+        o=$(printf '%s' "${arr[i]}" | sed $'s/\x1b\\[[0-9;]*m//g' | tr -d '[:space:]')
+        [[ -n "$o" ]] && { (( start < 0 )) && start=$i; end=$i; }
+    done
+    if (( start < 0 )); then
+        WF_LOGO_LINES=""; WF_LOGO_ROWS=0
+        return 0
+    fi
+    kept=""
+    for (( i=start; i<=end; i++ )); do
+        line=$(printf '%s' "${arr[i]}" | sed -E $'s/^(\x1b\\[49m )+//' | sed -E $'s/(\x1b\\[49m )+\x1b\\[0m$/\x1b\\[0m/')
+        kept+="$line"$'\n'
+    done
+    WF_LOGO_LINES="${kept%$'\n'}"
+    WF_LOGO_ROWS=$(( end - start + 1 ))
 }
 
 wf_info_line() {
@@ -734,22 +758,35 @@ main() {
     (( rows < 1 )) && rows=0
     wf_collect_info_lines
     local total=${#WF_INFO_LINES[@]}
-    if (( rows > 0 )); then
-        # trim the info column to the logo height, mark the hidden tail
-        local shown=$(( rows - 1 ))
-        (( shown < 0 )) && shown=0
-        if (( total > rows )); then
-            local hidden=$(( total - shown ))
-            WF_INFO_LINES=("${WF_INFO_LINES[@]:0:shown}")
-            WF_INFO_LINES+=("  ${DIM}⋯ +${hidden}${RESET}")
+
+    # The logo never truncates the info column: when there is room it grows
+    # (up to the space the terminal offers) to match the content height. On
+    # narrow terminals the info simply continues below the logo.
+    if (( rows > 0 && total > rows && _WF_LWIDTH == 0 )); then
+        local need=$(( ( total * lw + rows - 1 ) / rows ))
+        local maxw=$(( cols - info_w - gap ))
+        (( maxw > 60 )) && maxw=60
+        if (( need > lw )); then
+            (( need > maxw )) && need=$maxw
+            if (( need > lw )); then
+                wf_logo_lines "$art" "$need"
+                rows=$WF_LOGO_ROWS
+                (( rows < 1 )) && rows=0
+                lw=$need
+            fi
         fi
-        total=${#WF_INFO_LINES[@]}
-        maxr=$(( rows > total ? rows : total ))
-    else
-        maxr=$total
     fi
-    local pad="$(printf '%*s' "$(( lw + gap ))")"
-    local sp="$(printf '%*s' "$gap")"
+
+    maxr=$(( rows > total ? rows : total ))
+    # Snug pad: info column sits right next to the trimmed logo, not at the
+    # edge of the old (wider) canvas.
+    local artw=0 line_ v
+    while IFS= read -r line_; do
+        v=$(vislen "$line_")
+        (( v > artw )) && artw=$v
+    done <<< "$WF_LOGO_LINES"
+    (( artw < 1 )) && artw=$lw
+    local pad="$(printf '%*s' "$(( artw + gap ))")"    local sp="$(printf '%*s' "$gap")"
 
     if (( rows > 0 )); then
         local -a logo_arr=()
