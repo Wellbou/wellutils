@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -70,14 +70,14 @@ sha256sums=('30f7fc7e4c0623e67cec30ef6fa31295dfb1304f40f6c49fc599cfa4cd2bab4d'
             'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
             '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
             'ca055d13b045b10da0951d5e5739d49eb3d3b0f6803463832e5918031d68c9b6'
-            '0f10842ae346cd1a07c7dfbf97bb52d4b8fba952d3f26f600237a3a123342001'
-            'c42ef9d21089fe9dc78508c8b90346f7c2a5d08142998c653bbf37cdab6ac7e4'
+            'b4ac8177b37a44b2862335fa632f64c84fac9a9488f276a67e777abb475aec47'
+            'd501283fcd4384ae098c1d897ecad5946b7b6b7d75f9bfd2a0d5326a3691c770'
             '76bc517a6cc2282b3d2ee3db5d27ee6833a5e038a7eea39d107b9ddcd6351b25'
             'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
             '992be100d7f06a8af730a4f37f42a8750ee83de009cd40a13152e7a080820547'
             'adbe6f5566c186ccff46d7ce3c5e7e490589370939c034c49eb866a2136c49ff'
             '5f96872a83f8da1023dd968699a55ab86ef9ed7dbafb91125f968a0d459e1254'
-            '4a424185c31cda2e2ae63c28cef637adcf9985c640c0659ae41400cceb08e38f'
+            '8d4c1db67501ec468b57f8c7567cbde385ff5961705f2c1dd19b0ba44ea1c7c3'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
             '0494269aa998bc49758e28d2017baf2544ef39a052e4cf2e1633389fe233cb2c'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'

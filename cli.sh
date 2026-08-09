@@ -45,6 +45,23 @@ Exit codes: 0 ok, 2 bad CLI, 3 runtime error.
 EOF
 }
 
+# Locale-based language auto-detect (with system locale file fallback for
+# sudo/root where LANG is usually empty or C).
+_wu_detect_lang() {
+    case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
+        ru*) WELLUTILS_LANG=RU; return 0 ;;
+    esac
+    local _sys_lang=""
+    if [[ -r /etc/locale.conf ]]; then
+        _sys_lang=$(sed -n 's/^LANG=//p' /etc/locale.conf | head -1 | tr -d '"')
+    elif [[ -r /etc/default/locale ]]; then
+        _sys_lang=$(sed -n 's/^LANG=//p' /etc/default/locale | head -1 | tr -d '"')
+    fi
+    case "$(printf '%s' "$_sys_lang" | tr '[:upper:]' '[:lower:]')" in
+        ru*) WELLUTILS_LANG=RU ;;
+    esac
+}
+
 wu_parse() {
     while (( $# > 0 )); do
         case "$1" in
@@ -88,10 +105,8 @@ wu_parse() {
     case "$(_wlc "$_WU_LANG_ARG")" in
         ru) WELLUTILS_LANG=RU ;;
         en) WELLUTILS_LANG=EN ;;
-        auto)
-            case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
-                ru*) WELLUTILS_LANG=RU ;;
-            esac ;;
+        auto) _wu_detect_lang ;;
+        "") [[ -z "${_WELLUTILS_LANG:-}" ]] && _wu_detect_lang ;;
     esac
 
     [[ "$_WU_DEBUG" == "1" ]] && set -x

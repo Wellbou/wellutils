@@ -158,8 +158,22 @@ print_cpu_info() {
     c_l1i=$(awk -F': *' '/^L1i cache/{print $2}' <<< "$lscpu_out" | head -1)
     c_l2=$(awk -F': *' '/^L2 cache/{print $2}' <<< "$lscpu_out" | head -1)
     c_l3=$(awk -F': *' '/^L3 cache/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -n "$c_l1d" || -n "$c_l1i" || -n "$c_l2" || -n "$c_l3" ]] && caches="L1d: ${c_l1d:-?}  L1i: ${c_l1i:-?}  L2: ${c_l2:-?}  L3: ${c_l3:-?}"
-    [[ -n "$caches" ]] && pline_hw "$(_emu '📦')" "$(t cpu_caches)" "$caches"
+    if [[ -n "$c_l1d" || -n "$c_l1i" || -n "$c_l2" || -n "$c_l3" ]]; then
+        caches="L1d: ${c_l1d:-?}"
+        [[ -n "$c_l1i" ]] && caches="$caches  L1i: ${c_l1i}"
+        [[ -n "$c_l2" ]] && caches="$caches  L2: ${c_l2}"
+        [[ -n "$c_l3" ]] && caches="$caches  L3: ${c_l3}"
+        # The value area starts at column 19; box content is capped at COLUMNS-4.
+        # Split the caches line when it would otherwise be cut off.
+        if (( $(vislen "$caches") > ${COLUMNS:-100} - 23 )); then
+            local c1="${caches%  L2:*}" c2="L2: ${caches#*  L2: }" pad
+            printf -v pad '%*s' 18 ''
+            pline_hw "$(_emu '📦')" "$(t cpu_caches)" "$c1"
+            _LINES+=( " ${pad}${c2}${RESET}" )
+        else
+            pline_hw "$(_emu '📦')" "$(t cpu_caches)" "$caches"
+        fi
+    fi
 
     local feats=()
     for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1; do
