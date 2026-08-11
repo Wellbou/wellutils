@@ -165,7 +165,7 @@ wblock /dev/sdb
 
 Замечание: `wellutils sensors` намеренно не является алиасом — он
 перекрыл бы бинарник `sensors` из lm_sensors. Используйте
-`wellsensors`.
+`wellsensors` или `wtemp`.
 
 ## Возможности
 
