@@ -5,7 +5,7 @@
 # shellcheck disable=SC2034,SC2059,SC2154
 
 _WU_NAME="wellfetch"
-_WU_VERSION="1.2.0"
+_WU_VERSION="1.3.0"
 _WU_TAGLINE="detailed system information with logo"
 
 _WU_MANUAL=0
@@ -117,13 +117,16 @@ wft() {
     esac
 }
 
+# The default sections (os kernel cpu gpu mem resolution) use compact
+# single-width geometric glyphs: they align perfectly and match the
+# wellutils box style. The rest (--all/--full) keep emoji.
 wf_emoji() {
     case "$1" in
-        user) _ic '👤' ;; os) _ic '🖥️' ;; kernel) _ic '🧠' ;; uptime) _ic '⏰' ;;
+        user) _ic '◉' ;; os) _ic '◆' ;; kernel) _ic '◈' ;; uptime) _ic '◔' ;;
         shell) _ic '🐚' ;; desktop) _ic '🪟' ;; wm) _ic '🎨' ;; terminal) _ic '⌨️' ;;
-        theme) _ic '🎭' ;; icons) _ic '🖌️' ;; font) _ic '🔠' ;; cpu) _ic '🔥' ;;
-        gpu) _ic '🎮' ;; mem) _ic '💾' ;; swap) _ic '🔁' ;; disk) _ic '💽' ;;
-        disks) _ic '💿' ;; monitors) _ic '📺' ;; resolution) _ic '🖼️' ;;
+        theme) _ic '🎭' ;; icons) _ic '🖌️' ;; font) _ic '🔠' ;; cpu) _ic '▚' ;;
+        gpu) _ic '▞' ;; mem) _ic '▤' ;; swap) _ic '🔁' ;; disk) _ic '💽' ;;
+        disks) _ic '💿' ;; monitors) _ic '📺' ;; resolution) _ic '▣' ;;
         audio) _ic '🎚️' ;; peripherals) _ic '🔌' ;; packages) _ic '📦' ;;
         locale) _ic '🌍' ;; date) _ic '📅' ;;
     esac
@@ -273,6 +276,7 @@ wfv_gpu() {
             mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
             [[ "$mib" =~ ^[0-9]+$ ]] && vram="$(( mib / 1024 )) GiB"
         fi
+        name=$(sed -E 's/^(NVIDIA Corporation|Advanced Micro Devices|AMD|Intel Corporation|Intel) //; s/ *\(rev[^)]*\)$//' <<< "$name")
         if (( first )); then
             wf_push gpu "$(wft gpu)" "$name${vram:+ · $vram}"
             first=0
@@ -551,8 +555,10 @@ wf_custom() { :; }
 
 # --- collection ---------------------------------------------------------------
 
-WF_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale"
-WF_ALL_SECTIONS="$WF_SECTIONS audio resolution peripherals date"
+# Default set: essentials only — user@host, system, kernel, uptime, cpu,
+# gpu, memory, screen. Everything else stays available via --all/--full.
+WF_SECTIONS="user os kernel uptime cpu gpu mem resolution"
+WF_ALL_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale audio resolution peripherals date"
 
 wf_collect() {
     WF_SECS=() WF_LABELS=() WF_VALUES=()
@@ -603,8 +609,10 @@ wf_logo_lines() {
     fi
 }
 
-# Drop the transparent margins around the ASCII logo so its real height and
-# width are known: leading/trailing blank rows and leading empty cells.
+# Drop the transparent margins around the ASCII logo so its real height is
+# known: leading/trailing blank rows are removed. The horizontal offset the
+# art renderer gives the logo (leading/trailing empty cells) is kept so the
+# logo sits at its natural position and the info column stays aligned.
 _wf_trim_logo() {
     local -a arr=()
     local line i start=-1 end=-1 kept="" o
@@ -619,8 +627,7 @@ _wf_trim_logo() {
     fi
     kept=""
     for (( i=start; i<=end; i++ )); do
-        line=$(printf '%s' "${arr[i]}" | sed -E $'s/^(\x1b\\[49m )+//' | sed -E $'s/(\x1b\\[49m )+\x1b\\[0m$/\x1b\\[0m/')
-        kept+="$line"$'\n'
+        kept+="${arr[i]}"$'\n'
     done
     WF_LOGO_LINES="${kept%$'\n'}"
     WF_LOGO_ROWS=$(( end - start + 1 ))
@@ -707,30 +714,14 @@ main() {
     [[ -n "$art" ]] || art="/usr/share/wellutils/wfetch_art.py"
 
     # side-by-side: logo (left) | info column (right, height = logo height)
-    local cols info_w=0 gap avail lw rows maxr len i
+    local cols gap=4 avail lw rows maxr info_w=0 i v len sl
     cols="${COLUMNS:-$(tput cols 2>/dev/null || printf '80')}"
     for (( i=0; i<n; i++ )); do
-        len="$(wf_strip_ansi "${WF_RTEXT[i]}" | wc -m)"
-        len=$(( len + WF_RITEM[i] ))
-        local sl
+        len=$(vislen "${WF_RTEXT[i]}")
         sl="$(printf '%s\n' "${WF_RSUBS[i]}" | wc -L)"
         (( sl > len )) && len=$sl
         (( len > info_w )) && info_w=$len
     done
-    gap=4
-    avail=$(( cols - info_w - gap ))
-    if (( _WF_LWIDTH > 0 )); then
-        lw=$_WF_LWIDTH
-    else
-        lw=$(( avail / 2 ))
-        (( lw > 44 )) && lw=44
-        (( lw < 8 )) && lw=8
-    fi
-    (( lw + info_w + gap > cols )) && lw=$(( cols - info_w - gap ))
-    if (( lw < 8 )); then
-        wf_print_plain
-        return 0
-    fi
 
     # native image support (kitty/iTerm2) beats ASCII half-blocks
     local gfx=""
@@ -747,6 +738,34 @@ main() {
         auto|"")     : ;;
         *)           gfx="$WF_GFX" ;;
     esac
+
+    wf_collect_info_lines
+    local total=${#WF_INFO_LINES[@]}
+    # wcwidth-aware info width (vislen handles double-width emoji in --all)
+    info_w=0
+    for (( i=0; i<total; i++ )); do
+        v=$(vislen "${WF_INFO_LINES[i]}")
+        (( v > info_w )) && info_w=$v
+    done
+    avail=$(( cols - info_w - gap ))
+    if (( _WF_LWIDTH > 0 )); then
+        lw=$_WF_LWIDTH
+    else
+        # Scale with the terminal: the logo takes about half the space that
+        # remains after the info column, and never exceeds half the width.
+        # On a fullscreen wide terminal it grows instead of staying tiny.
+        lw=$(( avail / 2 ))
+        (( lw > cols / 2 )) && lw=$(( cols / 2 ))
+        (( lw < 8 )) && lw=8
+    fi
+    (( lw + info_w + gap > cols )) && lw=$(( cols - info_w - gap ))
+    if (( lw < 8 )); then
+        wf_print_plain
+        return 0
+    fi
+
+    # native image support (kitty/iTerm2) beats ASCII half-blocks; the logo
+    # is sized the same way as the ASCII render (lw computed above).
     if [[ -n "$gfx" && -n "$art" && -f "$WF_LOGO" ]]; then
         python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}" --gfx "$gfx" 2>/dev/null
         wf_print_plain
@@ -756,38 +775,62 @@ main() {
     wf_logo_lines "$art" "$lw"
     rows=$WF_LOGO_ROWS
     (( rows < 1 )) && rows=0
-    wf_collect_info_lines
-    local total=${#WF_INFO_LINES[@]}
 
-    # The logo keeps its classic size (min(avail/2, 44)): it never truncates
-    # the info column — on narrow terminals the info simply continues below
-    # the logo. Growing the logo made it look rectangular, so no growth.
+    # The art renderer centers the drawing in its canvas; if the canvas is
+    # much wider than the drawing, re-render at the visible width so the
+    # frame hugs the logo instead of leaving huge transparent margins.
+    local wv=0 line_ plain lead trail
+    while IFS= read -r line_; do
+        plain=$(wf_strip_ansi "$line_")
+        lead=$(printf '%s' "$plain" | sed 's/[^ ].*//' | wc -c); lead=$(( lead - 1 ))
+        trail=$(printf '%s' "$plain" | sed 's/.*[^ ]//' | wc -c); trail=$(( trail - 1 ))
+        v=$(( $(vislen "$line_") - lead - trail ))
+        (( v > wv )) && wv=$v
+    done <<< "$WF_LOGO_LINES"
+    (( wv < 1 )) && wv=$lw
+    if (( _WF_LWIDTH == 0 && wv + 2 < lw )); then
+        lw=$(( wv + 2 ))
+        wf_logo_lines "$art" "$lw"
+        rows=$WF_LOGO_ROWS
+        (( rows < 1 )) && rows=0
+    fi
+
     maxr=$(( rows > total ? rows : total ))
-    # Snug pad: info column sits right next to the trimmed logo, not at the
-    # edge of the old (wider) canvas.
-    local artw=0 line_ v
+    local artw=0
     while IFS= read -r line_; do
         v=$(vislen "$line_")
         (( v > artw )) && artw=$v
     done <<< "$WF_LOGO_LINES"
     (( artw < 1 )) && artw=$lw
-    local pad="$(printf '%*s' "$(( artw + gap ))")"    local sp="$(printf '%*s' "$gap")"
 
     if (( rows > 0 )); then
-        local -a logo_arr=()
+        # wellutils frame: logo and info share one box, aligned to the same
+        # left column on every row (the art renderer pads each line to lw).
+        local inner left right padl
+        inner=$(( artw + gap + info_w + 2 ))
+        box_top '◆' "wellfetch v${_WU_VERSION}" "$inner"
+        local -a logo_arr=() info_arr=()
         while IFS= read -r line; do logo_arr+=("$line"); done <<< "$WF_LOGO_LINES"
+        info_arr=("${WF_INFO_LINES[@]}")
         for (( i=0; i<maxr; i++ )); do
             if (( i < rows )); then
-                printf '%s%s' "${logo_arr[i]}" "$sp"
+                left="${logo_arr[i]}"
+                padl=$(( artw - $(vislen "$left") ))
+                (( padl > 0 )) && left+="$(printf '%*s' "$padl" '')"
             else
-                printf '%s' "$pad"
+                left="$(printf '%*s' "$artw" '')"
             fi
             if (( i < total )); then
-                printf '%s\n' "${WF_INFO_LINES[i]}"
+                right="${info_arr[i]}"
+                padl=$(( info_w - $(vislen "$right") ))
+                (( padl > 0 )) && right+="$(printf '%*s' "$padl" '')"
             else
-                printf '\n'
+                right="$(printf '%*s' "$info_w" '')"
             fi
+            box_row "${left}$(printf '%*s' "$gap" '')${right}" "$inner"
         done
+        box_bottom "$inner"
+        printf '\n  %sWellFetch v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
     else
         wf_print_plain
     fi
