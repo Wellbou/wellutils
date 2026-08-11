@@ -259,11 +259,11 @@ speed_label() {
 }
 
 # ─── USB classification ─────────────────────────────────────────
-# Devices usually describe themselves (product/manufacturer strings),
-# so keyword matching on those wins. Composite devices (bDeviceClass
-# 0x00 / 0xEF) are classified from their interface classes: that is
-# how multifunction printers, card readers, webcams and network
-# adapters are recognised even when the product string says nothing.
+# USB device/interface classes are authoritative: bDeviceClass for
+# single-function devices, bInterfaceClass for composite ones
+# (bDeviceClass 0x00 / 0xEF). Names are only consulted where classes
+# genuinely cannot tell things apart: HID (keyboard/mouse/tablet/
+# gamepad all use interface 0x03) and vendor-specific devices.
 
 # Unique bInterfaceClass codes of device $1 (space-separated, e.g. " 07 08").
 iface_classes() {
@@ -278,63 +278,73 @@ iface_classes() {
 
 classify() {
     local bclass="$1" prod="$2" mfg="$3" ifaces="$4"
-    local hay
+    local hay t=""
     hay=$(printf '%s %s' "$prod" "$mfg" | tr '[:upper:]' '[:lower:]')
 
-    case "$hay" in
-        *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*tablet*)
-            printf '%s' tablet; return ;;
-    esac
-    case "$hay" in
-        *key*board*|*key*koard*|*key*ard*|*k63*|*k55*|*k70*|*typewriter*|*gaming*key*|*blackwidow*|*huntsman*|*ornata*|*k552*|*k556*|*k530*|*razer*key*)
-            printf '%s' keyboard; return ;;
-        *mouse*|*trackball*|*deathadder*|*viper*|*basilisk*|*naga*|*mamba*|*lancehead*|*logitech*g*|*gaming*mouse*)
-            printf '%s' mouse; return ;;
-        *gamepad*|*game*pad*|*joystick*|*fightstick*|*arcade*stick*|*x-box*|*xbox*|*360*pad*|*dualshock*|*dual*shock*|*dualsense*|*dual*sense*|*switch*pro*|*joy-con*|*joycon*|*8bitdo*|*8bit*do*|*steam*controller*|*pro*controller*|*wireless*controller*|*wireless*game*|*wolverine*|*gamesir*|*gulikit*|*flydigi*)
-            printf '%s' gamepad; return ;;
-    esac
-    case "$hay" in
-        *webcam*|*camera*)
-            printf '%s' webcam; return ;;
-        *headset*|*headphone*|*headphones*|*earphone*|*microphone*|*audio*|*mic*)
-            printf '%s' audio; return ;;
-    esac
-    case "$hay" in
-        *wlan*|*wireless*lan*|*wifi*|*wi-fi*|*802.11*|*ralink*|*mediatek*|*bluetooth*)
-            printf '%s' network; return ;;
-        *card*reader*|*storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*|*memory*stick*)
-            printf '%s' storage; return ;;
-        *printer*|*scanner*|*mfp*|*inkjet*|*laserjet*|*deskjet*|*officejet*|*multifunction*)
-            printf '%s' printer; return ;;
-        *phone*|*mobile*|*android*|*galaxy*|*pixel*|*mao-lx*|*redmi*|*oneplus*|*realme*|*iphone*|*ipad*)
-            printf '%s' phone; return ;;
-    esac
-
-    # Composite devices: decide from the interface classes.
+    # 1) Interface classes (composite / bDeviceClass 0x00).
     if [[ -n "$ifaces" ]]; then
         case " $ifaces " in
-            *" 07 "*) printf '%s' printer; return ;;
-            *" 08 "*) printf '%s' storage; return ;;
-            *" 0e "*) printf '%s' webcam; return ;;
-            *" 02 "*) printf '%s' network; return ;;
-            *" 01 "*|*" 04 "*) printf '%s' audio; return ;;
-            *" 03 "*) printf '%s' hid; return ;;
-            *" 06 "*) printf '%s' data; return ;;
-            *" 09 "*) printf '%s' hub; return ;;
+            *" 07 "*) t=printer ;;
+            *" 08 "*) t=storage ;;
+            *" 0e "*) t=webcam ;;
+            *" 02 "*) t=network ;;
+            *" 01 "*|*" 04 "*) t=audio ;;
+            *" 03 "*) t=hid ;;
+            *" 06 "*) t=data ;;
+            *" 09 "*) t=hub ;;
         esac
     fi
 
-    case "$bclass" in
-        0e)     printf '%s' webcam ;;
-        01|04)  printf '%s' audio ;;
-        08)     printf '%s' storage ;;
-        07)     printf '%s' printer ;;
-        02)     printf '%s' network ;;
-        03)     printf '%s' hid ;;
-        09)     printf '%s' hub ;;
-        ff)     printf '%s' vendor ;;
-        *)      printf '%s' device ;;
-    esac
+    # 2) Device class fallback (single-function devices).
+    if [[ -z "$t" ]]; then
+        case "$bclass" in
+            0e)     t=webcam ;;
+            01|04)  t=audio ;;
+            08)     t=storage ;;
+            07)     t=printer ;;
+            02)     t=network ;;
+            03)     t=hid ;;
+            06)     t=data ;;
+            09)     t=hub ;;
+            ff)     t=vendor ;;
+            *)      t=device ;;
+        esac
+    fi
+
+    # 3) HID is class 0x03 for every input device — refine by name.
+    if [[ "$t" == "hid" ]]; then
+        case "$hay" in
+            *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*tablet*)
+                printf '%s' tablet; return ;;
+            *key*board*|*key*koard*|*key*ard*|*k63*|*k55*|*k70*|*typewriter*|*gaming*key*|*blackwidow*|*huntsman*|*ornata*|*k552*|*k556*|*k530*|*razer*key*)
+                printf '%s' keyboard; return ;;
+            *mouse*|*trackball*|*deathadder*|*viper*|*basilisk*|*naga*|*mamba*|*lancehead*|*logitech*g*|*gaming*mouse*)
+                printf '%s' mouse; return ;;
+            *gamepad*|*game*pad*|*joystick*|*fightstick*|*arcade*stick*|*x-box*|*xbox*|*360*pad*|*dualshock*|*dual*shock*|*dualsense*|*dual*sense*|*switch*pro*|*joy-con*|*joycon*|*8bitdo*|*8bit*do*|*steam*controller*|*pro*controller*|*wireless*controller*|*wireless*game*|*wolverine*|*gamesir*|*gulikit*|*flydigi*)
+                printf '%s' gamepad; return ;;
+        esac
+        printf '%s' hid; return
+    fi
+
+    # 4) Vendor-specific / unclassified: the name is the only hint.
+    if [[ "$t" == "vendor" || "$t" == "device" ]]; then
+        case "$hay" in
+            *phone*|*mobile*|*android*|*galaxy*|*pixel*|*mao-lx*|*redmi*|*oneplus*|*realme*|*iphone*|*ipad*)
+                printf '%s' phone; return ;;
+            *wlan*|*wireless*lan*|*wifi*|*wi-fi*|*802.11*|*ralink*|*mediatek*|*bluetooth*)
+                printf '%s' network; return ;;
+            *webcam*|*camera*)
+                printf '%s' webcam; return ;;
+            *headset*|*headphone*|*headphones*|*earphone*|*microphone*|*audio*)
+                printf '%s' audio; return ;;
+            *card*reader*|*storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*|*memory*stick*|*bridge*)
+                printf '%s' storage; return ;;
+            *printer*|*scanner*|*mfp*|*inkjet*|*laserjet*|*deskjet*|*officejet*|*multifunction*)
+                printf '%s' printer; return ;;
+        esac
+    fi
+
+    printf '%s' "$t"
 }
 
 type_label() {
@@ -385,7 +395,29 @@ group_id() {
 }
 
 # ─── USB collection (sysfs only — no usbutils required) ────────
-USB_VID=() USB_PID=() USB_MFG=() USB_NAME=() USB_SPEED=() USB_DRV=() USB_TYPE=() USB_ICON=() USB_GRP=()
+USB_VID=() USB_PID=() USB_MFG=() USB_NAME=() USB_SPEED=() USB_DRV=() USB_TYPE=() USB_ICON=() USB_GRP=() USB_GSIZE=()
+
+# Capacity of the disk behind a USB mass-storage device, in 512-byte
+# sectors (empty when none). Found via the SCSI lun the interface hosts.
+disk_size() {
+    local base="$1" lun size
+    for lun in /sys/bus/usb/devices/${base}:*/host*/target*/*:*/block/*/size; do
+        [[ -r "$lun" ]] || continue
+        size=$(cat "$lun" 2>/dev/null || true)
+        [[ -n "$size" ]] && { printf '%s' "$size"; return; }
+    done
+    return 1
+}
+
+fmt_bytes() {
+    awk -v b="$(( $1 * 512 ))" 'BEGIN {
+        n = split("B KiB MiB GiB TiB", u, " ")
+        v = b; i = 1
+        while (v >= 1024 && i < n) { v /= 1024; i++ }
+        if (v >= 10 || i < 3) printf "%.0f %s", v, u[i]
+        else printf "%.1f %s", v, u[i]
+    }'
+}
 
 collect_usb() {
     local devdir
@@ -410,15 +442,18 @@ collect_usb() {
         fi
         prod=$(clean_name "$(cat "$devdir/product" 2>/dev/null || true)")
         [[ -z "$prod" ]] && prod=$(clean_name "$(usb_device_name "$vid" "$pid")")
-        local type icon grp drv
+        local type icon grp drv gsize
         type=$(classify "$bclass" "$prod" "$mfg" "$ifaces")
         icon=$(icon_for "$type")
         grp=$(group_id "$type")
         drv=$(readlink "$devdir/driver" 2>/dev/null || true)
         [[ -n "$drv" ]] && drv=$(basename "$drv")
+        gsize=""
+        [[ "$type" == "storage" ]] && gsize=$(disk_size "$base" || true)
         USB_VID+=("$vid") USB_PID+=("$pid") USB_MFG+=("$mfg") USB_NAME+=("$prod")
         USB_SPEED+=("$(cat "$devdir/speed" 2>/dev/null || true)")
         USB_DRV+=("$drv") USB_TYPE+=("$type") USB_ICON+=("$icon") USB_GRP+=("$grp")
+        USB_GSIZE+=("$gsize")
     done
 }
 
@@ -428,6 +463,9 @@ usb_line() {
           drv="${USB_DRV[$i]:-}" type="${USB_TYPE[$i]:-}" icon="${USB_ICON[$i]:-}"
     [[ -z "$name" ]] && name=$(t usb_unknown)
     local meta; meta="$(type_label "$type")"
+    if [[ "$type" == "storage" && -n "${USB_GSIZE[$i]:-}" ]]; then
+        meta+=" · $(fmt_bytes "${USB_GSIZE[$i]}")"
+    fi
     [[ -n "$spd" ]] && meta+=" · $(speed_label "$spd")"
     pline "  ${icon}${BOLD}${W}${name}${RESET} ${DIM}· ${meta}${RESET}"
     local subs=() k
