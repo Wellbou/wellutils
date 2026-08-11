@@ -25,6 +25,7 @@ import termios
 import time
 import zlib
 import base64
+import hashlib
 
 
 def decode_png(path):
@@ -270,6 +271,73 @@ def detect_gfx():
     return "none"
 
 
+GFX_W = 640  # cached transmission resolution; the terminal smooth-scales it
+_GFX_VER = "v1"
+
+
+def _gfx_cache_dir():
+    d = os.environ.get("WF_CACHE_DIR")
+    if d:
+        return d
+    return os.path.join(
+        os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
+        "wellutils",
+    )
+
+
+def _logo_key(path):
+    try:
+        return hashlib.md5(open(path, "rb").read()).hexdigest()[:16]
+    except OSError:
+        return "0000000000000000"
+
+
+def gfx_png_cached(path):
+    """Return cached (px_w, px_h, png) for the logo, or None on miss.
+
+    The PNG is keyed only by the logo's hash at a fixed generous resolution,
+    so one render serves every terminal width. Decoding/unfiltering the source
+    (the slow part) is skipped entirely on a hit.
+    """
+    key = _logo_key(path)
+    try:
+        d = _gfx_cache_dir()
+        if not os.path.isdir(d):
+            return None
+        prefix = "gfx-%s-%s-" % (_GFX_VER, key)
+        for fn in os.listdir(d):
+            if not fn.startswith(prefix) or not fn.endswith(".png"):
+                continue
+            m = re.match(r"gfx-[0-9a-z]+-[0-9a-f]+-(\d+)x(\d+)\.png", fn)
+            if not m:
+                continue
+            with open(os.path.join(d, fn), "rb") as f:
+                return int(m.group(1)), int(m.group(2)), f.read()
+    except OSError:
+        pass
+    return None
+
+
+def gfx_render_and_cache(path, w, h, bd, ct, pal, raw):
+    """Decode at full quality, downscale to GFX_W, cache the PNG, return it."""
+    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
+    px_w = GFX_W
+    px_h = max(4, int(px_w * h / w))
+    small = resize_rgba(img, w, h, px_w, px_h)
+    png = encode_png_rgba(px_w, px_h, small)
+    key = _logo_key(path)
+    try:
+        d = _gfx_cache_dir()
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, ".gfx-%s-%s.tmp" % (_GFX_VER, os.getpid()))
+        with open(tmp, "wb") as f:
+            f.write(png)
+        os.replace(tmp, os.path.join(d, "gfx-%s-%s-%dx%d.png" % (_GFX_VER, key, px_w, px_h)))
+    except OSError:
+        pass
+    return px_w, px_h, png
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -300,22 +368,23 @@ def main():
         gfx = detect_gfx()
     if gfx == "none":
         gfx = None
-    w, h, bd, ct, pal, raw = decode_png(path)
-    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
-    rows = max(2, int(round(0.5 * h / w * width)))
-    out_h = rows * 2  # output pixel height
     if gfx in ("kitty", "iterm"):
-        # nearest-neighbour downscale to the requested cell size, then foist
-        # the real PNG bytes at the terminal (no external encoder needed)
-        px_w = max(4, int(w / max(1, int(w / (max(1, width * 4))))))
-        px_h = max(4, int(px_w * h / w))
-        small = resize_rgba(img, w, h, px_w, px_h)
-        png = encode_png_rgba(px_w, px_h, small)
+        hit = gfx_png_cached(path)
+        if hit is not None:
+            px_w, px_h, png = hit
+        else:
+            w, h, bd, ct, pal, raw = decode_png(path)
+            px_w, px_h, png = gfx_render_and_cache(path, w, h, bd, ct, pal, raw)
+        rows = max(2, int(round(0.5 * px_h / px_w * width)))
         if gfx == "kitty":
             emit_kitty(png, px_w, px_h, width, rows)
         else:
             emit_iterm(png, px_w)
         sys.exit(0)
+    w, h, bd, ct, pal, raw = decode_png(path)
+    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
+    rows = max(2, int(round(0.5 * h / w * width)))
+    out_h = rows * 2  # output pixel height
     if bg is None:
         bg = query_term_bg()
     if bg is None:

@@ -1,7 +1,7 @@
 pkgbase = wellutils
 	pkgdesc = Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch)
 	pkgver = 1.4.0
-	pkgrel = 7
+	pkgrel = 8
 	url = https://github.com/Wellbou/wellutils
 	arch = any
 	license = MIT
