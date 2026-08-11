@@ -65,7 +65,13 @@ print_board() {
     name=$(cat /sys/class/dmi/id/board_name 2>/dev/null || true)
     version=$(cat /sys/class/dmi/id/board_version 2>/dev/null || true)
     bios=$(cat /sys/class/dmi/id/bios_vendor 2>/dev/null || true)
-    bios="$bios $(cat /sys/class/dmi/id/bios_version 2>/dev/null || true) ($(cat /sys/class/dmi/id/bios_date 2>/dev/null || true))"
+    local bver bdate
+    bver=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
+    bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
+    bios="$bios $bver"
+    [[ -n "$bdate" ]] && bios="$bios ($bdate)"
+    bios="${bios//  / }"
+    [[ -z "${bios// /}" ]] && bios=""
 
     local board="$vendor $name"
     [[ -n "$version" ]] && board="$board (v$version)"

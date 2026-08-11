@@ -86,8 +86,11 @@ core_loads() {
                 idle=$(( $4 + $5 ))
                 total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
                 local idx=$((10#${c#cpu}))
-                local d_idle=$(( idle - ${t0[$idx]%% *} ))
-                local d_total=$(( total - ${t0[$idx]##* } ))
+                local d_idle=0 d_total=0
+                if [[ -n "${t0[$idx]:-}" ]]; then
+                    d_idle=$(( idle - ${t0[$idx]%% *} ))
+                    d_total=$(( total - ${t0[$idx]##* } ))
+                fi
                 local pct=0
                 (( d_total > 0 )) && pct=$(( (d_total - d_idle) * 100 / d_total ))
                 (( pct > 100 )) && pct=100
@@ -175,7 +178,7 @@ print_cpu_info() {
         fi
     fi
 
-    local feats=()
+    local feats=() feat_txt=""
     for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1; do
         [[ "$flags" == *"$f"* ]] && feats+=("$f")
     done
