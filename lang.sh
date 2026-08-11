@@ -271,6 +271,33 @@ _t_EN() {
         hw_ram_none)        printf '%s' "no memory metadata available" ;;
         hw_network)         printf '%s' "Network" ;;
         hw_battery)         printf '%s' "Battery" ;;
+        launcher_title)     printf '%s' "System Utility Kit" ;;
+        launcher_usage)     printf '%s' "Usage" ;;
+        launcher_run)       printf '%s' "Run a utility" ;;
+        launcher_set_lang)  printf '%s' "Set language (RU or EN)" ;;
+        launcher_help)      printf '%s' "Show this help" ;;
+        launcher_version)   printf '%s' "Show version" ;;
+        launcher_commands)  printf '%s' "Commands" ;;
+        launcher_options)   printf '%s' "Options" ;;
+        launcher_aliases)   printf '%s' "Aliases" ;;
+        launcher_current_lang) printf '%s' "Current language" ;;
+        launcher_error)     printf '%s' "Error" ;;
+        launcher_error_cmd) printf '%s' "unknown command" ;;
+        launcher_set_lang_done) printf '%s' "Language set to" ;;
+        launcher_error_lang) printf 'unknown language "%s". Use RU or EN.' "$2" ;;
+        cmd_usb)            printf '%s' "USB device explorer" ;;
+        cmd_pci)            printf '%s' "PCI device explorer" ;;
+        cmd_block)          printf '%s' "Block device explorer" ;;
+        cmd_mem)            printf '%s' "Memory overview" ;;
+        cmd_mod)            printf '%s' "Kernel module explorer" ;;
+        cmd_sensors)        printf '%s' "System temperature monitor" ;;
+        cmd_hw)             printf '%s' "Hardware report (chat-ready)" ;;
+        cmd_per)            printf '%s' "Peripherals report (USB, displays, audio)" ;;
+        cmd_gpu)            printf '%s' "GPU overview (adapters, driver, live stats)" ;;
+        cmd_cpu)            printf '%s' "CPU overview (topology, load, frequencies)" ;;
+        cmd_fetch)          printf '%s' "System fetch (ASCII/PNG logo)" ;;
+        opt_plain_color)    printf '%s' "plain text / color mode (wellfetch, wellper)" ;;
+        opt_more)           printf '%s' "all sections / full report / no logo (wellfetch)" ;;
     esac
 }
 
@@ -524,6 +551,33 @@ _t_RU() {
         hw_ram_none)        printf '%s' "данные о памяти недоступны" ;;
         hw_network)         printf '%s' "Сеть" ;;
         hw_battery)         printf '%s' "Батарея" ;;
+        launcher_title)     printf '%s' "Системный набор утилит" ;;
+        launcher_usage)     printf '%s' "Использование" ;;
+        launcher_run)       printf '%s' "Запуск утилиты" ;;
+        launcher_set_lang)  printf '%s' "Установить язык (RU или EN)" ;;
+        launcher_help)      printf '%s' "Показать справку" ;;
+        launcher_version)   printf '%s' "Показать версию" ;;
+        launcher_commands)  printf '%s' "Команды" ;;
+        launcher_options)   printf '%s' "Опции" ;;
+        launcher_aliases)   printf '%s' "Алиасы" ;;
+        launcher_current_lang) printf '%s' "Текущий язык" ;;
+        launcher_error)     printf '%s' "Ошибка" ;;
+        launcher_error_cmd) printf '%s' "неизвестная команда" ;;
+        launcher_set_lang_done) printf '%s' "Язык установлен" ;;
+        launcher_error_lang) printf 'неизвестный язык "%s". Используйте RU или EN.' "$2" ;;
+        cmd_usb)            printf '%s' "USB-устройства" ;;
+        cmd_pci)            printf '%s' "PCI-устройства" ;;
+        cmd_block)          printf '%s' "Накопители и диски" ;;
+        cmd_mem)            printf '%s' "Оперативная память" ;;
+        cmd_mod)            printf '%s' "Ядро и модули" ;;
+        cmd_sensors)        printf '%s' "Температуры системы" ;;
+        cmd_hw)             printf '%s' "Отчёт об оборудовании" ;;
+        cmd_per)            printf '%s' "Периферия (USB, экраны, аудио)" ;;
+        cmd_gpu)            printf '%s' "Видеоадаптеры (драйвер, статистика)" ;;
+        cmd_cpu)            printf '%s' "Процессор (топология, нагрузка)" ;;
+        cmd_fetch)          printf '%s' "Инфо о системе (ASCII/PNG лого)" ;;
+        opt_plain_color)    printf '%s' "обычный текст / цвет (есть в wellfetch, wellper)" ;;
+        opt_more)           printf '%s' "все секции / полный отчёт / без лого (wellfetch)" ;;
     esac
 }
 

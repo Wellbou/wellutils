@@ -8,44 +8,61 @@ set -euo pipefail
 _WU_DIR="$(dirname "$(readlink -f "$0")")"
 _WU_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
 
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$_WU_DIR/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+
+_WU_VERSION="1.4.0"
+
 # Colors
 R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
 M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
 
 show_help() {
+    local ttl pad
+    ttl="🛠  wellutils — $(t launcher_title)"
+    pad=$(( 54 - ${#ttl} - 1 ))      # box inner is 54 cells; the wrench emoji is 2 cells wide
+    (( pad < 1 )) && pad=1
     printf '\n'
     printf '  %s╔══════════════════════════════════════════════════════╗%s\n' "$C" "$RESET"
-    printf '  %s║%s%s  🛠  wellutils — System Utility Kit                %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$RESET" "$C" "$RESET"
+    printf '  %s║%s%s  %s%*s%s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$ttl" "$pad" '' "$RESET" "$C" "$RESET"
     printf '  %s╚══════════════════════════════════════════════════════╝%s\n' "$C" "$RESET"
     printf '\n'
-    printf '  %sUsage:%s\n' "$BOLD" "$RESET"
-    printf '    wellutils <command>              Run a utility\n'
-    printf '    wellutils --lang RU|ENG          Set language (RU or EN)\n'
-    printf '    wellutils --help                 Show this help\n'
+    printf '  %s%s:%s\n' "$BOLD" "$(t launcher_usage)" "$RESET"
+    printf '    wellutils <command>              %s\n' "$(t launcher_run)"
+    printf '    wellutils --lang RU|EN          %s\n' "$(t launcher_set_lang)"
+    printf '    wellutils --help                %s\n' "$(t launcher_help)"
+    printf '    wellutils --version             %s\n' "$(t launcher_version)"
     printf '\n'
-    printf '  %sCommands:%s\n' "$BOLD" "$RESET"
-    printf '    %susb%s       — USB device explorer\n' "$G" "$RESET"
-    printf '    %spci%s       — PCI device explorer\n' "$G" "$RESET"
-    printf '    %sblock%s     — Block device explorer\n' "$G" "$RESET"
-    printf '    %smem%s       — Memory overview\n' "$G" "$RESET"
-    printf '    %smod%s       — Kernel module explorer\n' "$G" "$RESET"
-    printf '    %swellsensors%s — System temperature monitor\n' "$G" "$RESET"
-    printf '    %shw%s         — Hardware report (chat-ready)\n' "$G" "$RESET"
-    printf '    %sper%s         — Peripherals report (USB, displays, audio)\n' "$G" "$RESET"
-    printf '    %sfetch%s       — System fetch (ASCII/PNG logo)\n' "$G" "$RESET"
+    printf '  %s%s:%s\n' "$BOLD" "$(t launcher_commands)" "$RESET"
+    printf '    %susb%s       — %s\n' "$G" "$RESET" "$(t cmd_usb)"
+    printf '    %spci%s       — %s\n' "$G" "$RESET" "$(t cmd_pci)"
+    printf '    %sblock%s     — %s\n' "$G" "$RESET" "$(t cmd_block)"
+    printf '    %smem%s       — %s\n' "$G" "$RESET" "$(t cmd_mem)"
+    printf '    %smod%s       — %s\n' "$G" "$RESET" "$(t cmd_mod)"
+    printf '    %swellsensors%s — %s\n' "$G" "$RESET" "$(t cmd_sensors)"
+    printf '    %shw%s         — %s\n' "$G" "$RESET" "$(t cmd_hw)"
+    printf '    %sper%s        — %s\n' "$G" "$RESET" "$(t cmd_per)"
+    printf '    %sgpu%s        — %s\n' "$G" "$RESET" "$(t cmd_gpu)"
+    printf '    %scpu%s        — %s\n' "$G" "$RESET" "$(t cmd_cpu)"
+    printf '    %sfetch%s      — %s\n' "$G" "$RESET" "$(t cmd_fetch)"
     printf '\n'
-    printf '  %sAliases:%s  usb=wellusb  wusb=wellusb  pci=wellpci  wpci=wellpci\n' "$DIM" "$RESET"
+    printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
+    printf '    %s--plain%s / %s--color auto|always|never%s  %s\n' "$G" "$RESET" "$G" "$RESET" "$(t opt_plain_color)"
+    printf '    %s--all%s / %s--full%s / %s--no-logo%s        %s\n' "$G" "$RESET" "$G" "$RESET" "$G" "$RESET" "$(t opt_more)"
+    printf '    %s--help%s                   %s\n' "$G" "$RESET" "$(t launcher_help)"
+    printf '\n'
+    printf '  %s%s:%s  usb=wellusb  wusb=wellusb  pci=wellpci  wpci=wellpci\n' "$DIM" "$(t launcher_aliases)" "$RESET"
     printf '                block=wellblock  wblock=wellblock  mem=wmem=wellmem\n'
     printf '                ram=wram=wellram=wellmem  mod=wellmod\n'
     printf '                wsensors=wellsensors  wtemp=wellsensors  hw=wellhw\n'
-    printf '                whw=wellhw  per=wellper  wper=wellper  fetch=wellfetch\n'
+    printf '                whw=wellhw  per=wellper  wper=wellper  gpu=wellgpu\n'
+    printf '                wgpu=wellgpu  cpu=wellcpu  wcpu=wellcpu  fetch=wellfetch\n'
     printf '\n'
-
-    local cur_lang="EN"
-    [[ -f "$_WU_LANG_FILE" ]] && cur_lang=$(sed -n '/^[A-Z]/{p;q}' "$_WU_LANG_FILE" 2>/dev/null | tr -d '[:space:]')
-    [[ -n "${WELLUTILS_LANG:-}" ]] && cur_lang="$WELLUTILS_LANG"
-    printf '  %sCurrent language:%s %s%s%s\n\n' "$DIM" "$RESET" "$BOLD" "$cur_lang" "$RESET"
+    printf '  %s%s:%s %s%s%s\n\n' "$DIM" "$(t launcher_current_lang)" "$RESET" "$BOLD" "$WELLUTILS_LANG" "$RESET"
 }
 
 set_lang() {
@@ -56,10 +73,10 @@ set_lang() {
             [[ "$lang" == "ENG" ]] && lang="EN"
             mkdir -p "$(dirname "$_WU_LANG_FILE")"
             echo "$lang" > "$_WU_LANG_FILE"
-            printf '  %sLanguage set to:%s %s%s%s\n\n' "$G" "$RESET" "$BOLD" "$lang" "$RESET"
+            printf '  %s%s:%s %s%s%s\n\n' "$G" "$(t launcher_set_lang_done)" "$RESET" "$BOLD" "$lang" "$RESET"
             ;;
         *)
-            printf '  %sError:%s unknown language "%s". Use RU or EN.\n\n' "$R" "$RESET" "$1"
+            printf '  %s%s:%s %s\n\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_error_lang "$lang")"
             exit 1
             ;;
     esac
@@ -67,15 +84,13 @@ set_lang() {
 
 # Parse args
 CMD=""
-LANG_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     [[ -n "$CMD" ]] && break    # rest of args belong to the tool
     case "$1" in
         --lang|-l)
             shift
-            LANG_OVERRIDE="${1:-EN}"
-            set_lang "$LANG_OVERRIDE"
+            set_lang "${1:-EN}"
             exit 0
             ;;
         --help|-h)
@@ -83,7 +98,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         --version|-V)
-            printf '%s %s\n' "wellutils" "1.3.0"
+            printf '%s %s\n' "wellutils" "$_WU_VERSION"
             exit 0
             ;;
         usb|wellusb|wusb)          CMD="wellusb";     shift ;;
@@ -94,9 +109,11 @@ while [[ $# -gt 0 ]]; do
         wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
         hw|wellhw|whw)             CMD="wellhw";      shift ;;
         per|wellper|wper)          CMD="wellper";     shift ;;
+        gpu|wellgpu|wgpu)          CMD="wellgpu";     shift ;;
+        cpu|wellcpu|wcpu)          CMD="wellcpu";     shift ;;
         fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
         *)
-            printf '  %sError:%s unknown command "%s"\n\n' "$R" "$RESET" "$1"
+            printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"
             show_help
             exit 1
             ;;
