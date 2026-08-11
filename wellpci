@@ -77,45 +77,35 @@ pci_device_name() {
     ' "$PCI_IDS"
 }
 
-# ─── Main ────────────────────────────────────────────────────────
-main() {
-    local line
-    line=$(printf '═%.0s' {1..78})
-    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  '"$(_ic "🌉")"'wellpci — %s                          %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t pci_title)" "$RESET" "$C" "$RESET"
-    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+# ─── Scan (fills global arrays + count) ─────────────────────────
+pci_scan() {
+    ADDRS=() CLASSES=() DRIVERS=() VENDORS=() DEVICES=() DESCS=() VENDOR_NAMES=() DEVICE_NAMES=()
+    count=0
 
-    local -a ADDRS=() CLASSES=() DRIVERS=() VENDORS=() DEVICES=() DESCS=() VENDOR_NAMES=() DEVICE_NAMES=()
-    local count=0
-
+    local devdir addr class vendor device vid did driver_name lspci_desc vname dname full_desc
     for devdir in /sys/bus/pci/devices/*/; do
         [[ -d "$devdir" ]] || continue
-        local addr
         addr=$(basename "$devdir")
 
-        local class vendor device
         class=$(cat "$devdir/class" 2>/dev/null || echo "000000")
         class="${class#0x}"
         vendor=$(cat "$devdir/vendor" 2>/dev/null || echo "0x0000")
         device=$(cat "$devdir/device" 2>/dev/null || echo "0x0000")
-        local vid="${vendor#0x}" did="${device#0x}"
+        vid="${vendor#0x}" did="${device#0x}"
 
-        local driver_name="none"
+        driver_name="none"
         if [[ -L "$devdir/driver" ]]; then
             driver_name=$(basename "$(readlink "$devdir/driver")")
         fi
 
-        local lspci_desc
         lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
-        local vname dname
         vname=$(pci_vendor_name "$vid")
         dname=$(pci_device_name "$vid" "$did")
         if [[ -z "$dname" ]]; then
             dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f]* //')
         fi
 
-        local full_desc
         full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
         ADDRS+=("$addr")
@@ -128,6 +118,44 @@ main() {
         DEVICE_NAMES+=("$dname")
         count=$(( count + 1 ))
     done
+}
+
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    pci_scan
+
+    wu_json_head wellpci 2.0
+    printf ',\n  "summary": { "devices": %d },\n' "$count"
+    printf '  "ids_db_loaded": %s,\n' "$([[ -f $PCI_IDS ]] && printf 'true' || printf 'false')"
+    printf '  "devices": [\n'
+    local first=1
+    for (( i=0; i<count; i++ )); do
+        local addr="${ADDRS[$i]}" cls="${CLASSES[$i]}" drv="${DRIVERS[$i]}" vid="${VENDORS[$i]}" did="${DEVICES[$i]}" desc="${DESCS[$i]}" vname="${VENDOR_NAMES[$i]}" dname="${DEVICE_NAMES[$i]}"
+        local major="${cls:0:2}"
+        local cname
+        cname=$(pci_class_name "${major}0000")
+
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "addr": "%s", "class": "%s", "major": "%s", "class_name": "%s", "vendor_id": "%s", "device_id": "%s", "vendor": "%s", "device": "%s", "description": "%s", "driver": "%s" }' \
+            "$(json_esc "$addr")" "$(json_esc "$cls")" "$(json_esc "$major")" "$(json_esc "$cname")" \
+            "$(json_esc "$vid")" "$(json_esc "$did")" "$(json_esc "$vname")" "$(json_esc "$dname")" \
+            "$(json_esc "$desc")" "$(json_esc "$drv")"
+    done
+    printf '\n  ]\n'
+    wu_json_end
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
+    local line
+    line=$(printf '═%.0s' {1..78})
+    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "🌉")"'wellpci — %s                          %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t pci_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+
+    pci_scan
 
     local ids_status
     if [[ -f $PCI_IDS ]]; then

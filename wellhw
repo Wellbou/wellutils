@@ -234,8 +234,113 @@ print_cooling() {
     fi
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    local model cores threads
+    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+    cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
+    threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
+
+    local gpu=""
+    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1) || gpu=""
+
+    local b_vendor="" b_name="" b_version="" bv="" bver="" bdate=""
+    b_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null || true)
+    b_name=$(cat /sys/class/dmi/id/board_name 2>/dev/null || true)
+    b_version=$(cat /sys/class/dmi/id/board_version 2>/dev/null || true)
+    bv=$(cat /sys/class/dmi/id/bios_vendor 2>/dev/null || true)
+    bver=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
+    bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
+
+    local mout="" modules=0 msize_mb=0 mtype="" mspeed="" mmanuf="" mpn="" mform=""
+    mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
+    if [[ -n "$mout" ]]; then
+        modules=$(awk '/^[[:space:]]*Size: [0-9]+ /{c++} END{print c+0}' <<< "$mout")
+        msize_mb=$(awk '/^[[:space:]]*Size: [0-9]+ (MiB|GiB)/{if($3=="GiB") s+=$2*1024; else s+=$2} END{print s+0}' <<< "$mout")
+        mtype=$(awk '/^[[:space:]]*Type: (DDR|LPDDR)/{print $2; exit}' <<< "$mout")
+        mspeed=$(awk '/^[[:space:]]*Speed: [0-9]+ MT\/s/{print $2; exit}' <<< "$mout")
+        mmanuf=$(awk '/^[[:space:]]*Manufacturer:/{sub(/^[[:space:]]*Manufacturer:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        mpn=$(awk '/^[[:space:]]*Part Number:/{sub(/^[[:space:]]*Part Number:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        mform=$(awk '/^[[:space:]]*Form Factor:/{sub(/^[[:space:]]*Form Factor:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+    fi
+
+    wu_json_head wellhw 1.3
+    printf ',\n  "cpu": { "model": "%s", "cores": "%s", "threads": "%s" },\n' \
+        "$(json_esc "$model")" "$(json_esc "$cores")" "$(json_esc "$threads")"
+    printf '  "gpu": { "name": "%s" },\n' "$(json_esc "$gpu")"
+    printf '  "board": {\n'
+    printf '    "vendor": "%s",\n' "$(json_esc "$b_vendor")"
+    printf '    "name": "%s",\n' "$(json_esc "$b_name")"
+    printf '    "version": "%s",\n' "$(json_esc "$b_version")"
+    printf '    "bios": { "vendor": "%s", "version": "%s", "date": "%s" }\n' \
+        "$(json_esc "$bv")" "$(json_esc "$bver")" "$(json_esc "$bdate")"
+    printf '  },\n'
+    printf '  "memory": {\n'
+    printf '    "modules": %d,\n' "$modules"
+    printf '    "size_mb": %d,\n' "$msize_mb"
+    printf '    "type": "%s",\n' "$(json_esc "$mtype")"
+    printf '    "speed_mts": "%s",\n' "$(json_esc "$mspeed")"
+    printf '    "manufacturer": "%s",\n' "$(json_esc "$mmanuf")"
+    printf '    "part_number": "%s",\n' "$(json_esc "$mpn")"
+    printf '    "form_factor": "%s"\n' "$(json_esc "$mform")"
+    printf '  },\n'
+
+    printf '  "storage": [\n'
+    local first=1 row dev smodel size
+    while IFS= read -r row; do
+        dev=$(awk '{print $1}' <<< "$row")
+        size=$(awk '{print $NF}' <<< "$row")
+        smodel=$(awk '{$1=""; $NF=""; gsub(/^ +| +$/, ""); print}' <<< "$row")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "%s", "model": "%s", "size": "%s" }' \
+            "$(json_esc "$dev")" "$(json_esc "$smodel")" "$(json_esc "$size")"
+    done < <(lsblk -nd -o NAME,MODEL,SIZE 2>/dev/null | grep -vE '^(loop|zram|sr)' || true)
+    printf '\n  ],\n'
+
+    printf '  "network": [\n'
+    first=1
+    while IFS= read -r dev; do
+        local op mac
+        op=$(cat "/sys/class/net/$dev/operstate" 2>/dev/null || echo "down")
+        mac=$(cat "/sys/class/net/$dev/address" 2>/dev/null || echo "")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "%s", "operstate": "%s", "mac": "%s" }' \
+            "$(json_esc "$dev")" "$(json_esc "$op")" "$(json_esc "$mac")"
+    done < <(ls /sys/class/net/ 2>/dev/null | grep -vE '^(lo|virbr|docker|br-|veth)')
+    printf '\n  ],\n'
+
+    local cap="" stat=""
+    for bat in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do
+        [[ -d "$bat" ]] || continue
+        cap=$(cat "$bat/capacity" 2>/dev/null || true)
+        stat=$(cat "$bat/status" 2>/dev/null || true)
+        [[ -n "$cap" ]] && break
+    done
+    printf '  "battery": { "capacity": "%s", "status": "%s" },\n' "$(json_esc "$cap")" "$(json_esc "$stat")"
+
+    printf '  "cooling": [\n'
+    first=1
+    local f rpm idx chip label
+    for f in /sys/devices/platform/*/fan*_input /sys/class/hwmon/hwmon*/fan*_input; do
+        [[ -r "$f" ]] || continue
+        rpm=$(cat "$f" 2>/dev/null || echo 0)
+        (( rpm > 0 )) || continue
+        chip=$(basename "$(dirname "$f")")
+        idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
+        [[ "$idx" =~ ^[0-9]+$ ]] || continue
+        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "fan ${idx}")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "chip": "%s", "label": "%s", "rpm": %d }' \
+            "$(json_esc "$chip")" "$(json_esc "$label")" "$rpm"
+    done
+    printf '\n  ]\n'
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     box_header "$(_emu '🖥')" "wellhw" "$(t hw_title)"
 
     box "$(_emu '🧠')" "$(t hw_cpu)" print_cpu

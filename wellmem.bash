@@ -7,7 +7,7 @@ _wellmem() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --debug --"
+    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --json --debug --"
 
     case "$prev" in
         --lang|-l)

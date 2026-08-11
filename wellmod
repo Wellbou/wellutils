@@ -72,8 +72,36 @@ print_header() {
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    local -a names=() sizes=() used_bys=()
+    local total=0 total_size=0
+    local name size used
+    while IFS=' ' read -r name size used; do
+        names+=("$name")
+        sizes+=("$size")
+        used_bys+=("$used")
+        total=$(( total + 1 ))
+        total_size=$(( total_size + size ))
+    done < <(awk 'NR>1 {gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
+
+    wu_json_head wellmod 1.0
+    printf ',\n  "modules": [\n'
+    local first=1 i
+    for (( i=0; i<total; i++ )); do
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "%s", "size_bytes": %d, "refs": %s }' \
+            "$(json_esc "${names[$i]}")" "${sizes[$i]}" "$(wu_json_num "${used_bys[$i]}")"
+    done
+    printf '\n  ],\n'
+    printf '  "summary": { "count": %d, "total_bytes": %d }\n' "$total" "$total_size"
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     print_header
 
     local total=0 total_size=0

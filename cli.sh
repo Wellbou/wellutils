@@ -19,6 +19,7 @@
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 _WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_DEBUG="" _WU_LANG_ARG=""
+_WU_JSON=0
 _WU_MANUAL=${_WU_MANUAL:-0}
 _WU_TOOLNAME=${_WU_TOOLNAME:-${_WU_NAME:-tool}}
 _WU_EXTRA_HELP=${_WU_EXTRA_HELP:-}
@@ -39,6 +40,7 @@ Options:
       --plain                plain text, no box drawing
       --box                  force box drawing even when piped
       --no-emoji             drop emoji icons
+      --json                 machine-readable JSON
       --debug                shell tracing
 ${_WU_EXTRA_HELP}
 Exit codes: 0 ok, 2 bad CLI, 3 runtime error.
@@ -79,6 +81,7 @@ wu_parse() {
             --box) _WU_MODE="box"; shift ;;
             --no-emoji) _WU_EMOJI="no"; shift ;;
             --emoji)    _WU_EMOJI="auto"; shift ;;
+            --json)   _WU_JSON=1; shift ;;
             --debug)  _WU_DEBUG=1; shift ;;
             -*) if [[ -n "$_WU_EXTRA_PARSE" ]] && $_WU_EXTRA_PARSE "$@"; then
                     shift "${_WU_EXTRA_CONSUMED:-0}"
@@ -146,12 +149,41 @@ wu_run() {
         ORANGE= RED_BG=
     fi
 
-    if [[ "$_WU_MANUAL" == "1" && "$_WU_PLAIN" == "1" ]]; then
+    if [[ "$_WU_MANUAL" == "1" && "$_WU_PLAIN" == "1" && "$_WU_JSON" != "1" ]]; then
         local out
         out=$("$fn" 2>&1)
         _wu_plainify "$out"
     else
         "$fn"
+    fi
+}
+
+# ─── JSON output helpers ──────────────────────────────────────────
+json_esc() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
+# Print the JSON envelope head (no trailing comma on the date field).
+wu_json_head() {  # $1=tool  $2=version
+    printf '{\n'
+    printf '  "tool": "%s",\n' "$1"
+    printf '  "version": "%s",\n' "$2"
+    printf '  "date": "%s"' "$(json_esc "$(date '+%Y-%m-%d %H:%M:%S')")"
+}
+
+wu_json_end() { printf '\n}\n'; }
+
+# Emit a JSON number when the value looks numeric, else null.
+wu_json_num() {
+    if [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+        printf '%s' "$1"
+    else
+        printf 'null'
     fi
 }
 

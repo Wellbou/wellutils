@@ -116,7 +116,18 @@ tool [options]
       --plain              plain text, no box drawing
       --box                force box drawing
       --no-emoji           drop emoji icons
+      --json               machine-readable JSON on stdout
       --debug              shell tracing
+```
+
+Every tool can emit JSON — pipe it into `jq`, or save for a backend
+service. Warnings and errors still go to stderr, so the JSON stream is
+always clean:
+
+```sh
+wellhw --json | jq '.cpu.model'
+wellsensors --json | jq -c '.summary'
+wellblock 0 --json | jq '.disk.partitions'
 ```
 
 Run a single tool directly, or go through the launcher:
@@ -128,9 +139,10 @@ wmem -l en
 wellper --groups --json
 ```
 
-`wellper` adds `--groups`, `--sections`, `--strict`, `--terse` and
-`--json`. `wellblock` takes an optional `[N|device]` for a per-disk
-detail view with a S.M.A.R.T. health report:
+`wellper` adds `--groups`, `--sections`, `--strict`, `--terse` (and
+`--json`, now shared by every tool). `wellblock` takes an optional
+`[N|device]` for a per-disk detail view with a S.M.A.R.T. health
+report:
 
 ```sh
 wblock 0          # first disk

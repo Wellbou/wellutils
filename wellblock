@@ -313,8 +313,152 @@ detail_parts() {
     (( found )) || _LINES+=( "  ${DIM}$(t blk_smart_unknown)${RESET}" )
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    local target_dev="" dev
+    if [[ -n "$_WU_DISK_ARG" ]]; then
+        if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
+            local n=0
+            while IFS= read -r dev; do
+                if (( n == _WU_DISK_ARG )); then target_dev="$dev"; break; fi
+                n=$(( n + 1 ))
+            done < <(wblock_disks)
+        else
+            for dev in $(wblock_disks); do
+                if [[ "$(basename "$dev")" == "$_WU_DISK_ARG" ]]; then target_dev="$dev"; break; fi
+            done
+        fi
+        if [[ -z "$target_dev" ]]; then
+            printf '%s: disk %s not found\n' "$_WU_TOOLNAME" "$_WU_DISK_ARG" >&2
+            exit 3
+        fi
+    fi
+
+    wu_json_head wellblock 1.1
+
+    if [[ -n "$target_dev" ]]; then
+        local bn size_bytes model serial rotational removable
+        bn=$(basename "$target_dev")
+        size_bytes=$(cat "$target_dev/size" 2>/dev/null || echo "0")
+        size_bytes=$(( size_bytes * 512 ))
+        model=$(disk_model "$target_dev")
+        serial=""
+        if [[ -e "$target_dev/device/serial" ]]; then
+            serial=$(cat "$target_dev/device/serial" 2>/dev/null | xargs) || serial=""
+        fi
+        rotational=$(cat "$target_dev/queue/rotational" 2>/dev/null || echo "1")
+        removable=$(cat "$target_dev/removable" 2>/dev/null || echo "0")
+
+        printf ',\n  "disk": {\n'
+        printf '    "name": "%s",\n' "$(json_esc "$bn")"
+        printf '    "path": "/dev/%s",\n' "$(json_esc "$bn")"
+        printf '    "size_bytes": %d,\n' "$size_bytes"
+        printf '    "model": "%s",\n' "$(json_esc "$model")"
+        printf '    "serial": "%s",\n' "$(json_esc "$serial")"
+        printf '    "rotational": %s,\n' "$rotational"
+        printf '    "removable": %s,\n' "$removable"
+        printf '    "partitions": [\n'
+        local first=1 part pname psize_bytes fstype mountpoint lsblk_out
+        for part in "$target_dev"/${bn}*; do
+            [[ -d "$part" ]] || continue
+            pname=$(basename "$part")
+            [[ "$pname" == "$bn" ]] && continue
+            psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
+            psize_bytes=$(( psize_bytes * 512 ))
+            fstype="" mountpoint=""
+            if command -v lsblk &>/dev/null; then
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                fstype=$(echo "$lsblk_out" | awk '{print $1}')
+                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
+            fi
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "name": "%s", "size_bytes": %d, "fs_type": "%s", "mountpoint": "%s" }' \
+                "$(json_esc "$pname")" "$psize_bytes" "$(json_esc "$fstype")" "$(json_esc "$mountpoint")"
+        done
+        printf '\n    ]\n'
+        printf '  }\n'
+        wu_json_end
+        return 0
+    fi
+
+    printf ',\n  "disks": [\n'
+    local first=1 total_disks=0 total_parts=0 total_bytes=0
+    while IFS= read -r dev; do
+        total_disks=$(( total_disks + 1 ))
+        local bn size_bytes model serial rotational removable
+        bn=$(basename "$dev")
+        size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+        size_bytes=$(( size_bytes * 512 ))
+        model=$(disk_model "$dev")
+        serial=""
+        if [[ -e "$dev/device/serial" ]]; then
+            serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || serial=""
+        fi
+        rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
+        removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
+
+        local dtype
+        if [[ "$removable" == "1" ]]; then dtype="removable"
+        elif [[ "$rotational" == "0" ]]; then dtype="ssd"
+        else dtype="hdd"; fi
+
+        (( first )) && first=0 || printf ',\n'
+        printf '    {\n'
+        printf '      "name": "%s",\n' "$(json_esc "$bn")"
+        printf '      "path": "/dev/%s",\n' "$(json_esc "$bn")"
+        printf '      "size_bytes": %d,\n' "$size_bytes"
+        printf '      "model": "%s",\n' "$(json_esc "$model")"
+        printf '      "serial": "%s",\n' "$(json_esc "$serial")"
+        printf '      "rotational": %s,\n' "$rotational"
+        printf '      "removable": %s,\n' "$removable"
+        printf '      "type": "%s",\n' "$dtype"
+        printf '      "partitions": [\n'
+        local pfirst=1 part pname psize_bytes fstype mountpoint lsblk_out
+        for part in "$dev"/${bn}*; do
+            [[ -d "$part" ]] || continue
+            pname=$(basename "$part")
+            [[ "$pname" == "$bn" ]] && continue
+            psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
+            psize_bytes=$(( psize_bytes * 512 ))
+            total_parts=$(( total_parts + 1 ))
+            fstype="" mountpoint=""
+            if command -v lsblk &>/dev/null; then
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                fstype=$(echo "$lsblk_out" | awk '{print $1}')
+                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
+            fi
+            (( pfirst )) && pfirst=0 || printf ',\n'
+            printf '        { "name": "%s", "size_bytes": %d, "fs_type": "%s", "mountpoint": "%s" }' \
+                "$(json_esc "$pname")" "$psize_bytes" "$(json_esc "$fstype")" "$(json_esc "$mountpoint")"
+        done
+        printf '\n      ]\n'
+        printf '    }'
+        total_bytes=$(( total_bytes + size_bytes ))
+    done < <(wblock_disks)
+    printf '\n  ],\n'
+
+    printf '  "virtual": [\n'
+    first=1
+    local vdev vbn vsize_bytes
+    for vdev in /sys/block/zram* /sys/block/loop*; do
+        [[ -d "$vdev" ]] || continue
+        vbn=$(basename "$vdev")
+        vsize_bytes=$(cat "$vdev/size" 2>/dev/null || echo "0")
+        vsize_bytes=$(( vsize_bytes * 512 ))
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "%s", "size_bytes": %d, "kind": "%s" }' \
+            "$(json_esc "$vbn")" "$vsize_bytes" "$([[ "$vbn" == loop* ]] && printf 'loop' || printf 'zram')"
+    done
+    printf '\n  ],\n'
+
+    printf '  "summary": { "disks": %d, "partitions": %d, "total_bytes": %d }\n' "$total_disks" "$total_parts" "$total_bytes"
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     local line
     line=$(printf '═%.0s' {1..80})
 

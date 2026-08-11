@@ -178,18 +178,12 @@ device_icon() {
     esac
 }
 
-# ─── Main ────────────────────────────────────────────────────────
-main() {
-    local line
-    line=$(printf '═%.0s' {1..72})
-    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb — %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
-    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+# ─── Scan (fills global DEV_* arrays + dev_count) ───────────────
+usb_scan() {
+    DEV_BUS=() DEV_VID=() DEV_PID=() DEV_MFG=() DEV_PROD=() DEV_SERIAL=() DEV_SPD=() DEV_DRIVER=()
+    dev_count=0
 
-    local -a DEV_BUS=() DEV_VID=() DEV_PID=() DEV_MFG=() DEV_PROD=() DEV_SERIAL=() DEV_SPD=() DEV_DRIVER=()
-    local dev_count=0
-
-    local cur_bus="" cur_vid="" cur_pid="" cur_mfg="" cur_prod="" cur_serial="" cur_spd="" cur_driver=""
+    local cur_bus="" cur_vid="" cur_pid="" cur_mfg="" cur_prod="" cur_serial="" cur_spd="" cur_driver="" line
 
     flush_device() {
         [[ -z "$cur_vid" ]] && return
@@ -233,6 +227,71 @@ main() {
         esac
     done < <(usb-devices 2>/dev/null)
     flush_device
+}
+
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    usb_scan
+
+    local total_hubs=0 total_devs=0
+    for (( i=0; i<dev_count; i++ )); do
+        [[ "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
+    done
+
+    wu_json_head wellusb 2.0
+    printf ',\n  "summary": { "devices": %d, "hubs": %d },\n' "$dev_count" "$total_hubs"
+    printf '  "ids_db_loaded": %s,\n' "$([[ -f $USB_IDS ]] && printf 'true' || printf 'false')"
+    printf '  "devices": [\n'
+    local first=1
+    for (( i=0; i<dev_count; i++ )); do
+        local bus="${DEV_BUS[$i]}" vid="${DEV_VID[$i]}" pid="${DEV_PID[$i]}" mfg="${DEV_MFG[$i]}" prod="${DEV_PROD[$i]}" serial="${DEV_SERIAL[$i]}" spd="${DEV_SPD[$i]}" driver="${DEV_DRIVER[$i]}"
+
+        local vendor_name="$mfg" device_name="$prod"
+        [[ -z "$vendor_name" ]] && vendor_name=$(usb_vendor_name "$vid")
+        [[ -z "$device_name" ]] && device_name=$(usb_device_name "$vid" "$pid")
+        [[ -z "$device_name" ]] && device_name="Unknown"
+
+        local bclass="00" devbase=""
+        for d in /sys/bus/usb/devices/*/; do
+            [[ -r "$d/idVendor" && -r "$d/idProduct" ]] || continue
+            [[ "$(basename "$d")" == *:* ]] && continue
+            local dvid dpid
+            dvid=$(_wlc "$(cat "$d/idVendor" 2>/dev/null)")
+            dpid=$(_wlc "$(cat "$d/idProduct" 2>/dev/null)")
+            if [[ "$dvid" == "$(_wlc "$vid")" && "$dpid" == "$(_wlc "$pid")" ]]; then
+                bclass=$(cat "$d/bDeviceClass" 2>/dev/null || echo "00")
+                devbase=$(basename "$d")
+                break
+            fi
+        done
+
+        local ifaces utype sname
+        ifaces=$(iface_classes "${devbase:-${bus}-0}")
+        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces")
+        sname=$(speed_name "$spd")
+
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "bus": "%s", "vid": "%s", "pid": "%s", "manufacturer": "%s", "product": "%s", "serial": "%s", "speed": "%s", "speed_name": "%s", "driver": "%s", "class": "%s", "type": "%s", "interfaces": "%s" }' \
+            "$(json_esc "$bus")" "$(json_esc "$vid")" "$(json_esc "$pid")" \
+            "$(json_esc "$vendor_name")" "$(json_esc "$device_name")" "$(json_esc "$serial")" \
+            "$(json_esc "$spd")" "$(json_esc "$sname")" "$(json_esc "$driver")" \
+            "$(json_esc "$bclass")" "$(json_esc "$utype")" "$(json_esc "$ifaces")"
+    done
+    printf '\n  ]\n'
+    wu_json_end
+}
+
+# ─── Main ────────────────────────────────────────────────────────
+main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
+    local line
+    line=$(printf '═%.0s' {1..72})
+    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb — %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
+    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+
+    usb_scan
 
     local total_hubs=0 total_devs=0
     for (( i=0; i<dev_count; i++ )); do

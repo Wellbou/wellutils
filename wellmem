@@ -173,8 +173,77 @@ local zram_dev zram_size zram_kb zram_h zram_algorithm
     fi
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    local total free available buffers cached shared used
+    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+    free=$(awk '/^MemFree:/{print $2}' /proc/meminfo)
+    available=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+    [[ -z "$available" ]] && available="$free"
+    buffers=$(awk '/^Buffers:/{print $2}' /proc/meminfo)
+    cached=$(awk '/^(Cached|SReclaimable):/{s+=$2} END{print s+0}' /proc/meminfo)
+    shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
+    total=${total:-0} free=${free:-0} available=${available:-0}
+    buffers=${buffers:-0} cached=${cached:-0} shared=${shared:-0}
+    used=$(( total - available ))
+
+    local swap_total swap_used swap_free
+    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
+    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo)
+    swap_total=${swap_total:-0} swap_free=${swap_free:-0}
+    swap_used=$(( swap_total - swap_free ))
+
+    local huge_total huge_free huge_size=""
+    huge_total=$(awk '/^HugePages_Total:/{print $2}' /proc/meminfo)
+    huge_free=$(awk '/^HugePages_Free:/{print $2}' /proc/meminfo)
+    huge_size=$(awk '/^Hugepagesize:/{$1=""; sub(/^ /,""); print}' /proc/meminfo)
+    huge_total=${huge_total:-0} huge_free=${huge_free:-0}
+
+    local numa_nodes=1
+    if [[ -f /proc/zoneinfo ]]; then
+        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { print length(nodes) + 0 }' /proc/zoneinfo)
+    fi
+
+    wu_json_head wellmem 1.1
+    printf ',\n  "memory": {\n'
+    printf '    "total_kb": %d,\n' "$total"
+    printf '    "used_kb": %d,\n' "$used"
+    printf '    "free_kb": %d,\n' "$free"
+    printf '    "available_kb": %d,\n' "$available"
+    printf '    "buffers_kb": %d,\n' "$buffers"
+    printf '    "cached_kb": %d,\n' "$cached"
+    printf '    "shared_kb": %d\n' "$shared"
+    printf '  },\n'
+    printf '  "swap": {\n'
+    printf '    "total_kb": %d,\n' "$swap_total"
+    printf '    "used_kb": %d,\n' "$swap_used"
+    printf '    "free_kb": %d\n' "$swap_free"
+    printf '  },\n'
+    printf '  "zram": [\n'
+    local first=1 zram_dev zram_size zram_algorithm
+    for zram_dev in /sys/block/zram*; do
+        [[ -d "$zram_dev" ]] || continue
+        zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
+        zram_algorithm=$(awk '/^[^ ]+ / { match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2) }' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
+        [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "%s", "size_kb": %d, "algorithm": "%s" }' \
+            "$(json_esc "$(basename "$zram_dev")")" "$(( zram_size / 1024 ))" "$(json_esc "$zram_algorithm")"
+    done
+    printf '\n  ],\n'
+    printf '  "hugepages": {\n'
+    printf '    "total": %d,\n' "$huge_total"
+    printf '    "free": %d,\n' "$huge_free"
+    printf '    "size": "%s"\n' "$(json_esc "$huge_size")"
+    printf '  },\n'
+    printf '  "numa_nodes": %d\n' "$numa_nodes"
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     box_header "$(_emu '🧠')" "wellmem" "$(t mem_title)"
     box "$(_emu '🧩')" "$(t mem_ram)" print_all
 

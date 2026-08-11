@@ -219,8 +219,88 @@ print_cpu_load() {
     done
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    local model arch sockets cores threads freq_base gov
+    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+
+    local lscpu_out
+    lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
+
+    arch=$(awk -F': *' '/^Architecture/{print $2}' <<< "$lscpu_out" | head -1)
+    sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
+    threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
+    cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
+    [[ -n "$cores" && -n "$sockets" ]] && cores=$(( cores * sockets ))
+    [[ -z "$cores" ]] && cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
+    [[ -z "$threads" ]] && threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
+    [[ -n "$threads" && -n "$cores" ]] && threads=$(( threads * cores ))
+    [[ -z "$sockets" ]] && sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
+    [[ -z "$arch" ]] && arch=$(uname -m)
+
+    local turbo_hint
+    turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)
+    gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true)
+
+    local flags
+    flags=$(grep -m1 '^flags' /proc/cpuinfo 2>/dev/null || true)
+
+    local -a feats=()
+    local f
+    for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1; do
+        [[ "$flags" == *"$f"* ]] && feats+=("$f")
+    done
+
+    local vtx="" hv_label=""
+    if [[ "$flags" == *vmx* ]]; then vtx="Intel VT-x"
+    elif [[ "$flags" == *svm* ]]; then vtx="AMD-V"; fi
+    local virt
+    virt=$(awk -F': *' '/^Virtualization:/{print $2}' <<< "$lscpu_out" | head -1)
+    if [[ "$flags" == *hypervisor* ]]; then
+        hv_label=$(awk -F': *' '/^Hypervisor vendor/{print $2}' <<< "$lscpu_out" | head -1)
+    fi
+
+    core_loads
+
+    wu_json_head wellcpu 1.0
+    printf ',\n  "info": {\n'
+    printf '    "model": "%s",\n' "$(json_esc "$model")"
+    printf '    "arch": "%s",\n' "$(json_esc "$arch")"
+    printf '    "sockets": "%s",\n' "$(json_esc "$sockets")"
+    printf '    "cores": "%s",\n' "$(json_esc "$cores")"
+    printf '    "threads": "%s",\n' "$(json_esc "$threads")"
+    printf '    "max_freq_khz": "%s",\n' "$(json_esc "$turbo_hint")"
+    printf '    "governor": "%s",\n' "$(json_esc "$gov")"
+    printf '    "features": ['
+    local first=1
+    for f in "${feats[@]}"; do
+        (( first )) && first=0 || printf ','
+        printf ' "%s"' "$(json_esc "$f")"
+    done
+    printf ' ],\n'
+    printf '    "virtualization": "%s",\n' "$(json_esc "$virt")"
+    printf '    "hypervisor": "%s"\n' "$(json_esc "$hv_label")"
+    printf '  },\n'
+    printf '  "load": [\n'
+    first=1
+    local i
+    for (( i=0; i<_CPU_COUNT; i++ )); do
+        local pct=${_CPU_PCT[$i]:-0}
+        local freq gov_c
+        freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
+        gov_c=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "cpu": %d, "usage_percent": %d, "freq_khz": "%s", "governor": "%s" }' \
+            "$i" "$pct" "$(json_esc "$freq")" "$(json_esc "$gov_c")"
+    done
+    printf '\n  ]\n'
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     box_header "$(_emu '🧠')" "wellcpu" "$(t cpu_title)"
 
     box "$(_emu '⚙️')" "$(t cpu_summary)" print_cpu_info

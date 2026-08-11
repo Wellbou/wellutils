@@ -507,7 +507,285 @@ print_summary() {
     banner
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+# Run a command elevated when possible (mirrors print_disks).
+root_or_sudo() {
+    if (( EUID == 0 )); then "$@"
+    elif sudo -n true 2>/dev/null; then sudo -n "$@"
+    else "$@"; fi
+}
+
+json_out() {
+    local first=1 input_file idx label raw_temp temp high crit hname dev_dir \
+          base model bn name2 ztype zone_dir dev model2
+    wu_json_head wellsensors 1.2
+
+    local uptime_str load cores mem_total mem_used mem_pct model
+    uptime_str=$(uptime -p 2>/dev/null | sed 's/up //')
+    load=$(cut -d' ' -f1-3 /proc/loadavg)
+    cores=$(nproc)
+    read -r mem_total mem_used _ <<< "$(free -m | awk '/^Mem:/ {print $2, $3}')"
+    mem_pct=0
+    [[ -n "$mem_total" && "$mem_total" != 0 ]] && mem_pct=$(( mem_used * 100 / mem_total ))
+    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+
+    printf ',\n  "system": {\n'
+    printf '    "cpu": "%s",\n' "$(json_esc "$model")"
+    printf '    "cores": %s,\n' "$(wu_json_num "$cores")"
+    printf '    "load": "%s",\n' "$(json_esc "$load")"
+    printf '    "memory_used_mb": %s,\n' "$(wu_json_num "$mem_used")"
+    printf '    "memory_total_mb": %s,\n' "$(wu_json_num "$mem_total")"
+    printf '    "memory_percent": %s,\n' "$(wu_json_num "$mem_pct")"
+    printf '    "uptime": "%s"\n' "$(json_esc "$uptime_str")"
+    printf '  },\n'
+
+    printf '  "cpu_cores": [\n'
+    first=1
+    local hwmon=""
+    for d in /sys/class/hwmon/hwmon*/name; do
+        local dname
+        dname=$(cat "$d" 2>/dev/null)
+        if [[ "$dname" == "coretemp" ]]; then hwmon=$(dirname "$d"); break; fi
+    done
+    if [[ -n "$hwmon" ]]; then
+        for input_file in "$hwmon"/temp*_input; do
+            [[ -f "$input_file" ]] || continue
+            idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
+            label="Sensor $idx"
+            [[ -f "${hwmon}/temp${idx}_label" ]] && label=$(cat "${hwmon}/temp${idx}_label")
+            raw_temp=$(cat "$input_file")
+            temp=$(( raw_temp / 1000 ))
+            high="-"; crit="-"
+            [[ -f "${hwmon}/temp${idx}_high" ]] && high=$(( $(cat "${hwmon}/temp${idx}_high") / 1000 ))
+            [[ -f "${hwmon}/temp${idx}_crit" ]] && crit=$(( $(cat "${hwmon}/temp${idx}_crit") / 1000 ))
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "label": "%s", "temp_c": %d, "high_c": %s, "crit_c": %s }' \
+                "$(json_esc "$label")" "$temp" \
+                "$([[ "$high" == "-" ]] && printf 'null' || printf '%s' "$high")" \
+                "$([[ "$crit" == "-" ]] && printf 'null' || printf '%s' "$crit")"
+        done
+    fi
+    printf '\n  ],\n'
+
+    printf '  "gpu": [\n'
+    first=1
+    if command -v nvidia-smi &>/dev/null; then
+        local gpu_info gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest
+        gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || gpu_info=""
+        while IFS=',' read -r gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
+            gname=$(echo "$gname" | xargs)
+            gtemp=$(echo "$gtemp" | xargs)
+            fan=$(echo "$fan" | xargs)
+            power=$(echo "$power" | xargs)
+            [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
+            clk_gpu=$(echo "$clk_gpu" | xargs)
+            clk_mem=$(echo "$clk_mem" | xargs)
+            vram_total=$(echo "$vram_total" | xargs)
+            vram_used=$(echo "$vram_used" | xargs)
+            gpu_util=$(echo "$gpu_util" | xargs)
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "name": "%s", "temp_c": %s, "fan_percent": %s, "power_w": %s, "clock_gpu_mhz": %s, "clock_mem_mhz": %s, "vram_total_mib": %s, "vram_used_mib": %s, "utilization_percent": %s }' \
+                "$(json_esc "$gname")" "$(wu_json_num "$gtemp")" "$(wu_json_num "$fan")" "$(wu_json_num "$power")" \
+                "$(wu_json_num "$clk_gpu")" "$(wu_json_num "$clk_mem")" "$(wu_json_num "$vram_total")" "$(wu_json_num "$vram_used")" "$(wu_json_num "$gpu_util")"
+        done <<< "$gpu_info"
+    fi
+    printf '\n  ],\n'
+
+    printf '  "acpi": [\n'
+    first=1
+    for d in /sys/class/hwmon/hwmon*/name; do
+        name2=$(cat "$d" 2>/dev/null)
+        if [[ "$name2" == "acpitz" ]]; then
+            local ahwmon
+            ahwmon=$(dirname "$d")
+            for input_file in "$ahwmon"/temp*_input; do
+                [[ -f "$input_file" ]] || continue
+                idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
+                raw_temp=$(cat "$input_file")
+                temp=$(( raw_temp / 1000 ))
+                valid_temp "$input_file" "$temp" || continue
+                (( first )) && first=0 || printf ',\n'
+                printf '    { "zone": %s, "temp_c": %d }' "$(wu_json_num "$idx")" "$temp"
+            done
+        fi
+    done
+    printf '\n  ],\n'
+
+    printf '  "thermal_zones": [\n'
+    first=1
+    for zone_dir in /sys/class/thermal/thermal_zone*/; do
+        [[ -d "$zone_dir" ]] || continue
+        [[ -f "${zone_dir}type" && -f "${zone_dir}temp" ]] || continue
+        ztype=$(cat "${zone_dir}type")
+        raw_temp=$(cat "${zone_dir}temp")
+        temp=$(( raw_temp / 1000 ))
+        [[ "$ztype" == "acpitz" || "$ztype" == "coretemp" ]] && continue
+        (( temp <= 0 || temp > 200 )) && continue
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "type": "%s", "temp_c": %d }' "$(json_esc "$ztype")" "$temp"
+    done
+    printf '\n  ],\n'
+
+    printf '  "chips": [\n'
+    first=1
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        hname=""
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
+        dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
+        fi
+        [[ -z "$hname" ]] && hname="chip"
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for input_file in "$base"/temp*_input; do
+                [[ -f "$input_file" ]] || continue
+                temp=$(( $(cat "$input_file") / 1000 ))
+                valid_temp "$input_file" "$temp" || continue
+                (( first )) && first=0 || printf ',\n'
+                printf '    { "chip": "%s", "input": "%s", "temp_c": %d }' \
+                    "$(json_esc "$hname")" "$(json_esc "$(basename "$input_file")")" "$temp"
+            done
+        done
+    done
+    printf '\n  ],\n'
+
+    printf '  "disks": [\n'
+    first=1
+    for dev in /dev/nvme*n*; do
+        [[ -b "$dev" ]] || continue
+        temp=$(root_or_sudo nvme smart-log "$dev" 2>/dev/null | awk '
+            /[Tt]emperature/ {
+                split($0, a, ":")
+                for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
+                    if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
+                }
+            }') || continue
+        (( temp > 150 )) && continue
+        bn=$(basename "$dev" | sed 's/nvme[0-9]*n[0-9]*//')
+        model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null || echo "$dev" | sed 's|/dev/||')
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "nvme" }' \
+            "$(json_esc "$dev")" "$(json_esc "$model")" "$temp"
+    done
+    for dev in /dev/sd?; do
+        [[ -b "$dev" ]] || continue
+        temp=""
+        if command -v smartctl &>/dev/null; then
+            temp=$(root_or_sudo smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius/ {print $10; exit}') || true
+        fi
+        if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
+            temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
+        fi
+        [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
+        model2="Unknown"
+        [[ -f "/sys/block/$(basename "$dev")/device/model" ]] && model2=$(cat "/sys/block/$(basename "$dev")/device/model")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "sata" }' \
+            "$(json_esc "$dev")" "$(json_esc "$model2")" "$temp"
+    done
+    printf '\n  ],\n'
+
+    local total_powerclamp=0 total_processor=0 acpi_fan=0
+    local -a fan_chip=() fan_idx=() fan_rpm=()
+    for dev_dir in /sys/class/thermal/cooling_device*/; do
+        [[ -d "$dev_dir" ]] || continue
+        local tfile="${dev_dir}type" cfile="${dev_dir}cur_state"
+        [[ -f "$tfile" ]] || continue
+        local dtype cur=0
+        dtype=$(cat "$tfile")
+        [[ -f "$cfile" ]] && cur=$(cat "$cfile")
+        case "$dtype" in
+            *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
+            *Fan*) acpi_fan=$(( acpi_fan + 1 )) ;;
+            *Processor*) total_processor=$(( total_processor + cur )) ;;
+        esac
+    done
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        hname=""
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
+        dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
+        fi
+        [[ -z "$hname" ]] && hname="chip"
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for fan_file in "$base"/fan*_input; do
+                [[ -f "$fan_file" ]] || continue
+                local fidx rpm
+                fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
+                rpm=$(cat "$fan_file")
+                (( rpm > 0 )) || continue
+                fan_chip+=("$hname")
+                fan_idx+=("$fidx")
+                fan_rpm+=("$rpm")
+            done
+        done
+    done
+
+    printf '  "cooling": {\n'
+    printf '    "real_fans": %d,\n' "${#fan_rpm[@]}"
+    printf '    "processor_throttles": %d,\n' "$total_processor"
+    printf '    "powerclamp_active": %d,\n' "$total_powerclamp"
+    printf '    "acpi_fan_devices": %d,\n' "$acpi_fan"
+    printf '    "fans": [\n'
+    first=1
+    local fi
+    for fi in "${!fan_rpm[@]}"; do
+        (( first )) && first=0 || printf ',\n'
+        printf '      { "chip": "%s", "index": %s, "rpm": %d }' \
+            "$(json_esc "${fan_chip[$fi]}")" "$(wu_json_num "${fan_idx[$fi]}")" "${fan_rpm[$fi]}"
+    done
+    printf '\n    ]\n'
+    printf '  },\n'
+
+    printf '  "summary": {\n'
+    local -a temps=()
+    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
+        [[ -d "$hwmon_dir" ]] || continue
+        dev_dir="$hwmon_dir"
+        if [[ -e "${hwmon_dir}device" ]]; then
+            dev_dir=$(readlink -f "${hwmon_dir}device")
+        fi
+        for base in "$hwmon_dir" "$dev_dir"; do
+            for f in "$base"/temp*_input; do
+                [[ -f "$f" ]] || continue
+                local t=$(( $(cat "$f") / 1000 ))
+                (( t > 0 && t < 200 )) && temps+=("$t")
+            done
+        done
+    done
+    if command -v nvidia-smi &>/dev/null; then
+        local gt
+        gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
+        [[ -n "$gt" ]] && temps+=("$gt")
+    fi
+    if (( ${#temps[@]} == 0 )); then
+        printf '    "samples": 0, "min_c": null, "avg_c": null, "max_c": null\n'
+    else
+        local sum=0 max=0 min=999 t
+        for t in "${temps[@]}"; do
+            sum=$(( sum + t ))
+            (( t > max )) && max=$t
+            (( t < min )) && min=$t
+        done
+        printf '    "samples": %d,\n' "${#temps[@]}"
+        printf '    "min_c": %d,\n' "$min"
+        printf '    "avg_c": %d,\n' "$(( sum / ${#temps[@]} ))"
+        printf '    "max_c": %d\n' "$max"
+    fi
+    printf '  }\n'
+    wu_json_end
+}
+
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     box_header "$(_emu '⚡')" "wellsensors" "$(t sens_title)"
 
     box "$(_emu '🧠')" "$(t sens_sys_overview)" print_system

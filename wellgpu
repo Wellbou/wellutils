@@ -145,8 +145,56 @@ print_nvidia() {
     done <<< "$out"
 }
 
+# ─── JSON output ────────────────────────────────────────────────
+json_out() {
+    gpu_adapters
+
+    wu_json_head wellgpu 1.0
+    printf ',\n  "adapters": [\n'
+    local first=1 i bus vendor device drv
+    for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
+        bus=${_GPU_BUS[$i]}
+        vendor=${_GPU_VENDOR[$i]}
+        device=${_GPU_DEVICE[$i]}
+        drv=$(gpu_driver "$bus")
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "bus": "%s", "vendor": "%s", "device": "%s", "driver": "%s" }' \
+            "$(json_esc "$bus")" "$(json_esc "$vendor")" "$(json_esc "$device")" "$(json_esc "$drv")"
+    done
+    printf '\n  ],\n'
+
+    printf '  "nvidia": [\n'
+    local out line
+    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed \
+        --format=csv,noheader,nounits 2>/dev/null) || out=""
+    first=1
+    if [[ -n "$out" ]]; then
+        local idx name drv memtot memused temp util clk_sm clk_mem pow fan
+        while IFS= read -r line; do
+            IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
+            name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
+            drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
+            memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
+            memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
+            for i in temp util clk_sm clk_mem pow fan; do
+                eval "$i=\$(printf '%s' \"\$$i\" | sed 's/^ *//;s/ *\$//')"
+            done
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "index": %s, "name": "%s", "driver": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
+                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" \
+                "$(wu_json_num "$memtot")" "$(wu_json_num "$memused")" "$(wu_json_num "$temp")" \
+                "$(wu_json_num "$util")" "$(wu_json_num "$clk_sm")" "$(wu_json_num "$clk_mem")" \
+                "$(wu_json_num "$pow")" "$(wu_json_num "$fan")"
+        done <<< "$out"
+    fi
+    printf '\n  ]\n'
+    wu_json_end
+}
+
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
     box_header "$(_emu '🎮')" "wellgpu" "$(t gpu_title)"
 
     box "$(_emu '🖥️')" "$(t gpu_summary)" print_gpu_list
