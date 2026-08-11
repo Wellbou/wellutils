@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=5
+pkgrel=6
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -64,18 +64,18 @@ source=(
     'LICENSE'
 )
 sha256sums=('d3b1bbe9e56af9057be71292b1fe091cb1da0fe602c01b4714426a7a7c2549d6'
-            'a73aed1a546a2b51a75e0c72a6089ffb1c78836cd6f27fcae97f2e13e06a4425'
+            '66a5f3a0e212966f5437e099bd51cf785a55200549da3caa6f86b31cbb3b1f75'
             '6d6c56a71f6f2e3833093563bb2611741735abfda0871a96a3f73ac5d821b154'
             'e91a39ca47f26168a496e3215623a24319bc2950b1b35ead005ae9046dfff112'
             'd4c6666a05bf43dfac0251c5bbbd83006d8c1022d6b3956de3f18dc38309188e'
             '48aa5bc2a06c38de6b5e45e51a12a58dc41bfa3a9498fa3a859478a4ef8173d0'
-            'ca055d13b045b10da0951d5e5739d49eb3d3b0f6803463832e5918031d68c9b6'
-            'b4ac8177b37a44b2862335fa632f64c84fac9a9488f276a67e777abb475aec47'
+            '9a9e844ae5cd19fcdc6a985cdd3c449255502e6306d0b454602f9fcef74d14e7'
+            '798d9117ee8434f01097088680e203e43fdd7e5743a5c9bfda448099f14f3043'
             'd501283fcd4384ae098c1d897ecad5946b7b6b7d75f9bfd2a0d5326a3691c770'
             '76bc517a6cc2282b3d2ee3db5d27ee6833a5e038a7eea39d107b9ddcd6351b25'
-            'fbc608dd26da8359c3067607bafd29754f9bd3840ebbb9cb5eb3e335eaea6c6e'
-            'c026e1bf078f3c0c91f02deccda5c1cb987cddf0c3f44ff2b683aef8506428ff'
-            'adbe6f5566c186ccff46d7ce3c5e7e490589370939c034c49eb866a2136c49ff'
+            'b4841081df4201195e4497810dac3ee0f5dd1679c5970ae2415b155da3b5540b'
+            'eb356fd0b5ee1a9f843b6a22e468624aa8516b56c00820ba487be54ecf64e70e'
+            'fa98859e9b791e0b0acc2a6930e6ba6af1c293264a48b9d9f038a3cee883d192'
             '5f96872a83f8da1023dd968699a55ab86ef9ed7dbafb91125f968a0d459e1254'
             '8d4c1db67501ec468b57f8c7567cbde385ff5961705f2c1dd19b0ba44ea1c7c3'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
