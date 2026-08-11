@@ -105,7 +105,7 @@ wblock_smart() {
     attrs=$(awk '
         /^Vendor Specific SMART Attributes/ { inattrs=1; next }
         inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
-            id=$1; name=$2; val=$4; worst=$5; thr=$6; type=$7; upd=$8; wf=$9
+            id=$1; name=$2; val=$4; worst=$5; thr=$6
             raw=$10; for (i=11; i<=NF; i++) raw=raw " " $i
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", raw)
             printf "%s|%s|%s|%s|%s|%s\n", id, name, val, worst, thr, raw
@@ -115,51 +115,115 @@ wblock_smart() {
 
     if [[ -z "$attrs" ]]; then
         # NVMe: report the key health fields instead of an attribute table
-        local temp used spare
+        local temp="" used="" spare="" verdict padl e label value
         temp=$(awk '/^Temperature:[[:space:]]+[0-9]+/ {print $2; exit}' <<< "$out")
         used=$(awk '/^Percentage Used:/ {print $3; exit}' <<< "$out")
         spare=$(awk '/^Available Spare:/ {print $3; exit}' <<< "$out")
-        local verdict
         if (( risk )); then verdict="${R}$(t blk_smart_fail)${RESET}"
         else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
-        pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "${verdict}"
-        [[ -n "$temp" ]] && pline_sub "Temperature: ${W}${temp}°C${RESET}"
-        [[ -n "$used" ]] && pline_sub "Percentage Used: ${W}${used}%${RESET}"
-        [[ -n "$spare" ]] && pline_sub "Available Spare: ${W}${spare}%${RESET}"
+
+        local -a rows=()
+        label="$(t blk_smart_health)"; maxl=${#label}
+        rows+=("$label|$verdict")
+        [[ -n "$temp" ]] && { label="$(t blk_attr_temp)"; rows+=("$label|${W}${temp}°C${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
+        [[ -n "$used" ]] && { label="$(t blk_nvme_used)"; rows+=("$label|${W}${used}%${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
+        [[ -n "$spare" ]] && { label="$(t blk_nvme_spare)"; rows+=("$label|${W}${spare}%${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
+        padl=$(( maxl + 1 ))
+        for e in "${rows[@]}"; do
+            label="${e%%|*}"; value="${e#*|}"
+            _LINES+=( "  $(_emu '📊') ${BOLD}${W}$(_wu_pad_r "${label}:" "$padl")${RESET} $value" )
+        done
         return
     fi
 
+    # First pass: any risky attribute with a nonzero value raises attention.
     local id name val worst thr raw
-    local n=0
     while IFS='|' read -r id name val worst thr raw; do
-        local line_color="$DIM" flag=""
+        case "$id" in
+            5|187|197|198|200|201)
+                if (( 10#${raw%% *} > 0 )); then (( risk < 1 )) && risk=1; fi ;;
+        esac
+    done <<< "$attrs"
+
+    local verdict
+    if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
+    elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
+    else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
+
+    # Readable readout: health verdict + curated attributes, values aligned
+    # to the longest label. Risky attributes are always shown (with the raw
+    # name if not curated); obscure attributes are dropped.
+    local -a rows=()
+    local label="" value="" shown=0 maxl
+    label="$(t blk_smart_health)"
+    maxl=${#label}
+    rows+=("$label|$verdict")
+    while IFS='|' read -r id name val worst thr raw; do
+        label=$(sm_attr_label "$id")
+        if [[ -z "$label" ]]; then
+            case "$id" in 5|187|197|198|200|201) label="$name" ;; *) continue ;; esac
+        fi
+        raw="${raw%% *}"
+        value=$(sm_attr_value "$id" "$raw")
         case "$id" in
             5|187|197|198|200|201)
                 if (( 10#$raw > 0 )); then
-                    line_color="$Y"; flag="  ${Y}($(t blk_smart_risk))${RESET}"
-                    (( risk < 1 )) && risk=1
+                    value="${Y}${value}${RESET}  ${Y}$(t blk_smart_risk)${RESET}"
+                else
+                    value="${G}${value}${RESET}"
                 fi ;;
+            *)  value="${W}${value}${RESET}" ;;
         esac
-        if (( n == 0 )); then
-            local verdict
-            if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
-            elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
-            else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
-            pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "$verdict"
-            pline ""
-            pline "${DIM}  #    $(t blk_smart_attr)      $(t blk_smart_value) $(t blk_smart_worst) $(t blk_smart_thresh)  $(t blk_smart_raw)${RESET}"
-        fi
-        _LINES+=( "  ${line_color}$(printf '%-3s %-20s %5s %5s %5s   %s' "$id" "$name" "$val" "$worst" "$thr" "$raw")${RESET}${flag}" )
-        n=$((n + 1))
+        rows+=("$label|$value")
+        (( ${#label} > maxl )) && maxl=${#label}
+        shown=1
     done <<< "$attrs"
 
-    if (( n == 0 )); then
-        local verdict
-        if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
-        elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
-        else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
-        pline_hw "$(_emu '🩺')" "$(t blk_smart_health)" "$verdict"
+    if (( shown )); then
+        local padl e
+        padl=$(( maxl + 1 ))
+        for e in "${rows[@]}"; do
+            label="${e%%|*}"; value="${e#*|}"
+            _LINES+=( "  $(_emu '📊') ${BOLD}${W}$(_wu_pad_r "${label}:" "$padl")${RESET} $value" )
+        done
+    else
+        pline "${DIM}$(t blk_smart_no)${RESET}"
     fi
+}
+
+# Translated label for a known S.M.A.R.T. attribute id; empty = not surfaced.
+sm_attr_label() {
+    case "$1" in
+        1)   printf '%s' "$(t blk_attr_reread)" ;;
+        5)   printf '%s' "$(t blk_attr_realloc)" ;;
+        9)   printf '%s' "$(t blk_attr_poh)" ;;
+        12)  printf '%s' "$(t blk_attr_pcc)" ;;
+        163) printf '%s' "$(t blk_attr_maxerase)" ;;
+        164) printf '%s' "$(t blk_attr_avgerase)" ;;
+        184) printf '%s' "$(t blk_attr_endtoend)" ;;
+        187) printf '%s' "$(t blk_attr_uncorr)" ;;
+        188) printf '%s' "$(t blk_attr_timeout)" ;;
+        190) printf '%s' "$(t blk_attr_temp)" ;;
+        194) printf '%s' "$(t blk_attr_temp)" ;;
+        197) printf '%s' "$(t blk_attr_pending)" ;;
+        198) printf '%s' "$(t blk_attr_offline)" ;;
+        199) printf '%s' "$(t blk_attr_crc)" ;;
+        200) printf '%s' "$(t blk_attr_multi)" ;;
+        231) printf '%s' "$(t blk_attr_life)" ;;
+        241) printf '%s' "$(t blk_attr_written)" ;;
+        242) printf '%s' "$(t blk_attr_read)" ;;
+    esac
+}
+
+# Human-formatted raw value for a known attribute id.
+sm_attr_value() {
+    local id="$1" raw="$2"
+    case "$id" in
+        9)   printf '%s h' "$((10#$raw))" ;;
+        190|194) printf '%s°C' "$((10#$raw))" ;;
+        241|242) fmt_size $(( 10#$raw * 512 )) ;;
+        *)   printf '%s' "$((10#$raw))" ;;
+    esac
 }
 
 # ─── Detail view ─────────────────────────────────────────────────
@@ -418,7 +482,8 @@ main() {
         "$C" "$RESET" "$BOLD" "$(t blk_total)" "$W" \
         "$total_disks" "$(t blk_disks)" "$total_parts" "$(t blk_partitions)" "$total_human"
 
-    printf '\n  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %s%s %s%s\n\n' "$DIM" "$(_emu '💡')" "$(t blk_hint)" "$RESET"
+    printf '  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"
