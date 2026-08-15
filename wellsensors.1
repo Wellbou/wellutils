@@ -1,4 +1,4 @@
-.TH WELLSENSORS 1 "August 2026" "wellsensors 1.2" "wellutils"
+.TH WELLSENSORS 1 "August 2026" "wellsensors 1.3" "wellutils"
 .SH NAME
 Wellsensors \- R e a d s   t h e r m a l   a n d   f a n   s e n s o r s   f r o m   h w m o n   v i a   l m _ s e n s o r s   w h e n
 .SH SYNOPSIS
@@ -37,6 +37,10 @@ Disable emoji icons.
 .TP
 .B \-\-json
 Machine-readable JSON on stdout; errors still go to stderr.
+.TP
+.BI \-\-cli " [sec]"
+Live mode: redraw the report every \fIsec\fR seconds (default 2)
+until interrupted, using the whole terminal like \fBtop\fR.
 .TP
 .B \-\-debug
 Enable verbose tracing.
