@@ -5,6 +5,8 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
@@ -12,6 +14,8 @@ source "$_WU_LIB"
 _WU_TOOLNAME="wellmod" _WU_NAME="WellMod" _WU_VERSION="1.0" _WU_MANUAL=1
 _WU_TAGLINE="Kernel modules listing"
 _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
 source "$_WU_CLI"

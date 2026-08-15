@@ -5,10 +5,14 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
 _WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
 source "$_WU_BOX"
@@ -23,6 +27,8 @@ command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00
 _WU_TOOLNAME="wellsensors" _WU_NAME="WellSensors" _WU_VERSION="1.2"
 _WU_TAGLINE="Beautiful system temperature monitor"
 _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
 source "$_WU_CLI"

@@ -130,6 +130,8 @@ esac
 # ─── Shared libs (dirname → /usr/share/wellutils → /etc (compat)) ──
 
 _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 if [[ -f "$_WU_LIB" ]]; then
@@ -139,6 +141,8 @@ else
 fi
 
 _WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
 if [[ -f "$_WU_BOX" ]]; then
@@ -209,7 +213,7 @@ json_esc() {
 # ─── USB IDs database (optional) ────────────────────────────────
 # ─── USB IDs database (lazy lookups — no full-file scan) ────────
 USB_IDS_FILE=""
-for _p in /usr/share/hwdata/usb.ids /usr/share/usb.ids /usr/share/misc/usb.ids; do
+for _p in /usr/local/share/hwdata/usb.ids /usr/share/hwdata/usb.ids /usr/share/usb.ids /usr/share/misc/usb.ids; do
     if [[ -f "$_p" ]]; then USB_IDS_FILE="$_p"; break; fi
 done
 unset _p

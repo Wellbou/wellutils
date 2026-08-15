@@ -5,6 +5,8 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
@@ -12,6 +14,8 @@ source "$_WU_LIB"
 _WU_TOOLNAME="wellusb" _WU_NAME="WellUSB" _WU_VERSION="2.0" _WU_MANUAL=1
 _WU_TAGLINE="USB device listing with IDS database lookup"
 _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
 source "$_WU_CLI"
@@ -23,7 +27,10 @@ M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
 
 # ─── USB IDs Lookup (lazy, no associative arrays — bash 3.2) ────
-USB_IDS="/usr/share/hwdata/usb.ids"
+USB_IDS=""
+for _p in /usr/local/share/hwdata/usb.ids /usr/share/hwdata/usb.ids /usr/share/misc/usb.ids /usr/share/usb.ids; do
+    [[ -f "$_p" ]] && { USB_IDS="$_p"; break; }
+done
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 usb_vendor_name() {

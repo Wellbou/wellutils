@@ -10,6 +10,8 @@ _WU_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_LIB="$_WU_DIR/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$_WU_DIR/../share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"

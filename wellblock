@@ -5,10 +5,14 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
 _WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
 source "$_WU_BOX"
@@ -18,6 +22,8 @@ _WU_TAGLINE="Block device listing (use 'wellblock [N|device]' for disk detail + 
 _WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, /dev/sda)"
 _WU_EXTRA_PARSE="_wblock_arg"
 _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
 [[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
 source "$_WU_CLI"

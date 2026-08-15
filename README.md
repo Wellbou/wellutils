@@ -9,12 +9,13 @@
 
   # wellutils
 
-  System and peripheral reporting tools for Arch Linux, with a
+  System and peripheral reporting tools for any Linux (Arch, Fedora,
+  Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...), with a
   zero-dependency PowerShell port for Windows.
 
   [![Language: Bash](https://img.shields.io/badge/Language-Bash-4EAA25?logo=gnubash&logoColor=white)](wellutils)
   [![Language: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](wfetch_art.py)
-  [![Platform: Arch Linux](https://img.shields.io/badge/Platform-Arch_Linux-1793D1?logo=archlinux&logoColor=white)](PKGBUILD)
+  [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
   [![Version: 1.4.0](https://img.shields.io/badge/Version-1.4.0-22272E)](PKGBUILD)
   [![License: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](LICENSE)
@@ -60,9 +61,25 @@ $ well fetch
 
 ## Install
 
-### Arch Linux
+### Any Linux (Arch, Fedora, Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...)
 
-From the AUR once published, or build from this repo:
+One command — the installer detects your package manager (pacman,
+dnf/yum, apt, zypper, apk, xbps, emerge), installs the optional
+dependencies (hwdata ID database, lm-sensors, smartmontools,
+dmidecode, ...) and drops the tools into `/usr/local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
+```
+
+Skip the dependency step with `--no-deps` (tools degrade gracefully:
+no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
+`--prefix=/path` for a rootless install into your home directory.
+
+### Arch Linux (package)
+
+AUR helper install once the package is published, or build from this
+repo:
 
 ```sh
 yay -S wellutils      # or another AUR helper
@@ -197,12 +214,14 @@ shadow the `sensors` binary from lm_sensors. Use `wellsensors`.
 
 ## Dependencies
 
-**Required:** `bash`, `python`, `coreutils`, `procps-ng`, `hwdata`.
+**Required:** `bash`, `python`, `coreutils`, `procps-ng` (on
+Debian/Ubuntu the package names differ: `procps`, `python3`).
 
-**Optional:** `pciutils` (PCI descriptions), `usbutils` (USB
-enumeration), `smartmontools` (wellsensors, wellblock S.M.A.R.T.),
+**Optional:** `pciutils` (PCI descriptions), `usbutils` (USB ID
+database), `smartmontools` (wellsensors and wellblock S.M.A.R.T.),
 `nvme-cli` (NVMe temperatures), `dmidecode` + `i2c-tools` (RAM detail
-via decode-dimms), `util-linux` (lscpu for wellcpu).
+via decode-dimms), `util-linux` (lscpu for wellcpu). The `install.sh`
+installer picks the correct package names for your distribution.
 
 ## License
 

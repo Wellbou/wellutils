@@ -9,12 +9,13 @@
 
   # wellutils
 
-  Набор утилит для отчётов о системе и периферии для Arch Linux
+  Набор утилит для отчётов о системе и периферии для любого Linux
+  (Arch, Fedora, Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...)
   плюс порт на PowerShell для Windows без единой зависимости.
 
   [![Язык: Bash](https://img.shields.io/badge/Language-Bash-4EAA25?logo=gnubash&logoColor=white)](wellutils)
   [![Язык: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](wfetch_art.py)
-  [![Платформа: Arch Linux](https://img.shields.io/badge/Platform-Arch_Linux-1793D1?logo=archlinux&logoColor=white)](PKGBUILD)
+  [![Платформа: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Платформа: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
   [![Версия: 1.4.0](https://img.shields.io/badge/Version-1.4.0-22272E)](PKGBUILD)
   [![Лицензия: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](LICENSE)
@@ -61,7 +62,23 @@ $ well fetch
 
 ## Установка
 
-### Arch Linux
+### Любой Linux (Arch, Fedora, Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...)
+
+Одна команда — установщик сам определяет ваш пакетный менеджер
+(pacman, dnf/yum, apt, zypper, apk, xbps, emerge), ставит
+необязательные зависимости (база ID hwdata, lm-sensors,
+smartmontools, dmidecode, ...) и кладёт инструменты в `/usr/local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
+```
+
+Пропустить установку зависимостей можно флагом `--no-deps`
+(инструменты корректно деградируют: без S.M.A.R.T., без показаний
+датчиков, без имён вендоров по ID). Для бесrootной установки в свой
+каталог используйте `--prefix=/path`.
+
+### Arch Linux (пакет)
 
 Из AUR после публикации либо сборкой из этого репозитория:
 
@@ -201,13 +218,14 @@ wblock /dev/sdb
 
 ## Зависимости
 
-**Обязательные:** `bash`, `python`, `coreutils`, `procps-ng`,
-`hwdata`.
+**Обязательные:** `bash`, `python`, `coreutils`, `procps-ng`
+(на Debian/Ubuntu имена пакетов другие — `procps`, `python3`).
 
-**Опциональные:** `pciutils` (описания PCI), `usbutils` (перечень
-USB), `smartmontools` (wellsensors и S.M.A.R.T. в wellblock),
-`nvme-cli` (температуры NVMe), `dmidecode` + `i2c-tools` (детали
-памяти через decode-dimms), `util-linux` (lscpu для wellcpu).
+**Опциональные:** `pciutils` (описания PCI), `usbutils` (база
+USB-идентификаторов), `smartmontools` (wellsensors и S.M.A.R.T. в
+wellblock), `nvme-cli` (температуры NVMe), `dmidecode` + `i2c-tools`
+(детали памяти через decode-dimms), `util-linux` (lscpu для wellcpu).
+Установщик `install.sh` сам подбирает имена пакетов под ваш дистрибутив.
 
 ## Лицензия
 
