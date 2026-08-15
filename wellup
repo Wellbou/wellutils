@@ -30,6 +30,7 @@ source "$_WU_CLI"
 
 # ─── Flags ─────────────────────────────────────────────────────
 _UP_CHECK=0
+_UP_SELF=0
 
 up_extra_parse() {
     case "$1" in
@@ -37,11 +38,16 @@ up_extra_parse() {
             _UP_CHECK=1
             _WU_EXTRA_CONSUMED=1
             return 0 ;;
+        --self-update|--self)
+            _UP_SELF=1
+            _WU_EXTRA_CONSUMED=1
+            return 0 ;;
     esac
     return 1
 }
 _WU_EXTRA_PARSE=up_extra_parse
-_WU_EXTRA_HELP="      --check                 only list available updates, do not install"
+_WU_EXTRA_HELP="      --check                 only list available updates, do not install
+      --self-update           update wellutils itself from GitHub"
 
 # ─── System / package manager detection (os-release first) ─────
 _UP_OS="unknown Linux"
@@ -257,7 +263,207 @@ confirm_update() {
     printf '\n'
 }
 
+# ─── Self-update: wellutils itself, from GitHub ────────────────
+SELF_REPO="${WELLUTILS_REPO:-Wellbou/wellutils}"
+SELF_RAW="${WELLUTILS_RAW:-https://raw.githubusercontent.com/$SELF_REPO}"
+SELF_LIB=""
+SELF_LOCAL=""
+SELF_REMOTE=""
+SELF_ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch wellup=wup"
+
+self_detect() {
+    SELF_LIB="$(dirname "$_WU_LIB")"
+    if [[ -f "$SELF_LIB/VERSION" ]]; then
+        SELF_LOCAL="$(tr -d '[:space:]' < "$SELF_LIB/VERSION")"
+    fi
+}
+
+self_fetch() {
+    local url="$SELF_RAW/VERSION"
+    local out
+    if [[ "$SELF_RAW" == /* ]]; then
+        [[ -f "$url" ]] || return 1
+        out="$(cat "$url")"
+    elif command -v curl >/dev/null 2>&1; then
+        out="$(curl -fsSL --max-time 20 "$url")" || return 1
+    elif command -v wget >/dev/null 2>&1; then
+        out="$(wget -qO- --timeout=20 "$url")" || return 1
+    else
+        return 1
+    fi
+    SELF_REMOTE="$(printf '%s' "$out" | tr -d '[:space:]' | head -c 100)"
+    [[ -n "$SELF_REMOTE" ]] || return 1
+}
+
+ver_gt() {
+    [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]
+}
+
+self_status() {
+    if [[ -z "$SELF_REMOTE" ]]; then
+        echo "no-remote"; return
+    fi
+    if [[ -z "$SELF_LOCAL" ]]; then
+        echo "no-local"; return
+    fi
+    if [[ "$SELF_REMOTE" == "$SELF_LOCAL" ]]; then
+        echo "up-to-date"
+    elif ver_gt "$SELF_REMOTE" "$SELF_LOCAL"; then
+        echo "update-available"
+    else
+        echo "newer-local"
+    fi
+}
+
+self_acquire() {
+    local tmp url
+    if [[ "$SELF_RAW" == /* ]]; then
+        echo "$SELF_RAW"
+        return 0
+    fi
+    tmp="$(mktemp -d)"
+    url="https://codeload.github.com/$SELF_REPO/tar.gz/refs/heads/main"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --max-time 60 "$url" -o "$tmp/wellutils.tar.gz"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$tmp/wellutils.tar.gz" --timeout=60 "$url"
+    else
+        rm -rf "$tmp"
+        return 1
+    fi
+    tar -xzf "$tmp/wellutils.tar.gz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
+    find "$tmp" -maxdepth 1 -type d ! -name "$tmp" | tail -n1
+}
+
+self_write() {
+    if [[ "$(id -u)" -eq 0 || -w "$(dirname "$2")" ]]; then
+        install -D "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo install -D "$@"
+    else
+        printf '%s\n' "$(t upd_need_root)" >&2
+        return 1
+    fi
+}
+
+self_install_to() {
+    local src="$1" prefix bin mandir compdir licdir name f base
+    prefix="${SELF_LIB%/share/wellutils}"
+    bin="$prefix/bin"
+    mandir="$prefix/share/man/man1"
+    licdir="$prefix/share/licenses/wellutils"
+    compdir="$prefix/share/bash-completion/completions"
+    if [[ "$prefix" == "/usr" || "$prefix" == "/usr/local" ]] && [[ -d /usr/share/bash-completion/completions ]]; then
+        compdir="/usr/share/bash-completion/completions"
+    elif [[ "$prefix" == "/usr" || "$prefix" == "/usr/local" ]] && [[ -d /etc/bash_completion.d ]]; then
+        compdir="/etc/bash_completion.d"
+    fi
+
+    for f in "$src"/well*; do
+        [[ -f "$f" && -x "$f" ]] || continue
+        name="${f##*/}"
+        [[ "$name" == well* ]] || continue
+        self_write -m755 "$f" "$bin/$name" || return 1
+    done
+    for f in lang.sh box.sh cli.sh jedec.sh wfetch_art.py logo.png VERSION; do
+        [[ -f "$src/$f" ]] || continue
+        self_write -m644 "$src/$f" "$SELF_LIB/$f" || return 1
+    done
+    [[ -f "$src/LICENSE" ]] && { self_write -m644 "$src/LICENSE" "$licdir/LICENSE" || return 1; }
+    for f in "$src"/*.1; do
+        [[ -f "$f" ]] || continue
+        self_write -m644 "$f" "$mandir/${f##*/}" || return 1
+    done
+    for f in "$src"/*.bash; do
+        [[ -f "$f" ]] || continue
+        name="${f##*/}"
+        self_write -m644 "$f" "$compdir/${name%.bash}" || return 1
+    done
+    for a in $SELF_ALIASES; do
+        base="${a%%=*}"
+        if [[ "$(id -u)" -eq 0 || -w "$bin" ]]; then
+            ln -sf "$bin/$base" "$bin/${a#*=}"
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo ln -sf "$bin/$base" "$bin/${a#*=}"
+        fi
+    done
+}
+
+self_info_box() {
+    _LINES+=("$BOLD$(t updu_current)$RESET  $W${SELF_LOCAL:-?}$RESET")
+    _LINES+=("$BOLD$(t updu_latest)$RESET  $G${SELF_REMOTE:-?}$RESET")
+    _LINES+=("$BOLD$(t updu_prefix)$RESET  $DIM${SELF_LIB%/share/wellutils}$RESET")
+}
+
+json_self_out() {
+    local status="$1"
+    wu_json_head wellup 1.0
+    printf ',\n  "self_update": {\n'
+    printf '    "current": "%s",\n' "$(json_esc "${SELF_LOCAL:-}")"
+    printf '    "latest": "%s",\n' "$(json_esc "${SELF_REMOTE:-}")"
+    printf '    "status": "%s",\n' "$(json_esc "$status")"
+    printf '    "prefix": "%s"\n' "$(json_esc "${SELF_LIB%/share/wellutils}")"
+    printf '  }\n'
+    wu_json_end
+}
+
+self_main() {
+    self_detect
+    if [[ -f "$SELF_LIB/wellup" ]]; then
+        printf '  %s\n' "$(t updu_checkout)" >&2
+        exit 0
+    fi
+
+    if ! self_fetch; then
+        printf '%s\n' "$(t updu_fetch_fail)" >&2
+        exit 3
+    fi
+    local status
+    status="$(self_status)"
+
+    if [[ "$_WU_JSON" == "1" ]]; then
+        json_self_out "$status"
+        return 0
+    fi
+
+    box_header "$(_emu '🔄')" "wellup --self-update" "$(t updu_title)"
+    box "$(_emu '⚙️')" "$(t updu_system)" self_info_box
+
+    if [[ "$status" == "up-to-date" || "$status" == "newer-local" ]]; then
+        printf '\n  %s%s%s\n' "$G" "$(t updu_up_to_date)" "$RESET"
+        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        return 0
+    fi
+
+    printf '\n  %s%s %s%s\n' "$G" "$(t updu_update)" "$RESET" "$SELF_REMOTE"
+
+    if [[ "$_UP_CHECK" == "1" ]]; then
+        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        return 0
+    fi
+
+    confirm_update
+    trap 'printf "\n  %s\n\n" "$(t upd_aborted)"; exit 130' INT
+    printf '  %s\n\n' "$(t updu_applying)"
+    local src
+    src="$(self_acquire)" || { printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"; return 3; }
+    if self_install_to "$src"; then
+        printf '\n  %s%s %s%s\n\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
+        printf '  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        return 0
+    else
+        printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"
+        return 3
+    fi
+    trap - INT
+}
+
 main() {
+    if [[ "$_UP_SELF" == "1" ]]; then
+        self_main
+        return $?
+    fi
+
     detect_pm
 
     if [[ -z "$_UP_PM" ]]; then

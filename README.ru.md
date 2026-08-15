@@ -193,6 +193,13 @@ wblock /dev/sdb
 `wsensors`/`wtemp`, `whw`, `wper`, `wfetch`, `wup`. Лаунчер принимает и их:
 `wellutils wram --plain`.
 
+`wellup` умеет и обновлять сам wellutils с GitHub:
+
+```sh
+wellup --self-update          # проверить и обновить wellutils
+wellup --self-update --check  # только показать разницу версий
+```
+
 Замечание: `wellutils sensors` намеренно не является алиасом — он
 перекрыл бы бинарник `sensors` из lm_sensors. Используйте
 `wellsensors` или `wtemp`.

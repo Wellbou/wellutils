@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=10
+pkgrel=11
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -38,6 +38,7 @@ source=(
     'jedec.sh'
     'wfetch_art.py'
     'logo.png'
+    'VERSION'
     'wellper.1'
     'wellutils.1'
     'wellfetch.1'
@@ -76,15 +77,16 @@ sha256sums=('7f990e1a0ea11106e853e5ab5e555262d62a79bb5f0b9f9ee2be9b67a8976f78'
             '1dc75596678dded5624113d8a572b46a1b12b2144625bb6d2084ef07a79a4791'
             '3297ac9c1b91770561e8e046cecb160cb1f78ff12929c92e08980947ba422340'
             '0dd457d02be8c3475ee8d7188a7e4997df4a984101a937793f850354d9f49492'
-            'ca127cf49eb860b3feadaa28577055f19780d6e5bebfd23f50192439510062ca'
+            'a4687c55856d17ed4e36ed2fd7f7f5b98d113ac8560f743561b8e75b9254f080'
             'a55c8c60be3f7151071f166c897d39f220d4d0876f93d5805974465710c36823'
-            '1cc0914fc02860048738d644ea026933e1423422235124828961c0dc2da9ecd5'
-            'b69553f03508769cec75f4468ab6951df86bb3da4cd07c13febef22959fd2c0d'
+            'e4bcdd43a816dc94c94249f3082901bcc9de7e02c5d833f4c42e57494a720828'
+            'fa5af2af908e17a113ca910d2a55c82601f604a27bfd4a94e4c411fd45b4829a'
             '5f96872a83f8da1023dd968699a55ab86ef9ed7dbafb91125f968a0d459e1254'
             '68f1558f8c9b95c09f56eebb57a62dd4f0f604ee5171422831a9250a8bc1b6d1'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
             '408bca678af56ddb9f56aed9c9cb213f82608a781c27eb5adb91aca7cb731c35'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'
+            '1ab93a44fefac2ed4d31c3a3e631ae6829ee0ce5e4d809ed942b288f4473252f'
             '257e2402b4c68c31f18512845f8e030beaf715e1047d2477fc0abe241e5a605b'
             'e346333f6c481e084b5abc87848eb2e5b1eef1f89317b2599b9055df681f2f50'
             '22726538a1aff9e16c89e397d7f3d2d1c01de4c0f189d7ad78286d2720e46d5c'
@@ -97,7 +99,7 @@ sha256sums=('7f990e1a0ea11106e853e5ab5e555262d62a79bb5f0b9f9ee2be9b67a8976f78'
             '0dc8a89375fae2e1b498c918c69845c9e411d1dfc13959a23755c185ed7f42b1'
             '2611aa9507fb9219f543c23b6ba9cff8d970caedf1c4c87ff32a62086a9f63cc'
             'f8477c0e1a173a342e478e16acfe3fab0763dad675dbc9ddcf9a30b98f553e33'
-            '9b11f0c1ef936144bb6e98799dc65f04b9d7e1ed0c5c051275a5cf822e28d7bc'
+            '689d672bd03f8e9ee3d3684903dbf9f1ace6e1207db01e297894964a7e6228b0'
             '4ca34440a3b3dfc793c95365c4146003f7ef7999ff793f353cb97d6630bfc69d'
             'b13837121b33361384d513383bc7db251de2850dc0ce870e8c4fec0656fd58e8'
             '569d43611edc057916cc5b40a6be15dfdd734c3a4ace1c09c090063a50c57875'
@@ -110,7 +112,7 @@ sha256sums=('7f990e1a0ea11106e853e5ab5e555262d62a79bb5f0b9f9ee2be9b67a8976f78'
             '3393fca3d9e8780042c6e6fd6990a147f25d23d52243441a90b43fe88a7e7162'
             '3a1fe25939dfeee0417b75b3d83daf9d7004ac534a5a68185372b9ebe57e9682'
             '618359c0b7abcb0c492902beded2c9955954e385e58ad5180801cad23cbff0cf'
-            '6cc07239afd5782309ff4a4992a1bfbc90146fdcd56ea0d317ce842dd6e6737f'
+            'dc4197f41197b1dfc16ab51d92ba23a3187c7af2b275d91e326af3f6d5e9a07f'
             'cfc7e44e8406cf1d56916796d36832d4b8de8e1898f67be4158f0f6f0984fc70')
 package() {
     cd "${srcdir}"
@@ -156,6 +158,7 @@ package() {
         jedec.sh \
         wfetch_art.py \
         logo.png \
+        VERSION \
         "${pkgdir}/usr/share/wellutils/"
     install -m644 \
         wellper.1 \

@@ -297,6 +297,7 @@ _t_EN() {
         cmd_cpu)            printf '%s' "CPU overview (topology, load, frequencies)" ;;
         cmd_fetch)          printf '%s' "System fetch (ASCII/PNG logo)" ;;
         cmd_up)             printf '%s' "Check for updates and apply them automatically" ;;
+        cmd_selfupdate)     printf '%s' "Update wellutils itself from GitHub" ;;
         opt_plain_color)    printf '%s' "plain text / color mode (wellfetch, wellper)" ;;
         opt_more)           printf '%s' "all sections / full report / no logo (wellfetch)" ;;
         upd_title)          printf '%s' "System Updater" ;;
@@ -315,6 +316,18 @@ _t_EN() {
         upd_error)          printf '%s' "Update failed (see output above)." ;;
         upd_no_pm)          printf '%s' "No supported package manager found." ;;
         upd_need_root)      printf '%s' "Root access required to update." ;;
+        updu_title)         printf '%s' "Wellutils Self-Update" ;;
+        updu_system)        printf '%s' "Wellutils" ;;
+        updu_current)       printf '%s' "Installed" ;;
+        updu_latest)        printf '%s' "Latest" ;;
+        updu_prefix)        printf '%s' "Install path" ;;
+        updu_up_to_date)    printf '%s' "Wellutils is up to date." ;;
+        updu_update)        printf '%s' "Update available:" ;;
+        updu_applying)      printf '%s' "Updating wellutils, please wait..." ;;
+        updu_done)          printf '%s' "Wellutils updated to" ;;
+        updu_error)         printf '%s' "Self-update failed (see output above)." ;;
+        updu_fetch_fail)    printf '%s' "Cannot fetch version info from GitHub." ;;
+        updu_checkout)      printf '%s' "Running from a source checkout — use git pull instead." ;;
     esac
 }
 
@@ -594,6 +607,7 @@ _t_RU() {
         cmd_cpu)            printf '%s' "Процессор (топология, нагрузка)" ;;
         cmd_fetch)          printf '%s' "Инфо о системе (ASCII/PNG лого)" ;;
         cmd_up)             printf '%s' "Проверить и применить обновления автоматически" ;;
+        cmd_selfupdate)     printf '%s' "Обновить сам wellutils с GitHub" ;;
         opt_plain_color)    printf '%s' "обычный текст / цвет (есть в wellfetch, wellper)" ;;
         opt_more)           printf '%s' "все секции / полный отчёт / без лого (wellfetch)" ;;
         upd_title)          printf '%s' "Обновление системы" ;;
@@ -612,6 +626,18 @@ _t_RU() {
         upd_error)          printf '%s' "Ошибка обновления (вывод выше)." ;;
         upd_no_pm)          printf '%s' "Не найден поддерживаемый пакетный менеджер." ;;
         upd_need_root)      printf '%s' "Для обновления нужны права root." ;;
+        updu_title)         printf '%s' "Обновление wellutils" ;;
+        updu_system)        printf '%s' "Wellutils" ;;
+        updu_current)       printf '%s' "Установлено" ;;
+        updu_latest)        printf '%s' "Доступно" ;;
+        updu_prefix)        printf '%s' "Каталог установки" ;;
+        updu_up_to_date)    printf '%s' "Wellutils актуален." ;;
+        updu_update)        printf '%s' "Есть обновление:" ;;
+        updu_applying)      printf '%s' "Обновляю wellutils, подождите..." ;;
+        updu_done)          printf '%s' "Wellutils обновлён до" ;;
+        updu_error)         printf '%s' "Ошибка самообновления (вывод выше)." ;;
+        updu_fetch_fail)    printf '%s' "Не удалось получить версию с GitHub." ;;
+        updu_checkout)      printf '%s' "Запуск из исходников — используйте git pull." ;;
     esac
 }
 

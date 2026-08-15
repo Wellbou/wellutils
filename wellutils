@@ -52,6 +52,7 @@ show_help() {
     printf '    %scpu%s        — %s\n' "$G" "$RESET" "$(t cmd_cpu)"
     printf '    %sfetch%s      — %s\n' "$G" "$RESET" "$(t cmd_fetch)"
     printf '    %sup%s         — %s\n' "$G" "$RESET" "$(t cmd_up)"
+    printf '    %sself-update%s  — %s\n' "$G" "$RESET" "$(t cmd_selfupdate)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
     printf '    %s--plain%s / %s--color auto|always|never%s  %s\n' "$G" "$RESET" "$G" "$RESET" "$(t opt_plain_color)"
@@ -117,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         cpu|wellcpu|wcpu)          CMD="wellcpu";     shift ;;
         fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
         up|wellup|wup)             CMD="wellup";      shift ;;
+        self-update|selfupdate)    CMD="wellup";      set -- --self-update "${@:2}" ;;
         *)
             printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"
             show_help

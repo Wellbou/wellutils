@@ -46,6 +46,12 @@ never installs anything; it only reports the available updates.
 .BR \-\-check ", " \-\-list
 Only list the available updates; do not install them.
 .TP
+.BR \-\-self-update ", " \-\-self
+Update wellutils itself from GitHub instead of the system.  Compares
+the installed version with the latest on GitHub and reinstalls the
+suite into the same prefix when a newer version is available.
+Combine with \fB\-\-check\fR to only report the version difference.
+.TP
 .B \-\-debug
 Enable verbose tracing.
 .SH EXIT STATUS
