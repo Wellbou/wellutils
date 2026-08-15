@@ -313,6 +313,5 @@ echo "    man:       $MANDIR"
 if [[ "$PREFIX" == "/usr/local" || "$PREFIX" == "/usr" ]]; then
     echo '    try:       wellfetch | wellmem | wellusb | wellhw'
 else
-    echo "    note:      custom prefix — tools look for data in /usr/local/share/wellutils"
-    echo "               and /usr/share/wellutils, set WELLUTILS_PREFIX-aware env if needed"
+    echo "    note:      custom prefix is self-contained (data at $PREFIX/share/wellutils)"
 fi
