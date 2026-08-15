@@ -89,7 +89,7 @@ json_out() {
         total_size=$(( total_size + size ))
     done < <(awk 'NR>1 {gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
 
-    wu_json_head wellmod 1.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "modules": [\n'
     local first=1 i
     for (( i=0; i<total; i++ )); do
@@ -159,7 +159,7 @@ main() {
     printf '  %s│%s\n' "$C" "$RESET"
 
     local -a cat_order=("gpu_dri" "audio" "usb" "storage" "filesystem" "networking" "wifi" "bluetooth" "virtualization" "display" "bus" "timer" "cpu_virt" "netfs" "other")
-    local -a cat_keys=("mod_gpu_dri" "mod_audio" "mod_usb" "mod_storage" "mod_filesystem" "mod_networking" "mod_wifi" "mod_bluetooth" "mod_virtualization" "mod_display" "mod_bus" "mod_timer" "mod_cpu_virt" "mod_netfs" "other")
+    local -a cat_keys=("mod_gpu_dri" "mod_audio" "mod_usb" "mod_storage" "mod_filesystem" "mod_networking" "mod_wifi" "mod_bluetooth" "mod_virtualization" "mod_display" "mod_bus" "mod_timer" "mod_cpu_virt" "mod_netfs" "mod_other")
 
     # bash 3.2 has no associative arrays: keep per-category entries in an
     # indexed array parallel to cat_order (index = cat_order lookup).
@@ -214,12 +214,7 @@ main() {
         icon=$(module_icon "$first_name")
 
         local display_name
-        if [[ "$cat_order[$ci]" == "other" ]]; then
-            display_name="Other"
-            [[ "$WELLUTILS_LANG" == "RU" ]] && display_name="Прочее"
-        else
-            display_name=$(t "${cat_keys[$ci]}")
-        fi
+        display_name=$(t "${cat_keys[$ci]}")
 
         printf '  %s┌───%s %s %s%s%s\n' "$C" "$RESET" "$icon" "$BOLD" "$display_name" "$RESET"
 

@@ -150,6 +150,17 @@ local zram_dev zram_size zram_kb zram_h zram_algorithm
         _LINES+=( "" )
         _LINES+=( "  ${BOLD}${W}$(_ic '📦')$(t mem_zram)${RESET}" )
         _LINES+=( "  $(t mem_size): ${G}${zram_h}${RESET}  $(t mem_algorithm): ${DIM}${zram_algorithm}${RESET}" )
+        local zorig=0 zcompr=0
+        if [[ -f "$zram_dev/mm_stat" ]]; then
+            read -r zorig zcompr _ < "$zram_dev/mm_stat" 2>/dev/null || true
+        fi
+        if (( zorig > 0 )); then
+            local zdata_h zcompr_h zratio
+            zdata_h=$(fmt_kb "$(( zorig / 1024 ))")
+            zcompr_h=$(fmt_kb "$(( zcompr / 1024 ))")
+            zratio=$(awk -v a="$zorig" -v b="$zcompr" 'BEGIN{ if (b>0) printf "%.1f", a/b; else print "0" }')
+            _LINES+=( "  ${DIM}$(t mem_zram_data): ${W}${zdata_h}${RESET}  $(t mem_zram_compr): ${W}${zcompr_h}${RESET}  ($(t mem_zram_ratio): ${zratio}x)${RESET}" )
+        fi
     done
 
     local huge_total huge_free huge_size
@@ -210,7 +221,7 @@ json_out() {
         numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { print length(nodes) + 0 }' /proc/zoneinfo)
     fi
 
-    wu_json_head wellmem 1.1
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "memory": {\n'
     printf '    "total_kb": %d,\n' "$total"
     printf '    "used_kb": %d,\n' "$used"
@@ -232,9 +243,15 @@ json_out() {
         zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
         zram_algorithm=$(awk '/^[^ ]+ / { match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2) }' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
         [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
+        local zdata_z=0 zcompr_z=0 zused_z=0
+        if [[ -f "$zram_dev/mm_stat" ]]; then
+            read -r zorig zcompr zused _ < "$zram_dev/mm_stat" 2>/dev/null || true
+            zdata_z=${zorig:-0}; zcompr_z=${zcompr:-0}; zused_z=${zused:-0}
+        fi
         (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "size_kb": %d, "algorithm": "%s" }' \
-            "$(json_esc "$(basename "$zram_dev")")" "$(( zram_size / 1024 ))" "$(json_esc "$zram_algorithm")"
+        printf '    { "name": "%s", "size_kb": %d, "algorithm": "%s", "data_kb": %d, "compr_kb": %d, "mem_used_kb": %d }' \
+            "$(json_esc "$(basename "$zram_dev")")" "$(( zram_size / 1024 ))" "$(json_esc "$zram_algorithm")" \
+            "$(( zdata_z / 1024 ))" "$(( zcompr_z / 1024 ))" "$(( zused_z / 1024 ))"
     done
     printf '\n  ],\n'
     printf '  "hugepages": {\n'

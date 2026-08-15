@@ -271,8 +271,26 @@ json_out() {
         mpn=$(awk '/^[[:space:]]*Part Number:/{sub(/^[[:space:]]*Part Number:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
         mform=$(awk '/^[[:space:]]*Form Factor:/{sub(/^[[:space:]]*Form Factor:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
     fi
+    if [[ -z "$mout" ]] && command -v decode-dimms &>/dev/null; then
+        local dout
+        dout=$(root_run decode-dimms 2>/dev/null) || dout=""
+        if [[ -n "$dout" ]]; then
+            modules=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
+            msize_mb=$(awk '/^Size/{sub(/^Size[ \t]+/, ""); sub(/ MB.*/,""); s+=$1} END{print s+0}' <<< "$dout")
+            mtype=$(awk '/^Memory Type/{sub(/^Memory Type[ \t]+/, ""); gsub(/[ \t]+.*/,""); print; exit}' <<< "$dout")
+            mspeed=$(awk '/^Speed/{sub(/^Speed[ \t]+/, ""); print $1; exit}' <<< "$dout")
+            mmanuf=$(awk '/^Module Manufacturer/{sub(/^Module Manufacturer[ \t]+/, ""); print; exit}' <<< "$dout")
+            mpn=$(awk '/^Part Number/{sub(/^Part Number[ \t]+/, ""); print; exit}' <<< "$dout")
+            mform=$(awk '/^Module Type/{sub(/^Module Type[ \t]+/, ""); print; exit}' <<< "$dout")
+        fi
+    fi
+    if [[ "$mmanuf" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+        local mdec
+        mdec=$(wu_jedec_decode "$mmanuf") || mdec=""
+        [[ -n "$mdec" ]] && mmanuf="$mdec"
+    fi
 
-    wu_json_head wellhw 1.3
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "cpu": { "model": "%s", "cores": "%s", "threads": "%s" },\n' \
         "$(json_esc "$model")" "$(json_esc "$cores")" "$(json_esc "$threads")"
     printf '  "gpu": { "name": "%s" },\n' "$(json_esc "$gpu")"
@@ -341,7 +359,13 @@ json_out() {
         printf '    { "chip": "%s", "label": "%s", "rpm": %d }' \
             "$(json_esc "$chip")" "$(json_esc "$label")" "$rpm"
     done
-    printf '\n  ]\n'
+    printf '\n  ],\n'
+
+    local n_storage n_net
+    n_storage=$(lsblk -nd -o NAME 2>/dev/null | grep -cvE '^(loop|zram|sr)' || echo 0)
+    n_net=$(ls /sys/class/net/ 2>/dev/null | grep -cvE '^(lo|virbr|docker|br-|veth)' || echo 0)
+    printf '  "summary": { "cpu": "%s", "gpu": "%s", "ram_modules": %d, "ram_size_mb": %d, "storage_devices": %d, "network_interfaces": %d }\n' \
+        "$(json_esc "$model")" "$(json_esc "$gpu")" "$modules" "$msize_mb" "$n_storage" "$n_net"
     wu_json_end
 }
 

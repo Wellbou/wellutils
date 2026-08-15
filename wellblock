@@ -63,6 +63,7 @@ wblock_disks() {
             local bn
             bn=$(basename "$dev")
             [[ "$bn" == loop* || "$bn" == ram* || "$bn" == sr* ]] && continue
+            [[ "$bn" == mmcblk*boot* ]] && continue
             printf '%s\n' "$dev"
         done
     done
@@ -95,7 +96,11 @@ wblock_smart() {
     fi
 
     local out
-    out=$(root_run smartctl -a "$devnode" 2>/dev/null) || out=""
+    # NOTE: do not clear $out on non-zero exit. smartctl exits non-zero as soon
+    # as the drive reports ANY error bit (e.g. a failed self-test) while still
+    # printing the full report — `|| out=""` would wipe it and falsely report
+    # "SMART not supported" (see TOSHIBA MK1059GS case).
+    out=$(root_run smartctl -a "$devnode" 2>/dev/null) || true
 
     # S.M.A.R.T. unavailable for the device (e.g. USB card readers)
     if ! grep -q 'SMART overall-health' <<< "$out" && ! grep -q 'SMART Health Information' <<< "$out"; then
@@ -340,10 +345,10 @@ json_out() {
         fi
     fi
 
-    wu_json_head wellblock 1.1
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
 
     if [[ -n "$target_dev" ]]; then
-        local bn size_bytes model serial rotational removable
+        local bn size_bytes model serial rotational removable dtype
         bn=$(basename "$target_dev")
         size_bytes=$(cat "$target_dev/size" 2>/dev/null || echo "0")
         size_bytes=$(( size_bytes * 512 ))
@@ -355,6 +360,42 @@ json_out() {
         rotational=$(cat "$target_dev/queue/rotational" 2>/dev/null || echo "1")
         removable=$(cat "$target_dev/removable" 2>/dev/null || echo "0")
 
+        dtype="unknown"
+        if [[ "$removable" == "1" ]]; then dtype="usb"
+        elif [[ "$bn" == nvme* ]]; then dtype="nvme"
+        elif [[ "$rotational" == "1" ]]; then dtype="hdd"
+        else dtype="ssd"; fi
+
+        local smart_avail=0 smart_health=""
+        if command -v smartctl &>/dev/null; then
+            local sout sattrs srisk=0 s_overall
+            sout=$(root_run smartctl -a "/dev/$bn" 2>/dev/null) || true
+            if [[ -n "$sout" ]] && { grep -q 'SMART overall-health' <<< "$sout" || grep -q 'SMART Health Information' <<< "$sout"; }; then
+                smart_avail=1
+                s_overall=$(awk '/^SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$sout")
+                [[ "$s_overall" == "FAILED" ]] && srisk=2
+                sattrs=$(awk '
+                    /^Vendor Specific SMART Attributes/ { inattrs=1; next }
+                    inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
+                        printf "%s|%s\n", $1, $10
+                    }
+                    inattrs && /^SMART Error Log/ { exit }
+                ' <<< "$sout")
+                local sid sraw
+                while IFS='|' read -r sid sraw; do
+                    case "$sid" in
+                        5|187|197|198|200|201)
+                            if (( 10#${sraw%% *} > 0 )); then (( srisk < 1 )) && srisk=1; fi ;;
+                    esac
+                done <<< "$sattrs"
+                case "$srisk" in
+                    2) smart_health="FAILED" ;;
+                    1) smart_health="WARN" ;;
+                    0) smart_health="PASSED" ;;
+                esac
+            fi
+        fi
+
         printf ',\n  "disk": {\n'
         printf '    "name": "%s",\n' "$(json_esc "$bn")"
         printf '    "path": "/dev/%s",\n' "$(json_esc "$bn")"
@@ -363,6 +404,8 @@ json_out() {
         printf '    "serial": "%s",\n' "$(json_esc "$serial")"
         printf '    "rotational": %s,\n' "$rotational"
         printf '    "removable": %s,\n' "$removable"
+        printf '    "type": "%s",\n' "$dtype"
+        printf '    "smart": { "available": %s, "health": "%s" },\n' "$smart_avail" "$(json_esc "$smart_health")"
         printf '    "partitions": [\n'
         local first=1 part pname psize_bytes fstype mountpoint lsblk_out
         for part in "$target_dev"/${bn}*; do

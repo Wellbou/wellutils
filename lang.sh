@@ -98,6 +98,7 @@ _t_EN() {
         pci_class_wireless)     printf '%s' "Wireless Controller" ;;
         pci_class_vendor)       printf '%s' "Vendor-Specific" ;;
         pci_class_unknown)      printf '%s' "Unknown" ;;
+        pci_ids_db)             printf '%s' "IDs database" ;;
         blk_title)          printf '%s' "Block Device Explorer" ;;
         blk_summary)        printf '%s' "DISK SUMMARY" ;;
         blk_virtual)        printf '%s' "VIRTUAL / LOOP DEVICES" ;;
@@ -186,6 +187,7 @@ _t_EN() {
         gpu_memory)         printf '%s' "Memory" ;;
         gpu_nvidia_none)    printf '%s' "nvidia-smi not found" ;;
         gpu_none)           printf '%s' "No GPU detected" ;;
+        gpu_pciutils)       printf '%s' "Install pciutils (lspci) to detect GPUs" ;;
         mem_title)          printf '%s' "Memory Overview" ;;
         mem_ram)            printf '%s' "PHYSICAL MEMORY (RAM)" ;;
         mem_swap)           printf '%s' "SWAP" ;;
@@ -201,6 +203,9 @@ _t_EN() {
         mem_free)           printf '%s' "Free" ;;
         mem_size)           printf '%s' "Size" ;;
         mem_algorithm)      printf '%s' "Algorithm" ;;
+        mem_zram_data)      printf '%s' "Data" ;;
+        mem_zram_compr)     printf '%s' "Compressed" ;;
+        mem_zram_ratio)     printf '%s' "Ratio" ;;
         mem_pct_used)       printf '%s' "used" ;;
         mem_no_swap)        printf '%s' "No swap configured" ;;
         mod_title)          printf '%s' "Kernel Module Explorer" ;;
@@ -221,6 +226,7 @@ _t_EN() {
         mod_timer)          printf '%s' "Timer" ;;
         mod_cpu_virt)       printf '%s' "CPU/Virt" ;;
         mod_netfs)          printf '%s' "Network FS" ;;
+        mod_other)          printf '%s' "Other" ;;
         mod_size_legend)    printf '%s' "Size" ;;
         mod_size_small)     printf '%s' "<64KB" ;;
         mod_size_med)       printf '%s' "<256KB" ;;
@@ -408,6 +414,7 @@ _t_RU() {
         pci_class_wireless)     printf '%s' "Беспроводной контроллер" ;;
         pci_class_vendor)       printf '%s' "Вендор-специфичное" ;;
         pci_class_unknown)      printf '%s' "Неизвестно" ;;
+        pci_ids_db)             printf '%s' "База ID" ;;
         blk_title)          printf '%s' "Обзор блочных устройств" ;;
         blk_summary)        printf '%s' "СВОДКА ПО ДИСКАМ" ;;
         blk_virtual)        printf '%s' "ВИРТУАЛЬНЫЕ / LOOP" ;;
@@ -496,6 +503,7 @@ _t_RU() {
         gpu_memory)         printf '%s' "Память" ;;
         gpu_nvidia_none)    printf '%s' "nvidia-smi не найден" ;;
         gpu_none)           printf '%s' "GPU не обнаружен" ;;
+        gpu_pciutils)       printf '%s' "Установите pciutils (lspci) для обнаружения GPU" ;;
         mem_title)          printf '%s' "Обзор памяти" ;;
         mem_ram)            printf '%s' "ФИЗИЧЕСКАЯ ПАМЯТЬ (RAM)" ;;
         mem_swap)           printf '%s' "ПОДКАЧКА" ;;
@@ -511,6 +519,9 @@ _t_RU() {
         mem_free)           printf '%s' "Свободно" ;;
         mem_size)           printf '%s' "Размер" ;;
         mem_algorithm)      printf '%s' "Алгоритм" ;;
+        mem_zram_data)      printf '%s' "Данные" ;;
+        mem_zram_compr)     printf '%s' "Сжато" ;;
+        mem_zram_ratio)     printf '%s' "Степень" ;;
         mem_pct_used)       printf '%s' "использовано" ;;
         mem_no_swap)        printf '%s' "Подкачка не настроена" ;;
         mod_title)          printf '%s' "Обзор модулей ядра" ;;
@@ -531,6 +542,7 @@ _t_RU() {
         mod_timer)          printf '%s' "Таймер" ;;
         mod_cpu_virt)       printf '%s' "CPU/Вирт." ;;
         mod_netfs)          printf '%s' "Сетевые ФС" ;;
+        mod_other)          printf '%s' "Прочее" ;;
         mod_size_legend)    printf '%s' "Размер" ;;
         mod_size_small)     printf '%s' "<64КБ" ;;
         mod_size_med)       printf '%s' "<256КБ" ;;

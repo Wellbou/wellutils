@@ -67,6 +67,17 @@ pci_class_icon() {
 # ─── PCI IDS Lookup (lazy, bash 3.2) ─────────────────────────────
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+# Byte-length helpers (wellpci does not source box.sh)
+vislen() { printf '%s' "${#1}"; }
+wucap() {
+    local s="$1" maxw="$2"
+    if (( ${#s} > maxw )); then
+        printf '%s…' "${s:0:maxw-1}"
+    else
+        printf '%s' "$s"
+    fi
+}
+
 pci_vendor_name() {
     [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "Unknown"; return 0; }
     [[ -f "$PCI_IDS" ]] || { printf '%s' "Unknown"; return 0; }
@@ -131,7 +142,7 @@ pci_scan() {
 json_out() {
     pci_scan
 
-    wu_json_head wellpci 2.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "summary": { "devices": %d },\n' "$count"
     printf '  "ids_db_loaded": %s,\n' "$([[ -f $PCI_IDS ]] && printf 'true' || printf 'false')"
     printf '  "devices": [\n'
@@ -205,17 +216,26 @@ main() {
         local cicon
         cicon=$(pci_class_icon "$cls")
 
+        local lbl fixed drv_max desc_max desc_txt drv_txt
+        lbl="$(t pci_drv):"
+        fixed=$(( 4 + $(vislen "$cicon") + 1 + $(vislen "$addr") + 2 + $(vislen "$lbl") ))
+        drv_max=12
+        desc_max=$(( 82 - fixed - drv_max ))
+        (( desc_max < 12 )) && desc_max=12
+        desc_txt=$(wucap "$desc" "$desc_max")
+        drv_txt=$(wucap "$drv" "$drv_max")
+
         local drv_badge
         if [[ "$drv" == "none" ]]; then
-            drv_badge="${DIM}none${RESET}"
+            drv_badge="${DIM}${drv_txt}${RESET}"
         else
-            drv_badge="${G}${drv}${RESET}"
+            drv_badge="${G}${drv_txt}${RESET}"
         fi
 
         printf '  %s│%s  %s %s%s%s  %s%s%s  %s%s%s\n' \
             "$C" "$RESET" "$cicon" "$BOLD" "$addr" "$RESET" \
-            "$ccolor" "$desc" "$RESET" \
-            "$(t pci_drv):" "$drv_badge"
+            "$ccolor" "$desc_txt" "$RESET" \
+            "$lbl" "$drv_badge"
     done
 
     printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..80})" "$RESET"

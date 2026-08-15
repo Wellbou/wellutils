@@ -1,4 +1,4 @@
-.TH WELLUTILS 1 "August 2026" "wellutils 1.0" "wellutils"
+.TH WELLUTILS 1 "August 2026" "wellutils 1.4.0" "wellutils"
 .SH NAME
 wellutils \- launcher and suite of system/peripheral reporting tools
 .SH SYNOPSIS
@@ -39,6 +39,15 @@ Loaded kernel modules, top-10 and grouped by category.
 .TP
 .B wellfetch, fetch, wfetch
 System information display with an ANSI logo.
+.TP
+.B wellcpu, cpu, wcpu
+CPU detail: model, sockets, cores, threads, caches, load.
+.TP
+.B wellgpu, gpu, wgpu
+GPU detail with live nvidia-smi stats when available.
+.TP
+.B wellup, up, wup
+Cross-distro system updater; \fB\-\-self-update\fR also updates the suite itself.
 .SH OPTIONS
 .TP
 .BI \-\-lang " ru|en|eng"
@@ -86,4 +95,7 @@ wellbou_
 .BR wellpci (1),
 .BR wellblock (1),
 .BR wellmod (1),
-.BR wellfetch (1)
+.BR wellfetch (1),
+.BR wellcpu (1),
+.BR wellgpu (1),
+.BR wellup (1)

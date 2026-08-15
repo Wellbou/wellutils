@@ -709,7 +709,7 @@ wf_strip_ansi() {
 # Reuse wf_collect: sections become { section, label, value, subs[] } blocks
 # with the same grouping as wf_build_rows (subs = following unlabelled rows).
 wf_json_out() {
-    wu_json_head wellfetch 1.3
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "sections": [\n'
     local first=1 i n=${#WF_LABELS[@]} j s sfirst
     for (( i=0; i<n; i++ )); do

@@ -248,6 +248,19 @@ json_out() {
     turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)
     gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true)
 
+    local base_hint base_freq_khz
+    base_hint=$(awk -F'@' '/^model name/{print $2; exit}' /proc/cpuinfo | tr -d ' ' | sed 's/^\([0-9.]*\)GHz/\1 GHz/')
+    base_freq_khz=""
+    if [[ -n "$base_hint" && "$base_hint" =~ [0-9] ]]; then
+        base_freq_khz=$(awk -v b="$base_hint" 'BEGIN{ g=b+0; if (g>0) printf "%.0f", g*1000000 }')
+    fi
+
+    local c_l1d="" c_l1i="" c_l2="" c_l3=""
+    c_l1d=$(awk -F': *' '/^L1d cache/{print $2}' <<< "$lscpu_out" | head -1)
+    c_l1i=$(awk -F': *' '/^L1i cache/{print $2}' <<< "$lscpu_out" | head -1)
+    c_l2=$(awk -F': *' '/^L2 cache/{print $2}' <<< "$lscpu_out" | head -1)
+    c_l3=$(awk -F': *' '/^L3 cache/{print $2}' <<< "$lscpu_out" | head -1)
+
     local flags
     flags=$(grep -m1 '^flags' /proc/cpuinfo 2>/dev/null || true)
 
@@ -268,15 +281,18 @@ json_out() {
 
     core_loads
 
-    wu_json_head wellcpu 1.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "info": {\n'
     printf '    "model": "%s",\n' "$(json_esc "$model")"
     printf '    "arch": "%s",\n' "$(json_esc "$arch")"
-    printf '    "sockets": "%s",\n' "$(json_esc "$sockets")"
-    printf '    "cores": "%s",\n' "$(json_esc "$cores")"
-    printf '    "threads": "%s",\n' "$(json_esc "$threads")"
-    printf '    "max_freq_khz": "%s",\n' "$(json_esc "$turbo_hint")"
+    printf '    "sockets": %s,\n' "$(wu_json_num "$sockets")"
+    printf '    "cores": %s,\n' "$(wu_json_num "$cores")"
+    printf '    "threads": %s,\n' "$(wu_json_num "$threads")"
+    printf '    "max_freq_khz": %s,\n' "$(wu_json_num "$turbo_hint")"
+    printf '    "base_freq_khz": %s,\n' "$(wu_json_num "$base_freq_khz")"
     printf '    "governor": "%s",\n' "$(json_esc "$gov")"
+    printf '    "caches": { "l1d": "%s", "l1i": "%s", "l2": "%s", "l3": "%s" },\n' \
+        "$(json_esc "$c_l1d")" "$(json_esc "$c_l1i")" "$(json_esc "$c_l2")" "$(json_esc "$c_l3")"
     printf '    "features": ['
     local first=1
     for f in "${feats[@]}"; do
@@ -296,8 +312,8 @@ json_out() {
         freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
         gov_c=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
         (( first )) && first=0 || printf ',\n'
-        printf '    { "cpu": %d, "usage_percent": %d, "freq_khz": "%s", "governor": "%s" }' \
-            "$i" "$pct" "$(json_esc "$freq")" "$(json_esc "$gov_c")"
+        printf '    { "cpu": %d, "usage_percent": %d, "freq_khz": %s, "governor": "%s" }' \
+            "$i" "$pct" "$(wu_json_num "$freq")" "$(json_esc "$gov_c")"
     done
     printf '\n  ]\n'
     wu_json_end

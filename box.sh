@@ -179,9 +179,20 @@ box_header() {
         printf '\n  %s%s %s — %s%s\n\n' "$icon" "${BOLD}${W}" "$word" "$title" "${RESET}"
         return 0
     fi
-    local inner
-    inner=$(( $(vislen "$icon") + $(vislen "$word") + $(vislen "$title") + 6 ))
-    (( inner > ${COLUMNS:-100} - 6 )) && inner=$(( ${COLUMNS:-100} - 6 ))
+    local inner maxw iconw wordw titlew tmax
+    # Middle row spans icon + "  " + word + " — " + title + "  " between the
+    # two ║ = width+9; border rows span "═" + fill + "═" between corners, so
+    # fill must be width+7 (width = iconw+wordw+titlew) to match exactly.
+    maxw=$(( ${COLUMNS:-100} - 6 ))
+    (( maxw < 8 )) && maxw=8
+    iconw=$(vislen "$icon"); wordw=$(vislen "$word"); titlew=$(vislen "$title")
+    if (( iconw + wordw + titlew + 7 > maxw )); then
+        tmax=$(( maxw - iconw - wordw - 7 ))
+        (( tmax < 3 )) && tmax=3
+        title=$(wucap "$title" "$tmax")
+        titlew=$(vislen "$title")
+    fi
+    inner=$(( iconw + wordw + titlew + 7 ))
     local line
     printf -v line '%*s' "$inner" ''
     line=${line// /═}

@@ -26,7 +26,7 @@
 
 ## What it is
 
-Eleven single-file tools that report on what your machine is doing:
+Twelve single-file tools that report on what your machine is doing:
 USB and PCI devices, block storage, memory, CPU topology, graphics,
 kernel modules, temperatures, and peripherals. Every tool shares the
 same CLI — same flags, same exit codes, same box-drawing output. A

@@ -69,7 +69,7 @@ wu_parse() {
         case "$1" in
             -h|--help) wu_usage; exit 0 ;;
             -V|--version) printf '%s %s\n' "$_WU_NAME" "$_WU_VERSION"; exit 0 ;;
-            --lang)
+            -l|--lang)
                 [[ $# -ge 2 ]] || { printf '%s: --lang needs ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2; }
                 _WU_LANG_ARG="$2"; shift 2 ;;
             --lang=*) _WU_LANG_ARG="${1#*=}"; shift ;;
@@ -205,9 +205,9 @@ done
 unset _cp _b1 _b2 _b3 _oc _wi
 _wu_pad_r() {
     # right-pad to N display columns; bash %-Ns pads by *bytes*, so labels
-    # with multibyte text (Cyrillic) never align — count chars instead
+    # with multibyte text (Cyrillic) never align — count display width instead
     local s="$1" n="$2" k
-    k=$(( n - ${#s} ))
+    k=$(( n - $(vislen "$s") ))
     (( k > 0 )) || k=0
     printf '%s%*s' "$s" "$k" ''
 }

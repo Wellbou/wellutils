@@ -190,6 +190,8 @@ acquire_source() {
     echo "==> downloading wellutils source from GitHub..." >&2
     local tmp url ref
     tmp="$(mktemp -d)"
+    _WU_INST_TMP="$tmp"
+    trap '[[ -n "$_WU_INST_TMP" ]] && rm -rf -- "$_WU_INST_TMP"' EXIT
     ref="main"
     if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then :; else
         echo "error: need curl or wget to download the source" >&2

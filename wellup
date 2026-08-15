@@ -47,7 +47,8 @@ up_extra_parse() {
 }
 _WU_EXTRA_PARSE=up_extra_parse
 _WU_EXTRA_HELP="      --check                 only list available updates, do not install
-      --self-update           update wellutils itself from GitHub"
+      --self-update           update wellutils itself from GitHub
+      --self                  alias of --self-update"
 
 # ─── System / package manager detection (os-release first) ─────
 _UP_OS="unknown Linux"
@@ -214,7 +215,7 @@ pm_update() {
 # ─── JSON output (check-only) ──────────────────────────────────
 json_out() {
     local count="${#UP_LINES[@]}" first=1 name from to rest
-    wu_json_head wellup 1.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "package_manager": "%s",\n' "$(json_esc "$_UP_PM")"
     printf '  "os": "%s",\n' "$(json_esc "$_UP_OS")"
     printf '  "updates_available": %d,\n' "$count"
@@ -324,6 +325,8 @@ self_acquire() {
         return 0
     fi
     tmp="$(mktemp -d)"
+    _WU_SELF_TMP="$tmp"
+    trap '[[ -n "$_WU_SELF_TMP" ]] && rm -rf -- "$_WU_SELF_TMP"' EXIT
     url="https://codeload.github.com/$SELF_REPO/tar.gz/refs/heads/main"
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --max-time 60 "$url" -o "$tmp/wellutils.tar.gz"
@@ -399,7 +402,7 @@ self_info_box() {
 
 json_self_out() {
     local status="$1"
-    wu_json_head wellup 1.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "self_update": {\n'
     printf '    "current": "%s",\n' "$(json_esc "${SELF_LOCAL:-}")"
     printf '    "latest": "%s",\n' "$(json_esc "${SELF_REMOTE:-}")"

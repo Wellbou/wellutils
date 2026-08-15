@@ -245,7 +245,7 @@ json_out() {
         [[ "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
     done
 
-    wu_json_head wellusb 2.0
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "summary": { "devices": %d, "hubs": %d },\n' "$dev_count" "$total_hubs"
     printf '  "ids_db_loaded": %s,\n' "$([[ -f $USB_IDS ]] && printf 'true' || printf 'false')"
     printf '  "devices": [\n'
