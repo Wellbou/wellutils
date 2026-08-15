@@ -285,9 +285,11 @@ self_fetch() {
         [[ -f "$url" ]] || return 1
         out="$(cat "$url")"
     elif command -v curl >/dev/null 2>&1; then
-        out="$(curl -fsSL --max-time 20 "$url")" || return 1
+        out="$(curl -fsSL --max-time 20 "$url" 2>/dev/null)" \
+            || out="$(curl -fsSL -H 'Accept: application/vnd.github.raw' --max-time 20 "https://api.github.com/repos/$SELF_REPO/contents/VERSION" 2>/dev/null)" \
+            || out="$(curl -fsSL --max-time 20 "https://api.github.com/repos/$SELF_REPO/contents/VERSION" 2>/dev/null | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | tr -d '[:space:]' | base64 -d 2>/dev/null)"
     elif command -v wget >/dev/null 2>&1; then
-        out="$(wget -qO- --timeout=20 "$url")" || return 1
+        out="$(wget -qO- --timeout=20 "$url")"
     else
         return 1
     fi
