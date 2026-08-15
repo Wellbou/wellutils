@@ -51,6 +51,7 @@ show_help() {
     printf '    %sgpu%s        — %s\n' "$G" "$RESET" "$(t cmd_gpu)"
     printf '    %scpu%s        — %s\n' "$G" "$RESET" "$(t cmd_cpu)"
     printf '    %sfetch%s      — %s\n' "$G" "$RESET" "$(t cmd_fetch)"
+    printf '    %sup%s         — %s\n' "$G" "$RESET" "$(t cmd_up)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
     printf '    %s--plain%s / %s--color auto|always|never%s  %s\n' "$G" "$RESET" "$G" "$RESET" "$(t opt_plain_color)"
@@ -63,6 +64,7 @@ show_help() {
     printf '                wsensors=wellsensors  wtemp=wellsensors  hw=wellhw\n'
     printf '                whw=wellhw  per=wellper  wper=wellper  gpu=wellgpu\n'
     printf '                wgpu=wellgpu  cpu=wellcpu  wcpu=wellcpu  fetch=wellfetch\n'
+    printf '                up=wellup  wup=wellup\n'
     printf '\n'
     printf '  %s%s:%s %s%s%s\n\n' "$DIM" "$(t launcher_current_lang)" "$RESET" "$BOLD" "$WELLUTILS_LANG" "$RESET"
 }
@@ -114,6 +116,7 @@ while [[ $# -gt 0 ]]; do
         gpu|wellgpu|wgpu)          CMD="wellgpu";     shift ;;
         cpu|wellcpu|wcpu)          CMD="wellcpu";     shift ;;
         fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
+        up|wellup|wup)             CMD="wellup";      shift ;;
         *)
             printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"
             show_help

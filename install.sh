@@ -31,10 +31,10 @@ DRY=0
 UNINSTALL=0
 SUDO=""
 
-TOOLS="wellper wellmem wellhw wellusb wellpci wellblock wellcpu wellgpu wellmod wellsensors wellfetch wellutils"
+TOOLS="wellper wellmem wellhw wellusb wellpci wellblock wellcpu wellgpu wellmod wellsensors wellfetch wellup wellutils"
 LIBS="lang.sh box.sh cli.sh jedec.sh wfetch_art.py logo.png"
-MANPAGES="wellper.1 wellutils.1 wellfetch.1 wellhw.1 wellmem.1 wellusb.1 wellblock.1 wellpci.1 wellcpu.1 wellgpu.1 wellmod.1 wellsensors.1"
-ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch"
+MANPAGES="wellper.1 wellutils.1 wellfetch.1 wellhw.1 wellmem.1 wellusb.1 wellblock.1 wellpci.1 wellcpu.1 wellgpu.1 wellmod.1 wellsensors.1 wellup.1"
+ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch wellup=wup"
 
 usage() {
     cat <<EOF

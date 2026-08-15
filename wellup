@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+# WellUp v1.0 — Check for system updates and apply them automatically
+# Supports: pacman (Arch), dnf/yum (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi),
+#           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo)
+# by wellbou_
+set -euo pipefail
+
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
+[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
+source "$_WU_LIB"
+_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+source "$_WU_BOX"
+# ─── CLI (shared cli.sh) ──────────────────────────────────
+_WU_TOOLNAME="wellup" _WU_NAME="WellUp" _WU_VERSION="1.0"
+_WU_TAGLINE="Check for system updates and apply them automatically"
+_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
+[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
+source "$_WU_CLI"
+
+# ─── Flags ─────────────────────────────────────────────────────
+_UP_CHECK=0
+
+up_extra_parse() {
+    case "$1" in
+        --check|--list)
+            _UP_CHECK=1
+            _WU_EXTRA_CONSUMED=1
+            return 0 ;;
+    esac
+    return 1
+}
+_WU_EXTRA_PARSE=up_extra_parse
+_WU_EXTRA_HELP="      --check                 only list available updates, do not install"
+
+# ─── System / package manager detection (os-release first) ─────
+_UP_OS="unknown Linux"
+_UP_PM=""
+detect_pm() {
+    local id="" id_like="" c="" osrelease
+    osrelease="/etc/os-release"
+    [[ -n "${WELLUTILS_OSRELEASE:-}" && -r "$WELLUTILS_OSRELEASE" ]] && osrelease="$WELLUTILS_OSRELEASE"
+    if [[ -r "$osrelease" ]]; then
+        . "$osrelease" 2>/dev/null || true
+        _UP_OS="${PRETTY_NAME:-${NAME:-unknown Linux}}"
+        id="${ID:-}" id_like="${ID_LIKE:-}"
+    fi
+    case "$id" in
+        arch|manjaro|endeavouros|cachyos|artix)        c=pacman ;;
+        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux) c=dnf ;;
+        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan) c=apt-get ;;
+        opensuse*|sles|sled)                            c=zypper ;;
+        alpine)                                         c=apk ;;
+        void)                                           c=xbps-install ;;
+        gentoo|calculate)                               c=emerge ;;
+    esac
+    case " $id_like " in
+        *" arch "*)     c=pacman ;;
+        *" fedora "*|*" rhel "*|*" centos "*) c=dnf ;;
+        *" debian "*|*" ubuntu "*) c=apt-get ;;
+        *" suse "*)     c=zypper ;;
+    esac
+    if [[ -n "$c" ]] && command -v "$c" >/dev/null 2>&1; then
+        _UP_PM="$c"
+        return 0
+    fi
+    for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge; do
+        if command -v "$c" >/dev/null 2>&1; then
+            _UP_PM="$c"
+            return 0
+        fi
+    done
+    _UP_PM=""
+}
+
+# ─── Update detection ──────────────────────────────────────────
+UP_LINES=()   # rows: "name|old|new"
+
+pm_check() {
+    UP_LINES=()
+    local line row
+    case "$_UP_PM" in
+        pacman)
+            local row rest
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                row="${line%% *}"
+                if [[ "$line" == *" -> "* ]]; then
+                    rest="${line#* }"
+                    UP_LINES+=("$row|${rest% -> *}|${rest#* -> }")
+                else
+                    UP_LINES+=("$row||")
+                fi
+            done < <(pacman -Qu 2>/dev/null) ;;
+        dnf|yum)
+            local arr
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                [[ "$line" == *"Obsolet"* ]] && break
+                read -r -a arr <<< "$line"
+                [[ ${#arr[@]} -ge 2 ]] || continue
+                [[ "${arr[1]}" =~ [0-9] ]] || continue
+                UP_LINES+=("${arr[0]}||${arr[1]}")
+            done < <(dnf check-update 2>/dev/null || true) ;;
+        apt-get|apt)
+            local arr nm
+            while IFS= read -r line; do
+                [[ "$line" == *"/"* ]] || continue
+                read -r -a arr <<< "$line"
+                [[ ${#arr[@]} -ge 3 ]] || continue
+                nm="${arr[0]%%/*}"
+                UP_LINES+=("$nm|${arr[1]}|${arr[2]}")
+            done < <(apt list --upgradable 2>/dev/null) ;;
+        zypper)
+            local cols=() idx hdr_name=2 hdr_new=-1 in_hdr=0 nm nw
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                if [[ "$line" == *"Name"* ]]; then
+                    in_hdr=1
+                    IFS='|' read -r -a cols <<< "$line"
+                    for idx in "${!cols[@]}"; do
+                        case "${cols[$idx]// /}" in
+                            Name)    hdr_name=$idx ;;
+                            "New"*|"Current"*) [[ "${cols[$idx]// /}" == "New"* ]] && hdr_new=$idx ;;
+                        esac
+                    done
+                    continue
+                fi
+                [[ $in_hdr -eq 1 ]] || continue
+                IFS='|' read -r -a cols <<< "$line"
+                [[ ${#cols[@]} -lt 2 ]] && continue
+                nm="${cols[$hdr_name]// /}"
+                [[ -n "$nm" ]] || continue
+                nw=""
+                if (( hdr_new >= 0 )); then nw="${cols[$hdr_new]// /}"; fi
+                [[ -n "$nw" ]] || nw="${cols[${#cols[@]}-1]// /}"
+                UP_LINES+=("$nm||$nw")
+            done < <(zypper --no-color list-updates 2>/dev/null || true) ;;
+        apk)
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                UP_LINES+=("$line||")
+            done < <(apk info -u 2>/dev/null) ;;
+        xbps-install)
+            local cols p nm nw i
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                read -r -a cols <<< "$line"
+                p="${cols[0]//[\[\]*]/}"
+                nm="${p%-*}"
+                nw=""
+                for i in "${!cols[@]}"; do
+                    if [[ "${cols[$i]}" == "update:" && -n "${cols[$((i+1))]:-}" ]]; then
+                        nw="${cols[$((i+1))]}"
+                        nw="${nw#${cols[0]%-*}-}"
+                        break
+                    fi
+                done
+                UP_LINES+=("$nm||$nw")
+            done < <(xbps-install -un 2>/dev/null || true) ;;
+        emerge)
+            local t nm ver
+            while IFS= read -r line; do
+                [[ "$line" == "["*"ebuild"* ]] || continue
+                t="${line#*\] }"
+                t="${t%% *}"
+                nm="${t%-*}"
+                ver="${t##*-}"
+                UP_LINES+=("$nm||$ver")
+            done < <(emerge -puDN --color=n @world 2>/dev/null || true) ;;
+    esac
+}
+
+# ─── Root helper ───────────────────────────────────────────────
+run_priv() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        printf '%s\n' "$(t upd_need_root)" >&2
+        return 3
+    fi
+}
+
+pm_update() {
+    case "$_UP_PM" in
+        pacman)        run_priv pacman -Syu --noconfirm ;;
+        dnf|yum)       run_priv dnf upgrade -y ;;
+        apt-get|apt)   run_priv apt-get update -y && run_priv apt-get full-upgrade -y ;;
+        zypper)        run_priv zypper --non-interactive update ;;
+        apk)           run_priv apk update && run_priv apk upgrade ;;
+        xbps-install)  run_priv xbps-install -Su ;;
+        emerge)        run_priv emerge -uDN --with-bdeps=y @world ;;
+    esac
+}
+
+# ─── JSON output (check-only) ──────────────────────────────────
+json_out() {
+    local count="${#UP_LINES[@]}" first=1 name from to rest
+    wu_json_head wellup 1.0
+    printf ',\n  "package_manager": "%s",\n' "$(json_esc "$_UP_PM")"
+    printf '  "os": "%s",\n' "$(json_esc "$_UP_OS")"
+    printf '  "updates_available": %d,\n' "$count"
+    printf '  "updates": [\n'
+    for row in "${UP_LINES[@]}"; do
+        name="${row%%|*}"; rest="${row#*|}"; from="${rest%%|*}"; to="${rest#*|}"
+        (( first )) || printf ',\n'
+        first=0
+        printf '    { "name": "%s", "from": "%s", "to": "%s" }' \
+            "$(json_esc "$name")" "$(json_esc "$from")" "$(json_esc "$to")"
+    done
+    printf '\n  ]\n'
+    wu_json_end
+}
+
+# ─── Display ───────────────────────────────────────────────────
+up_system_box() {
+    _LINES+=("$BOLD$(t upd_pm)$RESET  $C$_UP_PM$RESET")
+    _LINES+=("$BOLD$(t upd_os)$RESET  $W$_UP_OS$RESET")
+    local mode
+    if [[ "$_UP_CHECK" == "1" ]]; then mode="$(t upd_mode_check)"; else mode="$(t upd_mode_update)"; fi
+    _LINES+=("$BOLD$(t upd_mode)$RESET  $W$mode$RESET")
+}
+
+up_list_box() {
+    local row name from to rest
+    for row in "${UP_LINES[@]}"; do
+        name="${row%%|*}"; rest="${row#*|}"; from="${rest%%|*}"; to="${rest#*|}"
+        if [[ -n "$from" && -n "$to" ]]; then
+            _LINES+=("$Y$name$RESET  $DIM$from$RESET -> $G$to$RESET")
+        elif [[ -n "$to" ]]; then
+            _LINES+=("$Y$name$RESET  ->  $G$to$RESET")
+        else
+            _LINES+=("$Y$name$RESET")
+        fi
+    done
+}
+
+confirm_update() {
+    local i
+    printf '  %s' "$(t upd_cancel_hint)"
+    for (( i=3; i>0; i-- )); do
+        printf ' %d' "$i"
+        sleep 1
+    done
+    printf '\n'
+}
+
+main() {
+    detect_pm
+
+    if [[ -z "$_UP_PM" ]]; then
+        printf '%s\n' "$(t upd_no_pm)" >&2
+        exit 3
+    fi
+
+    pm_check
+    local count="${#UP_LINES[@]}"
+
+    if [[ "$_WU_JSON" == "1" ]]; then
+        json_out
+        return 0
+    fi
+
+    box_header "$(_emu '🔄')" "wellup" "$(t upd_title)"
+    box "$(_emu '💻')" "$(t upd_system)" up_system_box
+
+    if (( count > 0 )); then
+        box "$(_emu '📦')" "$(t upd_available): $count" up_list_box
+    else
+        printf '\n  %s%s%s\n' "$G" "$(t upd_no_updates)" "$RESET"
+    fi
+
+    if [[ "$_UP_CHECK" == "1" || $count -eq 0 ]]; then
+        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        return 0
+    fi
+
+    confirm_update
+
+    trap 'printf "\n  %s\n\n" "$(t upd_aborted)"; exit 130' INT
+    printf '  %s\n\n' "$(t upd_applying)"
+    if pm_update; then
+        printf '\n  %s%s%s\n\n' "$G" "$(t upd_done)" "$RESET"
+    else
+        printf '\n  %s%s%s\n\n' "$R" "$(t upd_error)" "$RESET"
+        return 3
+    fi
+    trap - INT
+
+    printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
+wu_run main "$@"

@@ -184,10 +184,11 @@ Every tool has a man page (`man wellper`) and bash completion.
 | `wellmod`     | Loaded kernel modules                                         |
 | `wellsensors` | Temperatures and fans: hwmon, lm_sensors, nvidia-smi          |
 | `wellfetch`   | System fetch with ASCII or PNG logo                           |
+| `wellup`      | Check for system updates and apply them automatically         |
 
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
-`whw`, `wper`, `wfetch`. The launcher accepts them too:
+`whw`, `wper`, `wfetch`, `wup`. The launcher accepts them too:
 `wellutils wram --plain`.
 
 Note: `wellutils sensors` is intentionally not an alias — it would

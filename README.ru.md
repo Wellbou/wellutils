@@ -186,10 +186,11 @@ wblock /dev/sdb
 | `wellmod`     | Загруженные модули ядра                                      |
 | `wellsensors` | Температуры и вентиляторы: hwmon, lm_sensors, nvidia-smi    |
 | `wellfetch`   | Инфо о системе с ASCII- или PNG-логотипом                    |
+| `wellup`      | Проверка и автоматическое обновление системы                 |
 
 Короткие алиасы устанавливаются как команды: `wusb`, `wpci`,
 `wblock`, `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`,
-`wsensors`/`wtemp`, `whw`, `wper`, `wfetch`. Лаунчер принимает и их:
+`wsensors`/`wtemp`, `whw`, `wper`, `wfetch`, `wup`. Лаунчер принимает и их:
 `wellutils wram --plain`.
 
 Замечание: `wellutils sensors` намеренно не является алиасом — он

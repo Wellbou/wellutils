@@ -1,0 +1,74 @@
+.TH WELLUP 1 "August 2026" "wellup 1.0" "wellutils"
+.SH NAME
+WellUp \- checks for available system updates and applies them automatically
+.SH SYNOPSIS
+.B wellup
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B wellup
+.PP
+Detects the system's package manager from
+.BR /etc/os-release
+and lists the available package updates, then applies them automatically.
+By default the update is started after a short countdown so it can be
+interrupted with Ctrl+C.  Supported package managers: pacman (Arch),
+dnf (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi), zypper (openSUSE),
+apk (Alpine), xbps (Void) and emerge (Gentoo).
+.PP
+When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BI \-\-lang " ru|en|auto"
+Force report language (default \fBauto\fR).
+.TP
+.BI \-\-color " always|never|auto"
+Force, disable, or auto-detect ANSI colour.
+.TP
+.B \-\-plain
+Plain text output without box drawing.
+.TP
+.B \-\-box
+Force box drawing even when piped.
+.TP
+.B \-\-no-emoji
+Disable emoji icons.
+.TP
+.B \-\-json
+Machine-readable JSON on stdout; errors still go to stderr.  JSON mode
+never installs anything; it only reports the available updates.
+.TP
+.BR \-\-check ", " \-\-list
+Only list the available updates; do not install them.
+.TP
+.B \-\-debug
+Enable verbose tracing.
+.SH EXIT STATUS
+.TP
+.B 0
+Success (including \fB\-\-check\fR and \fB\-\-json\fR).
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Unexpected runtime error (no supported package manager, or the update failed).
+.TP
+.B 130
+Interrupted during the update countdown.
+.SH ENVIRONMENT
+.TP
+.B WELLUTILS_LANG
+\fBru\fR or \fBen\fR; overrides locale detection.
+.TP
+.B NO_COLOR
+Disables colour in auto mode.
+.SH AUTHOR
+wellbou_
+.SH SEE ALSO
+.BR wellutils (1)

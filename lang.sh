@@ -296,8 +296,25 @@ _t_EN() {
         cmd_gpu)            printf '%s' "GPU overview (adapters, driver, live stats)" ;;
         cmd_cpu)            printf '%s' "CPU overview (topology, load, frequencies)" ;;
         cmd_fetch)          printf '%s' "System fetch (ASCII/PNG logo)" ;;
+        cmd_up)             printf '%s' "Check for updates and apply them automatically" ;;
         opt_plain_color)    printf '%s' "plain text / color mode (wellfetch, wellper)" ;;
         opt_more)           printf '%s' "all sections / full report / no logo (wellfetch)" ;;
+        upd_title)          printf '%s' "System Updater" ;;
+        upd_system)         printf '%s' "System" ;;
+        upd_available)      printf '%s' "Available updates" ;;
+        upd_no_updates)     printf '%s' "No updates available" ;;
+        upd_pm)             printf '%s' "Package manager" ;;
+        upd_os)             printf '%s' "OS" ;;
+        upd_mode)           printf '%s' "Mode" ;;
+        upd_mode_check)     printf '%s' "check only" ;;
+        upd_mode_update)    printf '%s' "check + update" ;;
+        upd_cancel_hint)    printf '%s' "Applying updates in" ;;
+        upd_aborted)        printf '%s' "Cancelled." ;;
+        upd_applying)       printf '%s' "Updating system, please wait..." ;;
+        upd_done)           printf '%s' "System updated." ;;
+        upd_error)          printf '%s' "Update failed (see output above)." ;;
+        upd_no_pm)          printf '%s' "No supported package manager found." ;;
+        upd_need_root)      printf '%s' "Root access required to update." ;;
     esac
 }
 
@@ -576,8 +593,25 @@ _t_RU() {
         cmd_gpu)            printf '%s' "Видеоадаптеры (драйвер, статистика)" ;;
         cmd_cpu)            printf '%s' "Процессор (топология, нагрузка)" ;;
         cmd_fetch)          printf '%s' "Инфо о системе (ASCII/PNG лого)" ;;
+        cmd_up)             printf '%s' "Проверить и применить обновления автоматически" ;;
         opt_plain_color)    printf '%s' "обычный текст / цвет (есть в wellfetch, wellper)" ;;
         opt_more)           printf '%s' "все секции / полный отчёт / без лого (wellfetch)" ;;
+        upd_title)          printf '%s' "Обновление системы" ;;
+        upd_system)         printf '%s' "Система" ;;
+        upd_available)      printf '%s' "Доступные обновления" ;;
+        upd_no_updates)     printf '%s' "Обновлений нет" ;;
+        upd_pm)             printf '%s' "Пакетный менеджер" ;;
+        upd_os)             printf '%s' "ОС" ;;
+        upd_mode)           printf '%s' "Режим" ;;
+        upd_mode_check)     printf '%s' "только проверка" ;;
+        upd_mode_update)    printf '%s' "проверка + обновление" ;;
+        upd_cancel_hint)    printf '%s' "Обновление через" ;;
+        upd_aborted)        printf '%s' "Отменено." ;;
+        upd_applying)       printf '%s' "Обновляю систему, подождите..." ;;
+        upd_done)           printf '%s' "Система обновлена." ;;
+        upd_error)          printf '%s' "Ошибка обновления (вывод выше)." ;;
+        upd_no_pm)          printf '%s' "Не найден поддерживаемый пакетный менеджер." ;;
+        upd_need_root)      printf '%s' "Для обновления нужны права root." ;;
     esac
 }
 
