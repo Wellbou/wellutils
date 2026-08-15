@@ -7,7 +7,10 @@
 # One-line install:
 #   curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
 #
-# Or run from a checkout of the repo (installs the local files).
+# Or run from a checkout of the repo (installs the local files):
+#   ./install.sh
+# When invoked via `curl ... | bash` it always fetches the current
+# sources from GitHub instead of reusing whatever is in the CWD.
 set -euo pipefail
 
 REPO="Wellbou/wellutils"
@@ -51,6 +54,8 @@ Options:
 Environment:
   WELLUTILS_PREFIX    same as --prefix
   WELLUTILS_COMPDIR   bash-completion directory override
+  WELLUTILS_LOCAL=1   force using a local checkout (default: only when
+                      run interactively as ./install.sh)
   WELLUTILS_RAW       raw.githubusercontent.com base URL override
   WELLUTILS_API       api.github.com base URL override
 EOF
@@ -90,8 +95,33 @@ run() {
 }
 
 # ─── package manager detection ────────────────────────────────
+# ─── package manager detection (os-release first, PATH as fallback) ──
 detect_pm() {
-    local c
+    local id="" id_like="" c="" osrelease
+    osrelease="${WELLUTILS_OSRELEASE:-/etc/os-release}"
+    if [[ -r "$osrelease" ]]; then
+        . "$osrelease" 2>/dev/null || true
+        id="${ID:-}" id_like="${ID_LIKE:-}"
+    fi
+    case "$id" in
+        arch|manjaro|endeavouros|cachyos|artix)        c=pacman ;;
+        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux) c=dnf ;;
+        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan) c=apt-get ;;
+        opensuse*|sles|sled)                            c=zypper ;;
+        alpine)                                         c=apk ;;
+        void)                                           c=xbps-install ;;
+        gentoo|calculate)                               c=emerge ;;
+    esac
+    case " $id_like " in
+        *" arch "*)     c=pacman ;;
+        *" fedora "*|*" rhel "*|*" centos "*) c=dnf ;;
+        *" debian "*|*" ubuntu "*) c=apt-get ;;
+        *" suse "*)     c=zypper ;;
+    esac
+    if [[ -n "$c" ]] && command -v "$c" >/dev/null 2>&1; then
+        echo "$c"
+        return 0
+    fi
     for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge; do
         if command -v "$c" >/dev/null 2>&1; then
             echo "$c"
@@ -142,7 +172,16 @@ deps_for() {
 acquire_source() {
     local here
     here="$(cd -- "$(dirname -- "$0")" && pwd 2>/dev/null || pwd)"
-    if [[ -f "$here/wellmem" && -f "$here/lang.sh" && -f "$here/wellutils" ]]; then
+    # Local checkout is used only when running the script directly (or with
+    # WELLUTILS_LOCAL=1). A `curl ... | bash` pipe always downloads the
+    # current sources — otherwise a stale clone would shadow the fresh
+    # installer and mix versions.
+    if [[ "${WELLUTILS_LOCAL:-0}" == "1" || -t 0 ]] \
+       && [[ -f "$here/wellmem" && -f "$here/lang.sh" && -f "$here/wellutils" ]]; then
+        if ! grep -q -- '--json' "$here/cli.sh" 2>/dev/null || ! grep -q 'json_out' "$here/wellmem" 2>/dev/null; then
+            echo "warning: local checkout looks outdated (no --json support)." >&2
+            echo "         Run 'git pull', or just use the GitHub one-liner." >&2
+        fi
         echo "==> using local checkout: $here" >&2
         echo "$here"
         return 0
