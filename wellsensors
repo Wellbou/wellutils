@@ -360,7 +360,7 @@ print_disks() {
         [[ -b "$dev" ]] || continue
         local temp=""
         if command -v smartctl &>/dev/null; then
-            temp=$(smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius/ {print $10; exit}') || true
+            temp=$(smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
         fi
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
@@ -707,7 +707,7 @@ json_out() {
         [[ -b "$dev" ]] || continue
         temp=""
         if command -v smartctl &>/dev/null; then
-            temp=$(root_or_sudo smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius/ {print $10; exit}') || true
+            temp=$(root_or_sudo smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
         fi
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
