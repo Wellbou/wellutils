@@ -78,6 +78,16 @@ disk_model() {
     if [[ -z "$model" && -e "$name_file" ]]; then
         model=$(cat "$name_file" 2>/dev/null | xargs) || model=""
     fi
+    # USB-SATA adapters often split SCSI INQUIRY across vendor/model
+    # fields, producing a truncated sysfs model (e.g. "8CS" for
+    # "ST9320328CS"). Fall back to smartctl when the name is too short.
+    if [[ ${#model} -lt 5 && -b "/dev/$(basename "$dev")" ]] && command -v smartctl &>/dev/null; then
+        local full
+        full=$(root_run smartctl -i "/dev/$(basename "$dev")" 2>/dev/null \
+               | awk -F': ' '/^Device Model:/{print $2; exit}') || true
+        full=$(printf '%s' "$full" | xargs)
+        [[ ${#full} -gt ${#model} ]] && model="$full"
+    fi
     printf '%s' "${model:-$(t hw_unknown)}"
 }
 
@@ -272,6 +282,12 @@ detail_info() {
 
     serial=""
     [[ -e "$dev/device/serial" ]] && serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || true
+    # USB-SATA adapters often omit the sysfs serial; fall back to smartctl.
+    if [[ -z "$serial" ]] && command -v smartctl &>/dev/null; then
+        serial=$(root_run smartctl -i "/dev/$bn" 2>/dev/null \
+                 | awk -F': ' '/^Serial Number:/{print $2; exit}') || true
+        serial=$(printf '%s' "$serial" | xargs)
+    fi
     fwrev=""
     [[ -e "$dev/device/fwrev" ]] && fwrev=$(cat "$dev/device/fwrev" 2>/dev/null | xargs) || true
     [[ -e "$dev/device/firmware_rev" ]] && fwrev=$(cat "$dev/device/firmware_rev" 2>/dev/null | xargs) || true
@@ -370,6 +386,10 @@ json_out() {
         if command -v smartctl &>/dev/null; then
             local sout sattrs srisk=0 s_overall
             sout=$(root_run smartctl -a "/dev/$bn" 2>/dev/null) || true
+            # USB-SATA adapters often omit the sysfs serial; pull from smartctl.
+            if [[ -z "$serial" && -n "$sout" ]]; then
+                serial=$(awk -F': ' '/^Serial Number:/{print $2; exit}' <<< "$sout" | xargs)
+            fi
             if [[ -n "$sout" ]] && { grep -q 'SMART overall-health' <<< "$sout" || grep -q 'SMART Health Information' <<< "$sout"; }; then
                 smart_avail=1
                 s_overall=$(awk '/^SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$sout")

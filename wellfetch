@@ -343,36 +343,27 @@ wfv_disks() {
     done < <(lsblk -dno NAME,TYPE,SIZE,MODEL 2>/dev/null)
 }
 
-# xrandr is slow (~60ms); run it once per invocation into a global.
-_WF_XRANDR=""
-wf_xrandr_fill() {
-    if [[ -z "$_WF_XRANDR" ]]; then
-        _WF_XRANDR=$(xrandr --query 2>/dev/null)
-    fi
-}
-
 wfv_monitors() {
     local -a outs modes
-    if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-        wf_xrandr_fill
-        local line out geo
-        while IFS= read -r line; do
-            [[ "$line" == *" connected"* ]] || continue
-            out=$(awk '{print $1}' <<< "$line")
-            geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
-            geo=${geo%%+*}
-            outs+=("$out"); modes+=("${geo:-?}")
-        done <<< "$_WF_XRANDR"
-    fi
+    local d conn mode
+    for d in /sys/class/drm/card*-*-*/; do
+        [[ -f "$d/status" ]] || continue
+        [[ "$(cat "$d/status" 2>/dev/null)" == "connected" ]] || continue
+        conn=$(basename "$d")
+        mode=$(head -1 "$d/modes" 2>/dev/null)
+        outs+=("$conn"); modes+=("${mode:-?}")
+    done
     if (( ${#outs[@]} == 0 )); then
-        local d conn mode
-        for d in /sys/class/drm/card*/card*-*/; do
-            [[ -f "$d/status" ]] || continue
-            [[ "$(cat "$d/status" 2>/dev/null)" == "connected" ]] || continue
-            conn=$(basename "$d")
-            mode=$(head -1 "$d/modes" 2>/dev/null)
-            outs+=("$conn"); modes+=("${mode:-?}")
-        done
+        local line out geo
+        if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+            while IFS= read -r line; do
+                [[ "$line" == *" connected"* ]] || continue
+                out=$(awk '{print $1}' <<< "$line")
+                geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
+                geo=${geo%%+*}
+                outs+=("$out"); modes+=("${geo:-?}")
+            done < <(xrandr --query 2>/dev/null || true)
+        fi
     fi
     local n=${#outs[@]}
     if (( n == 0 )); then
@@ -387,13 +378,17 @@ wfv_monitors() {
 
 wfv_resolution() {
     local r
-    if command -v xrandr >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-        wf_xrandr_fill
-        r=$(awk '/ connected primary/{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) {print $i; exit}}' <<< "$_WF_XRANDR")
-        [[ -z "$r" ]] && r=$(awk '/\*/{print $1; exit}' <<< "$_WF_XRANDR")
-        r=${r%%+*}; r=${r%%\*}
+    for d in /sys/class/drm/card*-primary-*; do
+        [[ -f "$d/modes" ]] || continue
+        r=$(head -1 "$d/modes" 2>/dev/null)
         if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
-    fi
+    done
+    for d in /sys/class/drm/card*-HDMI-* /sys/class/drm/card*-DVI-* /sys/class/drm/card*-DP-*; do
+        [[ -f "$d/status" ]] || continue
+        [[ "$(cat "$d/status" 2>/dev/null)" == "connected" ]] || continue
+        r=$(head -1 "$d/modes" 2>/dev/null)
+        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
+    done
     if command -v wlr-randr >/dev/null 2>&1; then
         r=$(wlr-randr 2>/dev/null | awk '/current/{print $1; exit}')
         if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi

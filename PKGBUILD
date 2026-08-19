@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=13
+pkgrel=15
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -70,15 +70,15 @@ source=(
 sha256sums=('276385556ea97ecb0a056ad6ad8b99c2932ce3f7a034df915f82d96bd31007be'
             '1217c6cccbd0a2a482a9747aee0ea5891b8f19b63fd20778ba8c3d0cd3d2f05f'
             '59f06f543ab1f35c61695116d21b75c8d604787b7bc47b6552f5f624aaf36d81'
-            '4d8a636cb8de331d1e8454b3345a0d03f8c2d3326adb4b55014948d80fbff94c'
+            '5280cc2b900a4fd4cbc066000791c7daf5fd75597b0c994ee663daa9ac74fe6a'
             '6c48ee4f9f577eef8c15e6995e0c99e50cb9f0f6dda52f4429e18fea38037690'
             '946b355bcbfeaa7f84c07549efe793416e8823dccecd9d3ca7cd5749b1acc4ce'
-            '14446a91ada3196eb7e759e95b88a48ac35355b1476675f7022f91ff06ed2931'
+            '17f51bc252c9466ae4237849ea8a2d3178139a378819eefeb348d246b9c95a13'
             'fcec3e616858d5fea4ccd71e793f9de60aad3a12d78c755bfda1b2d4afd5c59d'
             '36b4d9e769a1d012903b438ba37b2295fc46aca1823f50309e0982e727b8b303'
             'b4e63403d0a22a40052672095602d643ed1812e954319a706739b6a17ba1b0ec'
             'a4687c55856d17ed4e36ed2fd7f7f5b98d113ac8560f743561b8e75b9254f080'
-            '6ae395cb3512ae0ecce1236198cf60413b0dc97fc55a590f8303f8ab2a0b7e50'
+            '6c965679ca81ee45deb8e29c1e70f0fa0958ee4c036eebb1d3ade6277344b120'
             'eb45397075d4eb79699106893b1e32111de242fc9f2fcf4938569aaee233d65d'
             '5176470f4267f6a073681a45e2d2589ee26ba8a893babf9993a4aceb0c1a223a'
             'bf20a945b15db16a5f2069c6e7a5402c24c5d7655cbe6f6482a8c8ad16ab10a7'
@@ -86,7 +86,7 @@ sha256sums=('276385556ea97ecb0a056ad6ad8b99c2932ce3f7a034df915f82d96bd31007be'
             '96bb91c3d311fa84534022784ce080dd1a1e5c7e28c6504227c0b9201e14562e'
             '408bca678af56ddb9f56aed9c9cb213f82608a781c27eb5adb91aca7cb731c35'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'
-            'efcead0775c55462806479d20e58e9faca34f76d859b2e990f859e2152b3e57e'
+            '198da766cc327958ac59d9ed46883c80ecb066186d4a9e22851b8dc60d719502'
             '257e2402b4c68c31f18512845f8e030beaf715e1047d2477fc0abe241e5a605b'
             'f82235c4333a2a881b8151ef82180f2c8ba6001cbdcfd7bd812fa28db1df878e'
             '22726538a1aff9e16c89e397d7f3d2d1c01de4c0f189d7ad78286d2720e46d5c'

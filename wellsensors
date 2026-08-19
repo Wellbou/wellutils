@@ -311,33 +311,49 @@ print_network_temp() {
     fi
 }
 
+# Read disk model; fall back to smartctl when sysfs is truncated
+# (USB-SATA adapters split SCSI INQUIRY, e.g. "8CS" for "ST9320328CS").
+ws_disk_model() {
+    local dev="$1" bn model
+    bn=$(basename "$dev")
+    model=""
+    [[ -f "/sys/block/${bn}/device/model" ]] && model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null | xargs)
+    if [[ ${#model} -lt 5 ]] && command -v smartctl &>/dev/null; then
+        local full
+        full=$(ws_smartctl_run -i "$dev" 2>/dev/null | awk -F': ' '/^Device Model:/{print $2; exit}') || true
+        full=$(printf '%s' "$full" | xargs)
+        [[ ${#full} -gt ${#model} ]] && model="$full"
+    fi
+    printf '%s' "${model:-Unknown}"
+}
+
+ws_smartctl_run() {
+    if (( EUID == 0 )); then
+        smartctl "$@"
+    elif sudo -n true 2>/dev/null; then
+        sudo -n smartctl "$@"
+    else
+        smartctl "$@"
+    fi
+}
+
+ws_nvme_run() {
+    if (( EUID == 0 )); then
+        nvme "$@"
+    elif sudo -n true 2>/dev/null; then
+        sudo -n nvme "$@"
+    else
+        nvme "$@"
+    fi
+}
+
 print_disks() {
     local found=0
-
-    smartctl_run() {
-        if (( EUID == 0 )); then
-            smartctl "$@"
-        elif sudo -n true 2>/dev/null; then
-            sudo -n smartctl "$@"
-        else
-            smartctl "$@"
-        fi
-    }
-
-    nvme_run() {
-        if (( EUID == 0 )); then
-            nvme "$@"
-        elif sudo -n true 2>/dev/null; then
-            sudo -n nvme "$@"
-        else
-            nvme "$@"
-        fi
-    }
 
     for dev in /dev/nvme*n*; do
         [[ -b "$dev" ]] || continue
         local temp
-        temp=$(nvme_run smart-log "$dev" 2>/dev/null | awk '
+        temp=$(ws_nvme_run smart-log "$dev" 2>/dev/null | awk '
             /[Tt]emperature/ {
                 split($0, a, ":")
                 for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
@@ -349,9 +365,8 @@ print_disks() {
         color=$(temp_color "$temp")
         emoji=$(temp_emoji "$temp")
         bar=$(temp_bar "$temp" 60)
-        local bn model
-        bn=$(basename "$dev")
-        model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null || echo "$dev" | sed 's|/dev/||')
+        local model
+        model=$(ws_disk_model "$dev")
         tline "$emoji" "$model" "$temp" "$bar"
         found=1
     done
@@ -360,16 +375,14 @@ print_disks() {
         [[ -b "$dev" ]] || continue
         local temp=""
         if command -v smartctl &>/dev/null; then
-            temp=$(smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
+            temp=$(ws_smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
         fi
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
         fi
         [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
 
-        local model_file="/sys/block/$(basename "$dev")/device/model"
-        local model="Unknown"
-        [[ -f "$model_file" ]] && model=$(cat "$model_file")
+        model=$(ws_disk_model "$dev")
 
         local color emoji bar
         color=$(temp_color "$temp")
@@ -689,7 +702,7 @@ json_out() {
     first=1
     for dev in /dev/nvme*n*; do
         [[ -b "$dev" ]] || continue
-        temp=$(root_or_sudo nvme smart-log "$dev" 2>/dev/null | awk '
+        temp=$(ws_nvme_run smart-log "$dev" 2>/dev/null | awk '
             /[Tt]emperature/ {
                 split($0, a, ":")
                 for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
@@ -697,8 +710,7 @@ json_out() {
                 }
             }') || continue
         (( temp > 150 )) && continue
-        bn=$(basename "$dev")
-        model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null || echo "$dev" | sed 's|/dev/||')
+        model=$(ws_disk_model "$dev")
         (( first )) && first=0 || printf ',\n'
         printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "nvme" }' \
             "$(json_esc "$dev")" "$(json_esc "$model")" "$temp"
@@ -707,14 +719,13 @@ json_out() {
         [[ -b "$dev" ]] || continue
         temp=""
         if command -v smartctl &>/dev/null; then
-            temp=$(root_or_sudo smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
+            temp=$(ws_smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
         fi
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
         fi
         [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
-        model2="Unknown"
-        [[ -f "/sys/block/$(basename "$dev")/device/model" ]] && model2=$(cat "/sys/block/$(basename "$dev")/device/model")
+        model2=$(ws_disk_model "$dev")
         (( first )) && first=0 || printf ',\n'
         printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "sata" }' \
             "$(json_esc "$dev")" "$(json_esc "$model2")" "$temp"
