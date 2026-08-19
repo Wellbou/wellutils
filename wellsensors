@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WellSensors v1.3 — Beautiful system temperature monitor
+# WellSensors v1.3 -- Beautiful system temperature monitor
 # by wellbou_
 set -euo pipefail
 
@@ -77,7 +77,6 @@ temp_color() {
 
 temp_bar() {
     local t=$1 max=${2:-100}
-    local bars=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
     local idx=$(( t * 8 / max ))
     (( idx > 7 )) && idx=7
     (( idx < 0 )) && idx=0
@@ -85,7 +84,7 @@ temp_bar() {
     color=$(temp_color "$t")
     printf '%s' "$color"
     for (( i=0; i<=idx; i++ )); do
-        printf '%s' "${bars[$i]}"
+        wu_scale "$i"
     done
     printf '%s' "$RESET"
 }
@@ -104,7 +103,7 @@ temp_emoji() {
 # thermistor) or the classic 127 C "open circuit" marker.
 valid_temp() {
     local input_file="$1" temp="$2"
-    (( temp <= 0 || temp >= 125 )) && return 1
+    (( temp <= 0 || temp >= 150 )) && return 1
     local idx
     idx=$(basename "$input_file" | tr -cd '0-9')
     local base="${input_file%_input}"
@@ -167,46 +166,150 @@ print_cpu() {
         emoji=$(temp_emoji "$temp")
         bar=$(temp_bar "$temp" 100)
         [[ "$high" != "-" ]] && suffix="  hi:${high}° crit:${crit}°"
+        # Thermal throttle alert
+        if [[ "$crit" != "-" ]] && (( temp >= crit )); then
+            suffix+="  ${R}$(t sens_crit_throttle)${RESET}"
+        elif [[ "$high" != "-" ]] && (( temp >= high )); then
+            suffix+="  ${Y}$(t sens_high_throttle)${RESET}"
+        fi
 
         tline "$emoji" "$label" "$temp" "$bar" "$suffix"
     done
 }
 
 print_gpu() {
-    if ! command -v nvidia-smi &>/dev/null; then
-        pline "${DIM}$(t gpu_nvidia_none)${RESET}"
-        return
+    local found_gpu=0
+
+    # ── NVIDIA via nvidia-smi ──────────────────────────────────
+    if command -v nvidia-smi &>/dev/null; then
+        local gpu_info
+        gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || true
+        # resolve AIB partner name from sysfs subsystem_vendor
+        local _aib_name="" _nv_idx=0
+        while IFS=',' read -r name temp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
+            name=$(echo "$name" | xargs)
+            # prepend AIB partner on first match
+            if [[ -z "$_aib_name" ]]; then
+                local _nv_bus
+                for _nv_bus in /sys/bus/pci/devices/*/; do
+                    [[ "$(cat "${_nv_bus}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+                    _aib_name=$(gpu_aib_vendor "$(basename "$_nv_bus" | sed 's/0000://')")
+                    break
+                done
+                [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
+            fi
+            temp=$(echo "$temp" | xargs)
+            fan=$(echo "$fan" | xargs)
+            power=$(echo "$power" | xargs)
+            [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
+            local power_str="N/A"
+            [[ "$power" != "N/A" ]] && power_str="${power}W"
+            clk_gpu=$(echo "$clk_gpu" | xargs)
+            clk_mem=$(echo "$clk_mem" | xargs)
+            vram_total=$(echo "$vram_total" | xargs)
+            vram_used=$(echo "$vram_used" | xargs)
+            gpu_util=$(echo "$gpu_util" | xargs)
+
+            local color emoji bar
+            color=$(temp_color "$temp")
+            emoji=$(temp_emoji "$temp")
+            bar=$(temp_bar "$temp" 100)
+
+            tline "$emoji" "$name" "$temp" "$bar"
+            _LINES+=( "  ${DIM}  ├── Fan: ${fan}%  |  Power: ${power_str}  |  GPU: ${clk_gpu} MHz${RESET}" )
+            _LINES+=( "  ${DIM}  ├── VRAM: ${vram_used} / ${vram_total} MiB  |  Util: ${gpu_util}%  |  Mem: ${clk_mem} MHz${RESET}" )
+            found_gpu=1
+        done <<< "$gpu_info"
     fi
 
-    local gpu_info
-    gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || {
-        pline "${DIM}$(t sens_no_gpu)${RESET}"
-        return
-    }
+    # ── AMD GPU via hwmon (amdgpu driver) ──────────────────────
+    for d in /sys/class/hwmon/hwmon*/name; do
+        local hwname
+        hwname=$(cat "$d" 2>/dev/null)
+        [[ "$hwname" == "amdgpu" ]] || continue
+        local hdir
+        hdir=$(dirname "$d")
+        local tfile="$hdir/temp1_input"
+        [[ -f "$tfile" ]] || continue
+        local temp_raw
+        temp_raw=$(cat "$tfile" 2>/dev/null) || continue
+        local temp=$(( temp_raw / 1000 ))
+        (( temp > 0 && temp < 125 )) || continue
 
-    while IFS=',' read -r name temp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
-        name=$(echo "$name" | xargs)
-        temp=$(echo "$temp" | xargs)
-        fan=$(echo "$fan" | xargs)
-        power=$(echo "$power" | xargs)
-        [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
-        local power_str="N/A"
-        [[ "$power" != "N/A" ]] && power_str="${power}W"
-        clk_gpu=$(echo "$clk_gpu" | xargs)
-        clk_mem=$(echo "$clk_mem" | xargs)
-        vram_total=$(echo "$vram_total" | xargs)
-        vram_used=$(echo "$vram_used" | xargs)
-        gpu_util=$(echo "$gpu_util" | xargs)
+        local gpu_name="AMD GPU"
+        # try to read card model from sysfs
+        local card_dir
+        for card_dir in /sys/class/drm/card*/device/vendor; do
+            [[ -f "$card_dir" ]] || continue
+            local vendor
+            vendor=$(cat "$card_dir" 2>/dev/null)
+            [[ "$vendor" == "0x1002" ]] || continue
+            local devdir
+            devdir=$(dirname "$card_dir")
+            # resolve AIB partner name
+            local _amd_aib=""
+            _amd_aib=$(gpu_aib_vendor "$(basename "$(readlink -f "$devdir")" | sed 's/.*\///;s/0000://')")
+            if [[ -f "$devdir/uevent" ]]; then
+                local model_line
+                model_line=$(grep "^PCI_ID=" "$devdir/uevent" 2>/dev/null | head -1)
+                [[ -n "$model_line" ]] && gpu_name="AMD GPU (${model_line#*=})"
+            fi
+            [[ -n "$_amd_aib" ]] && gpu_name="AMD GPU ($_amd_aib) -- ${gpu_name#AMD GPU }"
+            break
+        done
 
-        local color emoji bar
-        color=$(temp_color "$temp")
+        local emoji bar
         emoji=$(temp_emoji "$temp")
         bar=$(temp_bar "$temp" 100)
+        tline "$emoji" "$gpu_name" "$temp" "$bar"
 
-        tline "$emoji" "$name" "$temp" "$bar"
-        _LINES+=( "  ${DIM}  ├── Fan: ${fan}%  |  Power: ${power_str}  |  GPU: ${clk_gpu} MHz${RESET}" )
-        _LINES+=( "  ${DIM}  ├── VRAM: ${vram_used} / ${vram_total} MiB  |  Util: ${gpu_util}%  |  Mem: ${clk_mem} MHz${RESET}" )
-    done <<< "$gpu_info"
+        # GPU frequency if available
+        local freq_file="$hdir/pp_dpm_sclk"
+        if [[ -f "$freq_file" ]]; then
+            local freq_line
+            freq_line=$(grep '\*' "$freq_file" 2>/dev/null | head -1)
+            freq_line=$(echo "$freq_line" | sed 's/.*: //; s/ .*//')
+            [[ -n "$freq_line" ]] && _LINES+=( "  ${DIM}  └── Clock: ${freq_line}${RESET}" )
+        fi
+        found_gpu=1
+    done
+
+    # ── Intel GPU via i915 hwmon ───────────────────────────────
+    for d in /sys/class/hwmon/hwmon*/name; do
+        local hwname
+        hwname=$(cat "$d" 2>/dev/null)
+        [[ "$hwname" == "i915" ]] || continue
+        local hdir
+        hdir=$(dirname "$d")
+        local tfile="$hdir/temp1_input"
+        [[ -f "$tfile" ]] || continue
+        local temp_raw
+        temp_raw=$(cat "$tfile" 2>/dev/null) || continue
+        local temp=$(( temp_raw / 1000 ))
+        (( temp > 0 && temp < 125 )) || continue
+
+        local emoji bar
+        emoji=$(temp_emoji "$temp")
+        bar=$(temp_bar "$temp" 100)
+        tline "$emoji" "Intel GPU" "$temp" "$bar"
+
+        local freq_file="$hdir/freq1_input"
+        if [[ -f "$freq_file" ]]; then
+            local freq_raw
+            freq_raw=$(cat "$freq_file" 2>/dev/null) || continue
+            local freq_mhz=$(( freq_raw / 1000000 ))
+            _LINES+=( "  ${DIM}  └── Clock: ${freq_mhz} MHz${RESET}" )
+        fi
+        found_gpu=1
+    done
+
+    if [[ $found_gpu -eq 0 ]]; then
+        if command -v nvidia-smi &>/dev/null; then
+            pline "${DIM}$(t sens_no_gpu)${RESET}"
+        else
+            pline "${DIM}$(t gpu_nvidia_none)${RESET}"
+        fi
+    fi
 }
 
 print_acpi() {
@@ -283,7 +386,7 @@ print_network_temp() {
         [[ "$hname" == "acpitz" ]] && continue
 
         # У старых драйверов (f71882fg и др.) атрибуты лежат на platform-устройстве,
-        # а не в каталоге hwmon — резолвим родительский device-каталог
+        # а не в каталоге hwmon -- резолвим родительский device-каталог
         local dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then
             dev_dir=$(readlink -f "${hwmon_dir}device")
@@ -424,7 +527,7 @@ print_cooling() {
 
     # Real fans: only chips that actually report RPM (fan*_input). Fans fed
     # straight from molex/PSU have no tachometer at all and never show up
-    # here — that is correct, we must not invent them.
+    # here -- that is correct, we must not invent them.
     local real_fan=0
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
@@ -615,6 +718,15 @@ json_out() {
 
     printf '  "gpu": [\n'
     first=1
+    # resolve AIB partner name for NVIDIA GPUs
+    local _aib_name="" _aib_hex=""
+    for _aib_dir in /sys/bus/pci/devices/*/; do
+        [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+        _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
+        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir" | sed 's/0000://')")
+        break
+    done
+    # NVIDIA
     if command -v nvidia-smi &>/dev/null; then
         local gpu_info gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest
         gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || gpu_info=""
@@ -630,11 +742,49 @@ json_out() {
             vram_used=$(echo "$vram_used" | xargs)
             gpu_util=$(echo "$gpu_util" | xargs)
             (( first )) && first=0 || printf ',\n'
-            printf '    { "name": "%s", "temp_c": %s, "fan_percent": %s, "power_w": %s, "clock_gpu_mhz": %s, "clock_mem_mhz": %s, "vram_total_mib": %s, "vram_used_mib": %s, "utilization_percent": %s }' \
-                "$(json_esc "$gname")" "$(wu_json_num "$gtemp")" "$(wu_json_num "$fan")" "$(wu_json_num "$power")" \
+            printf '    { "name": "%s", "driver": "nvidia", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %s, "fan_percent": %s, "power_w": %s, "clock_gpu_mhz": %s, "clock_mem_mhz": %s, "vram_total_mib": %s, "vram_used_mib": %s, "utilization_percent": %s }' \
+                "$(json_esc "$gname")" "$(json_esc "${_aib_hex#0x}")" "$(json_esc "$_aib_name")" "$(wu_json_num "$gtemp")" "$(wu_json_num "$fan")" "$(wu_json_num "$power")" \
                 "$(wu_json_num "$clk_gpu")" "$(wu_json_num "$clk_mem")" "$(wu_json_num "$vram_total")" "$(wu_json_num "$vram_used")" "$(wu_json_num "$gpu_util")"
         done <<< "$gpu_info"
     fi
+    # AMD GPU via hwmon
+    for d in /sys/class/hwmon/hwmon*/name; do
+        name2=$(cat "$d" 2>/dev/null)
+        [[ "$name2" == "amdgpu" ]] || continue
+        local ahwmon atfile araw_temp atemp
+        ahwmon=$(dirname "$d")
+        atfile="$ahwmon/temp1_input"
+        [[ -f "$atfile" ]] || continue
+        araw_temp=$(cat "$atfile" 2>/dev/null) || continue
+        atemp=$(( araw_temp / 1000 ))
+        (( atemp > 0 && atemp < 125 )) || continue
+        (( first )) && first=0 || printf ',\n'
+        # resolve AIB vendor for AMD GPU
+        local _amd_aib="" _amd_hex="" _amd_name="AMD GPU"
+        for _amd_dir in /sys/bus/pci/devices/*/; do
+            [[ "$(cat "${_amd_dir}vendor" 2>/dev/null)" == "0x1002" ]] || continue
+            _amd_hex=$(cat "${_amd_dir}subsystem_vendor" 2>/dev/null || true)
+            _amd_aib=$(gpu_aib_vendor "$(basename "$_amd_dir" | sed 's/0000://')")
+            [[ -n "$_amd_aib" ]] && _amd_name="AMD GPU ($_amd_aib)"
+            break
+        done
+        printf '    { "name": "%s", "driver": "amdgpu", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %d }' \
+            "$(json_esc "$_amd_name")" "$(json_esc "${_amd_hex#0x}")" "$(json_esc "$_amd_aib")" "$atemp"
+    done
+    # Intel GPU via i915 hwmon
+    for d in /sys/class/hwmon/hwmon*/name; do
+        name2=$(cat "$d" 2>/dev/null)
+        [[ "$name2" == "i915" ]] || continue
+        local ihwmon itfile iraw_temp itemp
+        ihwmon=$(dirname "$d")
+        itfile="$ihwmon/temp1_input"
+        [[ -f "$itfile" ]] || continue
+        iraw_temp=$(cat "$itfile" 2>/dev/null) || continue
+        itemp=$(( iraw_temp / 1000 ))
+        (( itemp > 0 && itemp < 125 )) || continue
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "name": "Intel GPU", "driver": "i915", "temp_c": %d }' "$itemp"
+    done
     printf '\n  ],\n'
 
     printf '  "acpi": [\n'

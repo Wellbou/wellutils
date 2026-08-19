@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellper — Beautiful peripherals report (USB, displays, audio)
+# wellper -- Beautiful peripherals report (USB, displays, audio)
 # Part of wellutils by wellbou_
 # Hardened for AUR: bare Linux, WSL, headless and exotic systems.
 # No hard deps beyond bash + coreutils. Every section degrades gracefully.
@@ -58,7 +58,7 @@ parse_args() {
             -h|--help) usage; exit 0 ;;
             -V|--version) printf 'WellPer %s\n' "$VERSION"; exit 0 ;;
             -l|--lang)
-                [[ $# -ge 2 ]] || { printf '%s: --lang needs ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2; }
+                [[ $# -ge 2 ]] || { printf 'wellper: --lang needs ru|en|auto\n' >&2; exit 2; }
                 _LANG_ARG="$2"; shift 2 ;;
             --lang=*) _LANG_ARG="${1#*=}"; shift ;;
             --color)
@@ -110,7 +110,7 @@ fi
 if [[ "$_WU_SECTIONS" != "all" ]]; then
     for s in $_WU_SECTIONS; do
         case "$s" in
-            usb|displays|audio) : ;;
+            usb|displays|audio|isa|pcmcia|pci) : ;;
             *) printf 'wellper: unknown section %s\n' "$s" >&2; exit 2 ;;
         esac
     done
@@ -145,8 +145,6 @@ _WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
 [[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
-if [[ -f "$_WU_BOX" ]]; then
-    source "$_WU_BOX"
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
 command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
@@ -154,15 +152,17 @@ command -v df     >/dev/null 2>&1 || df()     { :; }
 command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
+if [[ -f "$_WU_BOX" ]]; then
+    source "$_WU_BOX"
 else
-    # ── Minimal plain fallback — no box drawing, cannot drift ──
+    # ── Minimal plain fallback -- no box drawing, cannot drift ──
     R= G= Y= B= M= C= W= DIM= BOLD= RESET=
     _LINES=()
     pline()     { _LINES+=( " $*" ); }
     pline_sub() { _LINES+=( "       └─ $*" ); }
     pline_hw()  { _LINES+=( "  $1 $2: $3" ); }
     box()       { local icon="$1" title="$2" fn="$3"; _LINES=(); "$fn"; printf '  %s\n' "$title"; for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
-    box_header(){ printf '  %s — %s\n' "$2" "$3"; }
+    box_header(){ printf '  %s -- %s\n' "$2" "$3"; }
     banner()    { for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
     box_top()   { :; }
     box_row()   { :; }
@@ -211,7 +211,7 @@ json_esc() {
 }
 
 # ─── USB IDs database (optional) ────────────────────────────────
-# ─── USB IDs database (lazy lookups — no full-file scan) ────────
+# ─── USB IDs database (lazy lookups -- no full-file scan) ────────
 USB_IDS_FILE=""
 for _p in /usr/local/share/hwdata/usb.ids /usr/share/hwdata/usb.ids /usr/share/usb.ids /usr/share/misc/usb.ids; do
     if [[ -f "$_p" ]]; then USB_IDS_FILE="$_p"; break; fi
@@ -264,11 +264,7 @@ speed_label() {
 }
 
 # ─── USB classification ─────────────────────────────────────────
-# USB device/interface classes are authoritative: bDeviceClass for
-# single-function devices, bInterfaceClass for composite ones
-# (bDeviceClass 0x00 / 0xEF). Names are only consulted where classes
-# genuinely cannot tell things apart: HID (keyboard/mouse/tablet/
-# gamepad all use interface 0x03) and vendor-specific devices.
+# bDeviceClass for single-function, bInterfaceClass for composite.
 
 # Unique bInterfaceClass codes of device $1 (space-separated, e.g. " 07 08").
 iface_classes() {
@@ -316,7 +312,7 @@ classify() {
         esac
     fi
 
-    # 3) HID is class 0x03 for every input device — refine by name.
+    # 3) HID is class 0x03 for every input device -- refine by name.
     if [[ "$t" == "hid" ]]; then
         case "$hay" in
             *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*tablet*)
@@ -399,7 +395,7 @@ group_id() {
     esac
 }
 
-# ─── USB collection (sysfs only — no usbutils required) ────────
+# ─── USB collection (sysfs only -- no usbutils required) ────────
 USB_VID=() USB_PID=() USB_MFG=() USB_NAME=() USB_SPEED=() USB_DRV=() USB_TYPE=() USB_ICON=() USB_GRP=() USB_GSIZE=()
 
 # Capacity of the disk behind a USB mass-storage device, in 512-byte
@@ -510,7 +506,7 @@ render_usb_media(){ render_usb_group media; }
 render_usb_other(){ render_usb_group other; }
 
 # ─── Displays (sysfs EDID, no X required) ───────────────────────
-DISP_NAME=() DISP_VEND=() DISP_MODE=() DISP_CONN=()
+DISP_NAME=() DISP_VEND=() DISP_MODE=() DISP_CONN=() DISP_EDID_W=() DISP_EDID_H=()
 
 read_edid() {
     local f="$1" B A
@@ -581,13 +577,23 @@ collect_displays() {
     for d in /sys/class/drm/card*/; do
         [[ -f "$d/status" ]] || continue
         [[ "$(cat "$d/status" 2>/dev/null || true)" == "connected" ]] || continue
-        local conn mode vend name
+        local conn mode vend name edid_w="" edid_h=""
         conn=$(basename "$d")
         mode=$(head -1 "$d/modes" 2>/dev/null || true)
         IFS='|' read -r vend name <<< "$(read_edid "$d/edid")"
         name=$(clean_name "$name")
         [[ -z "$name" ]] && name="$conn"
+        # Extract physical size from EDID for PPI calculation
+        if [[ -r "$d/edid" ]]; then
+            local _ea _eb
+            _ea=( $(od -An -v -tx1 "$d/edid" 2>/dev/null) )
+            if (( ${#_ea[@]} >= 23 )); then
+                _eb=$(( 0x${_ea[21]} )); (( _eb > 0 )) && edid_w="$_eb"
+                _eb=$(( 0x${_ea[22]} )); (( _eb > 0 )) && edid_h="$_eb"
+            fi
+        fi
         DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$mode") DISP_CONN+=("$(pretty_conn "$conn")")
+        DISP_EDID_W+=("$edid_w") DISP_EDID_H+=("$edid_h")
     done
 }
 
@@ -619,6 +625,18 @@ render_displays() {
         local subs=() k
         [[ -n "$vend" ]] && subs+=( "$(t per_vendor): $(pnp_vendor "$vend")" )
         [[ -n "$conn" ]] && subs+=( "$(t per_interface): ${conn}" )
+        # PPI from EDID physical size + mode resolution
+        local _ew="${DISP_EDID_W[$i]:-}" _eh="${DISP_EDID_H[$i]:-}"
+        if [[ -n "$_ew" && -n "$_eh" && -n "$mode" ]]; then
+            local _pw _ph
+            _pw=$(awk -F'x' '{print $1}' <<< "$mode")
+            _ph=$(awk -F'x' '{print $2}' <<< "$mode")
+            if [[ -n "$_pw" && -n "$_ph" && "$_ew" -gt 0 && "$_eh" -gt 0 ]]; then
+                local _ppi
+                _ppi=$(awk "BEGIN{printf \"%d\", (${_pw} / ${_ew} * 2.54 + ${_ph} / ${_eh} * 2.54) / 2}")
+                [[ -n "$_ppi" && "$_ppi" -gt 0 ]] && subs+=( "PPI: ${_ppi}" )
+            fi
+        fi
         for (( k = 0; k < ${#subs[@]}; k++ )); do
             if (( k == ${#subs[@]} - 1 )); then
                 pline_sub "${subs[$k]}"
@@ -629,7 +647,7 @@ render_displays() {
     done
 }
 
-# ─── Audio (from /proc/asound/cards — no ALSA tools required) ───
+# ─── Audio (from /proc/asound/cards -- no ALSA tools required) ───
 AUDIO_NAME=() AUDIO_DESC=() AUDIO_IDX=()
 
 collect_audio() {
@@ -674,12 +692,128 @@ render_audio_none() {
     pline "  ${DIM}$(t per_audio_none)${RESET}"
 }
 
+# ─── Legacy ISA devices (kernel 2.x compat) ─────────────────────
+ISA_NAME=() ISA_IRQ=() ISA_DMA=()
+
+collect_isa() {
+    # /sys/bus/isa/devices/ (kernel 2.6+ with ISA support)
+    if [[ -d /sys/bus/isa/devices ]]; then
+        local devdir
+        for devdir in /sys/bus/isa/devices/*/; do
+            [[ -d "$devdir" ]] || continue
+            local name drv irq dma
+            name=$(basename "$devdir")
+            drv=""
+            [[ -d "$devdir/driver" ]] && drv=$(readlink "$devdir/driver" 2>/dev/null | xargs basename 2>/dev/null || true)
+            irq=$(cat "$devdir/irq" 2>/dev/null || true)
+            dma=$(cat "$devdir/dma" 2>/dev/null || true)
+            ISA_NAME+=("$name") ISA_IRQ+=("$irq") ISA_DMA+=("$dma")
+        done
+    fi
+    # /proc/bus/isa (very old kernels, kernel < 2.6)
+    if (( ${#ISA_NAME[@]} == 0 )) && [[ -f /proc/bus/isa ]]; then
+        local line
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9]+) ]] || continue
+            local slot="${BASH_REMATCH[1]}"
+            local irq="" dma=""
+            [[ "$line" =~ IRQ[[:space:]]+([0-9]+) ]] && irq="${BASH_REMATCH[1]}"
+            [[ "$line" =~ DMA[[:space:]]+([0-9]+) ]] && dma="${BASH_REMATCH[1]}"
+            ISA_NAME+=("$slot") ISA_IRQ+=("$irq") ISA_DMA+=("$dma")
+        done < /proc/bus/isa
+    fi
+}
+
+render_isa() {
+    if (( ${#ISA_NAME[@]} == 0 )); then
+        pline "  ${DIM}$(t per_isa_none)${RESET}"
+        return
+    fi
+    local i
+    for (( i = 0; i < ${#ISA_NAME[@]}; i++ )); do
+        local name="${ISA_NAME[$i]:-}" irq="${ISA_IRQ[$i]:-}" dma="${ISA_DMA[$i]:-}"
+        local meta=""
+        [[ -n "$irq" && "$irq" != "0" ]] && meta+=" · IRQ ${irq}"
+        [[ -n "$dma" && "$dma" != "0" ]] && meta+=" · DMA ${dma}"
+        pline "  $(_ic '🔧')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
+    done
+}
+
+# ─── PCMCIA / CardBus ────────────────────────────────────────────
+PCM_NAME=() PCM_FUNC=() PCM_IRQ=()
+
+collect_pcmcia() {
+    # sysfs (kernel 2.6+)
+    if [[ -d /sys/bus/pcmcia/devices ]]; then
+        local devdir
+        for devdir in /sys/bus/pcmcia/devices/*/; do
+            [[ -d "$devdir" ]] || continue
+            local name func irq
+            name=$(cat "$devdir/product_name" 2>/dev/null || basename "$devdir")
+            func=$(cat "$devdir/function" 2>/dev/null || true)
+            irq=$(cat "$devdir/irq" 2>/dev/null || true)
+            PCM_NAME+=("$name") PCM_FUNC+=("$func") PCM_IRQ+=("$irq")
+        done
+    fi
+    # /proc/bus/pcmcia (very old kernels)
+    if (( ${#PCM_NAME[@]} == 0 )) && [[ -d /proc/bus/pcmcia ]]; then
+        local stub
+        for stub in /proc/bus/pcmcia/*/; do
+            [[ -d "$stub" ]] || continue
+            local name=""
+            [[ -f "$stub/product" ]] && name=$(cat "$stub/product" 2>/dev/null)
+            [[ -z "$name" ]] && name=$(basename "$stub")
+            PCM_NAME+=("$name") PCM_FUNC+=("") PCM_IRQ+=("")
+        done
+    fi
+}
+
+render_pcmcia() {
+    if (( ${#PCM_NAME[@]} == 0 )); then
+        pline "  ${DIM}$(t per_pcmcia_none)${RESET}"
+        return
+    fi
+    local i
+    for (( i = 0; i < ${#PCM_NAME[@]}; i++ )); do
+        local name="${PCM_NAME[$i]:-}" func="${PCM_FUNC[$i]:-}" irq="${PCM_IRQ[$i]:-}"
+        local meta=""
+        [[ -n "$func" ]] && meta+=" · ${func}"
+        [[ -n "$irq" && "$irq" != "0" ]] && meta+=" · IRQ ${irq}"
+        pline "  $(_ic '💳')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
+    done
+}
+
+# ─── PCI slot expansion cards ────────────────────────────────────
+collect_pci() {
+    PCI_BUS=() PCI_DESC=()
+    pci_slot_devices
+    local i
+    for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
+        PCI_BUS+=("${_PCI_BUS[$i]}")
+        PCI_DESC+=("${_PCI_DESC[$i]}")
+    done
+}
+
+render_pci() {
+    if (( ${#PCI_BUS[@]} == 0 )); then
+        pline "  ${DIM}$(t per_pci_none)${RESET}"
+        return
+    fi
+    local i
+    for (( i=0; i<${#PCI_BUS[@]}; i++ )); do
+        pline "  $(_ic '🔌')${BOLD}${W}${PCI_BUS[$i]}${RESET}  ${DIM}${PCI_DESC[$i]}${RESET}"
+    done
+}
+
 # ─── JSON / terse output ─────────────────────────────────────────
 json_out() {
-    local i first=1 n_usb=0 n_disp=0 n_aud=0
+    local i first=1 n_usb=0 n_disp=0 n_aud=0 n_isa=0 n_pcm=0 n_pci=0
     _s_has usb      && n_usb=${#USB_NAME[@]}
     _s_has displays && n_disp=${#DISP_NAME[@]}
     _s_has audio    && n_aud=${#AUDIO_DESC[@]}
+    n_isa=${#ISA_NAME[@]}
+    n_pcm=${#PCM_NAME[@]}
+    n_pci=${#PCI_BUS[@]}
     printf '{\n'
     printf '  "tool": "wellper",\n'
     printf '  "version": "%s",\n' "$VERSION"
@@ -687,7 +821,10 @@ json_out() {
     printf '  "summary": {\n'
     printf '    "usb": %d,\n' "$n_usb"
     printf '    "displays": %d,\n' "$n_disp"
-    printf '    "audio": %d\n' "$n_aud"
+    printf '    "audio": %d,\n' "$n_aud"
+    printf '    "isa": %d,\n' "$n_isa"
+    printf '    "pcmcia": %d,\n' "$n_pcm"
+    printf '    "pci": %d\n' "$n_pci"
     printf '  }'
     if _s_has usb; then
         printf ',\n  "usb": [\n'
@@ -725,6 +862,36 @@ json_out() {
         done
         printf '\n  ]'
     fi
+    if (( ${#ISA_NAME[@]} > 0 )); then
+        printf ',\n  "isa": [\n'
+        first=1
+        for (( i = 0; i < ${#ISA_NAME[@]}; i++ )); do
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "name": "%s", "irq": "%s", "dma": "%s" }' \
+                "$(json_esc "${ISA_NAME[$i]:-}")" "$(json_esc "${ISA_IRQ[$i]:-}")" "$(json_esc "${ISA_DMA[$i]:-}")"
+        done
+        printf '\n  ]'
+    fi
+    if (( ${#PCM_NAME[@]} > 0 )); then
+        printf ',\n  "pcmcia": [\n'
+        first=1
+        for (( i = 0; i < ${#PCM_NAME[@]}; i++ )); do
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "name": "%s", "function": "%s", "irq": "%s" }' \
+                "$(json_esc "${PCM_NAME[$i]:-}")" "$(json_esc "${PCM_FUNC[$i]:-}")" "$(json_esc "${PCM_IRQ[$i]:-}")"
+        done
+        printf '\n  ]'
+    fi
+    if (( ${#PCI_BUS[@]} > 0 )); then
+        printf ',\n  "pci": [\n'
+        first=1
+        for (( i = 0; i < ${#PCI_BUS[@]}; i++ )); do
+            (( first )) && first=0 || printf ',\n'
+            printf '    { "bus": "%s", "description": "%s" }' \
+                "$(json_esc "${PCI_BUS[$i]}")" "$(json_esc "${PCI_DESC[$i]}")"
+        done
+        printf '\n  ]'
+    fi
     printf '\n}\n'
 }
 
@@ -733,6 +900,9 @@ terse_out() {
     _s_has usb      && parts+=( "$(t usb_devices): ${#USB_NAME[@]}" )
     _s_has displays && parts+=( "$(t per_displays): ${#DISP_NAME[@]}" )
     _s_has audio    && parts+=( "$(t per_audio): ${#AUDIO_DESC[@]}" )
+    (( ${#ISA_NAME[@]} > 0 )) && parts+=( "$(t per_isa): ${#ISA_NAME[@]}" )
+    (( ${#PCM_NAME[@]} > 0 )) && parts+=( "$(t per_pcmcia): ${#PCM_NAME[@]}" )
+    (( ${#PCI_BUS[@]} > 0 )) && parts+=( "$(t per_pci): ${#PCI_BUS[@]}" )
     local s
     s=$(IFS=' · '; printf '%s' "${parts[*]}")
     printf '%s%s%s\n' "$BOLD" "$s" "$RESET"
@@ -744,6 +914,9 @@ main() {
     collect_displays
     if (( ${#DISP_NAME[@]} == 0 )); then collect_displays_xrandr; fi
     collect_audio
+    collect_isa
+    collect_pcmcia
+    collect_pci
 
     if [[ $_WU_JSON -eq 1 ]]; then
         json_out
@@ -755,12 +928,13 @@ main() {
     fi
 
     if [[ "$_WU_MODE" == "plain" ]]; then
-        printf '\n  %s%s %s — %s %s\n\n' "$(_ic '🎮')" "$BOLD" 'wellper' "$(t per_title)" "$RESET"
+        printf '\n  %s%s %s -- %s %s\n\n' "$(_ic '🎮')" "$BOLD" 'wellper' "$(t per_title)" "$RESET"
     else
         box_header "$(_ic '🎮')" "wellper" "$(t per_title)"
     fi
 
     local total=${#USB_NAME[@]} dcount=${#DISP_NAME[@]} acount=${#AUDIO_DESC[@]}
+    local isacount=${#ISA_NAME[@]} pcmcount=${#PCM_NAME[@]} pcicount=${#PCI_BUS[@]}
     local line="" grp ci
     if _s_has usb; then
         line+="${BOLD}$(t usb_devices): ${W}${total}${RESET}"
@@ -773,6 +947,9 @@ main() {
         [[ -n "$line" ]] && line+="  |  "
         line+="${BOLD}$(t per_audio): ${W}${acount}${RESET}"
     fi
+    (( isacount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_isa): ${W}${isacount}${RESET}"; }
+    (( pcmcount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pcmcia): ${W}${pcmcount}${RESET}"; }
+    (( pcicount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pci): ${W}${pcicount}${RESET}"; }
     [[ -n "$line" ]] && printf '\n  %s\n\n' "$line"
 
     if _s_has usb; then
@@ -804,9 +981,21 @@ main() {
         fi
     fi
 
+    if _s_has isa && (( isacount > 0 )); then
+        box "$(_ic '🔧')" "$(t per_isa) (${isacount})" render_isa
+    fi
+
+    if _s_has pcmcia && (( pcmcount > 0 )); then
+        box "$(_ic '💳')" "$(t per_pcmcia) (${pcmcount})" render_pcmcia
+    fi
+
+    if _s_has pci && (( pcicount > 0 )); then
+        box "$(_ic '🔌')" "$(t per_pci) (${pcicount})" render_pci
+    fi
+
     printf '\n  %sWellPer v%s | %s%s\n\n' "$DIM" "$VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 
-    if [[ $_WU_STRICT -eq 1 && total -eq 0 && dcount -eq 0 && acount -eq 0 ]]; then
+    if [[ $_WU_STRICT -eq 1 && total -eq 0 && dcount -eq 0 && acount -eq 0 && isacount -eq 0 && pcmcount -eq 0 && pcicount -eq 0 ]]; then
         exit 1
     fi
     return 0

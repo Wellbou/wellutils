@@ -1,4 +1,4 @@
-# cli.sh — shared CLI parsing + output policy for wellutils tools
+# cli.sh -- shared CLI parsing + output policy for wellutils tools
 # Part of wellutils by wellbou_
 # Source AFTER lang.sh and box.sh (or after the tool's own color defs).
 #
@@ -77,8 +77,8 @@ wu_parse() {
                 [[ $# -ge 2 ]] || { printf '%s: --color needs always|auto|never\n' "$_WU_TOOLNAME" >&2; exit 2; }
                 _WU_COLOR="$2"; shift 2 ;;
             --color=*) _WU_COLOR="${1#*=}"; shift ;;
-            --plain) _WU_MODE="plain"; shift ;;
-            --box) _WU_MODE="box"; shift ;;
+            --plain) _WU_MODE="plain"; _WU_MODE_WAS_SET=1; shift ;;
+            --box) _WU_MODE="box"; _WU_MODE_WAS_SET=1; shift ;;
             --no-emoji) _WU_EMOJI="no"; shift ;;
             --emoji)    _WU_EMOJI="auto"; shift ;;
             --json)   _WU_JSON=1; shift ;;
@@ -144,6 +144,19 @@ wu_run() {
         esac
     fi
 
+    # Detect Unicode box-drawing support. Terminals that lack it get
+    # plain mode automatically (ASCII boxes look worse than no boxes).
+    _WU_UNICODE=1
+    case "${LC_ALL:-${LANG:-}}" in
+        C*|POSIX) _WU_UNICODE=0 ;;
+    esac
+    [[ "${TERM:-}" == "dumb" ]] && _WU_UNICODE=0
+    # If Unicode unavailable and user didn't explicitly request box mode, force plain.
+    if [[ $_WU_UNICODE -eq 0 && "$_WU_PLAIN" -eq 0 && -z "${_WU_MODE_WAS_SET:-}" ]]; then
+        _WU_PLAIN=1
+        _WU_MODE="plain"
+    fi
+
     if [[ $_WU_COLOR_ON -eq 0 ]]; then
         R= G= Y= B= M= C= W= DIM= BOLD= RESET=
         ORANGE= RED_BG=
@@ -205,7 +218,7 @@ done
 unset _cp _b1 _b2 _b3 _oc _wi
 _wu_pad_r() {
     # right-pad to N display columns; bash %-Ns pads by *bytes*, so labels
-    # with multibyte text (Cyrillic) never align — count display width instead
+    # with multibyte text (Cyrillic) never align -- count display width instead
     local s="$1" n="$2" k
     k=$(( n - $(vislen "$s") ))
     (( k > 0 )) || k=0

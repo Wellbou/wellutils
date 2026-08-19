@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellutils — cross-distro installer
+# wellutils -- cross-distro installer
 # Works on any Linux: Arch/Manjaro (pacman), Fedora/RHEL (dnf/yum),
 # Debian/Ubuntu/Bodhi/Mint/PopOS (apt), openSUSE (zypper), Alpine (apk),
 # Void (xbps), Gentoo (emerge), ...
@@ -38,7 +38,7 @@ ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu we
 
 usage() {
     cat <<EOF
-wellutils installer — cross-distro (Arch, Fedora, Debian, Ubuntu, Bodhi, ...)
+wellutils installer -- cross-distro (Arch, Fedora, Debian, Ubuntu, Bodhi, ...)
 
 Usage: install.sh [options]
 
@@ -49,6 +49,7 @@ Options:
   --prefix=PATH    install prefix (default: /usr/local)
   --uninstall      remove files installed previously (uses a manifest)
   --dry-run        print what would be done, change nothing
+  --hardware       show detected kernel / hardware profile and exit
   --help           show this help
 
 Environment:
@@ -105,12 +106,18 @@ detect_pm() {
     fi
     case "$id" in
         arch|manjaro|endeavouros|cachyos|artix)        c=pacman ;;
-        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux) c=dnf ;;
-        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan) c=apt-get ;;
+        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux|nobara|serinux) c=dnf ;;
+        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan|parrot|raspbian|raspberry*os|astra|ALT|altlinux) c=apt-get ;;
         opensuse*|sles|sled)                            c=zypper ;;
-        alpine)                                         c=apk ;;
+        alpine|postmarketos|chainguard)                 c=apk ;;
         void)                                           c=xbps-install ;;
-        gentoo|calculate)                               c=emerge ;;
+        gentoo|calculate|funtoo)                        c=emerge ;;
+        nixos|nix)                                      c=nix-env ;;
+        solus)                                          c=eopkg ;;
+        crux|crux*)                                     c=ports ;;
+        openwrt|immich)                                 c=opkg ;;
+        tuxedo|tuxedos)                                 c=apt-get ;;
+        ol|oracle|amzn|clear-linux-os|eurolinux|anolis) c=dnf ;;
     esac
     case " $id_like " in
         *" arch "*)     c=pacman ;;
@@ -122,7 +129,7 @@ detect_pm() {
         echo "$c"
         return 0
     fi
-    for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge; do
+    for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge eopkg opkg; do
         if command -v "$c" >/dev/null 2>&1; then
             echo "$c"
             return 0
@@ -135,6 +142,83 @@ os_label() {
     [[ -r /etc/os-release ]] || { echo "unknown Linux"; return; }
     . /etc/os-release 2>/dev/null || true
     echo "${PRETTY_NAME:-${NAME:-unknown Linux}}"
+}
+
+# ─── kernel / hardware detection ─────────────────────────────
+detect_kernel() {
+    local kv
+    kv=$(uname -r 2>/dev/null) || { echo "unknown"; return; }
+    echo "$kv"
+}
+
+kernel_major() {
+    echo "${1%%.*}"
+}
+
+detect_hardware_profile() {
+    local hw="generic" kv="${1:-}"
+    local kmaj="${2:-}"
+    # Xbox 360
+    if [[ -r /proc/device-tree/model ]]; then
+        local dtmodel
+        dtmodel=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)
+        case "$dtmodel" in
+            *Xbox*|*XBOX*|*xbox*) hw="xbox360" ;;
+            *Raspberry*|*raspberry*) hw="rpi" ;;
+            *BeagleBone*|*beaglebone*) hw="beaglebone" ;;
+            *Google*|*google*chromebook*) hw="chromebook" ;;
+        esac
+    fi
+    # ARM / embedded checks
+    if [[ -d /sys/class/thermal ]]; then
+        local cnt
+        cnt=$(ls -d /sys/class/thermal/cooling_device* 2>/dev/null | wc -l)
+        (( cnt > 10 )) && hw="${hw}:embedded-thermal"
+    fi
+    # Old kernel detection
+    if [[ -n "$kmaj" ]]; then
+        if (( kmaj <= 2 )); then
+            hw="${hw}:legacy-2.x"
+        elif (( kmaj <= 3 )); then
+            hw="${hw}:legacy-3.x"
+        fi
+    fi
+    # Console-only (no display server)
+    if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+        hw="${hw}:headless"
+    fi
+    echo "$hw"
+}
+
+# Detect rare / exotic hardware -- warns user about edge cases
+detect_exotic_hardware() {
+    local warnings=""
+    # Old USB controllers (kernel 2.6 era USB stack)
+    if [[ -d /proc/bus/usb ]]; then
+        warnings+="  note: /proc/bus/usb detected (legacy USB, kernel < 2.6.31)\n"
+    fi
+    # ISA/PCMCIA buses
+    if [[ -d /sys/bus/isa ]]; then
+        warnings+="  note: ISA bus detected (legacy hardware)\n"
+    fi
+    if [[ -d /sys/bus/pcmcia ]]; then
+        warnings+="  note: PCMCIA/CardBus detected\n"
+    fi
+    # Xen / KVM / Docker / containers
+    if [[ -r /proc/xen/capabilities ]]; then
+        warnings+="  note: running in Xen domain\n"
+    fi
+    if grep -q "hypervisor" /proc/cpuinfo 2>/dev/null; then
+        warnings+="  note: running in a virtual machine\n"
+    fi
+    if [[ -f /.dockerenv ]] || grep -q "docker" /proc/1/cgroup 2>/dev/null; then
+        warnings+="  note: running inside Docker container\n"
+    fi
+    # WSL
+    if uname -r 2>/dev/null | grep -qi microsoft; then
+        warnings+="  note: running under WSL (Windows Subsystem for Linux)\n"
+    fi
+    printf '%b' "$warnings"
 }
 
 pm_install() {
@@ -152,6 +236,9 @@ pm_install() {
         apk)         run apk add "${pkgs[@]}" ;;
         xbps-install) run xbps-install -y "${pkgs[@]}" ;;
         emerge)      run emerge --noreplace "${pkgs[@]}" ;;
+        eopkg)       run eopkg install -y "${pkgs[@]}" ;;
+        nix-env)     run nix-env -iA nixpkgs."${pkgs[@]}" ;;
+        opkg)        run opkg install "${pkgs[@]}" ;;
     esac
 }
 
@@ -165,6 +252,9 @@ deps_for() {
         apk)           echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
         xbps-install)  echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode" ;;
         emerge)        echo "app-shells/bash sys-apps/coreutils sys-apps/util-linux sys-process/procps dev-lang/python sys-apps/hwdata sys-apps/lm-sensors sys-apps/smartmontools sys-apps/dmidecode" ;;
+        nix-env)       echo "" ;;
+        eopkg)         echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
+        opkg)          echo "" ;;
     esac
 }
 
@@ -174,7 +264,7 @@ acquire_source() {
     here="$(cd -- "$(dirname -- "$0")" && pwd 2>/dev/null || pwd)"
     # Local checkout is used only when running the script directly (or with
     # WELLUTILS_LOCAL=1). A `curl ... | bash` pipe always downloads the
-    # current sources — otherwise a stale clone would shadow the fresh
+    # current sources -- otherwise a stale clone would shadow the fresh
     # installer and mix versions.
     if [[ "${WELLUTILS_LOCAL:-0}" == "1" || -t 0 ]] \
        && [[ -f "$here/wellmem" && -f "$here/lang.sh" && -f "$here/wellutils" ]]; then
@@ -313,6 +403,7 @@ for arg in "$@"; do
         --deps-only)   DO_FILES=0 ;;
         --uninstall)   UNINSTALL=1 ;;
         --dry-run)     DRY=1 ;;
+        --hardware)    _kver="$(detect_kernel)"; _kmaj="$(kernel_major "$_kver")"; echo "kernel: $_kver"; echo "profile: $(detect_hardware_profile "$_kver" "$_kmaj")"; detect_exotic_hardware; exit 0 ;;
         --prefix=*)    PREFIX="${arg#*=}"; BINDIR="$PREFIX/bin"; LIBDIR="$PREFIX/share/wellutils"; MANDIR="$PREFIX/share/man/man1"; LICDIR="$PREFIX/share/licenses/wellutils"; MANIFEST="$LIBDIR/wellutils.manifest" ;;
         *) echo "error: unknown option: $arg" >&2; usage >&2; exit 2 ;;
     esac
@@ -320,6 +411,15 @@ done
 
 os="$(os_label)"
 PM="$(detect_pm)"
+_kver="$(detect_kernel)"
+_kmaj="$(kernel_major "$_kver")"
+_hwprof="$(detect_hardware_profile "$_kver" "$_kmaj")"
+
+echo "==> $os"
+echo "    kernel:   $_kver"
+[[ "$_hwprof" != "generic" ]] && echo "    hardware: $_hwprof"
+_exotic="$(detect_exotic_hardware)"
+[[ -n "$_exotic" ]] && printf '%s' "$_exotic"
 
 if [[ $UNINSTALL -eq 1 ]]; then
     do_uninstall

@@ -1,4 +1,4 @@
-# jedec.sh — JEDEC JEP106 manufacturer ID table for wellutils
+# jedec.sh -- JEDEC JEP106 manufacturer ID table for wellutils
 # wu_jedec_decode <hex4>: decode "cckk" (continuation byte + code byte)
 # from dmidecode Manufacturer field (e.g. 8313 -> Golden Empire).
 # The vendor table is extracted from i2c-tools decode-dimms (@vendors),

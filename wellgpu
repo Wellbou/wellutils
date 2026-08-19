@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellgpu — Beautiful GPU overview (adapters, driver, live stats)
+# wellgpu -- Beautiful GPU overview (adapters, driver, live stats)
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -33,8 +33,8 @@ source "$_WU_CLI"
 # ─── Adapter list (machine-readable, quoted) ─────────────────────
 # lspci -mmnn:  01:00.0 "VGA compatible controller [0300]" "NVIDIA Corporation [10de]" "GP107 [GeForce GTX 1050 Ti] [1c82]" ...
 gpu_adapters() {
-    _GPU_BUS=() _GPU_VENDOR=() _GPU_DEVICE=()
-    local line bus vendor device
+    _GPU_BUS=() _GPU_VENDOR=() _GPU_DEVICE=() _GPU_AIB=()
+    local line bus vendor device aib
     while IFS= read -r line; do
         [[ "$line" =~ '"VGA compatible controller' || "$line" =~ '"3D controller' ]] || continue
         set -- $line
@@ -42,9 +42,11 @@ gpu_adapters() {
         vendor=$(printf '%s' "$line" | awk -F'"' '{print $4}')
         device=$(printf '%s' "$line" | awk -F'"' '{print $6}')
         [[ -z "$device" ]] && device="$vendor" && vendor=""
+        aib=$(gpu_aib_vendor "$bus")
         _GPU_BUS+=("$bus")
         _GPU_VENDOR+=("$vendor")
         _GPU_DEVICE+=("$device")
+        _GPU_AIB+=("$aib")
     done < <(lspci -mmnn 2>/dev/null)
 }
 
@@ -68,17 +70,21 @@ print_gpu_list() {
         return
     fi
 
-    local i bus vendor device drv
+    local i bus vendor device drv aib
     for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
         bus=${_GPU_BUS[$i]}
         vendor=${_GPU_VENDOR[$i]}
         device=${_GPU_DEVICE[$i]}
         drv=$(gpu_driver "$bus")
+        aib=${_GPU_AIB[$i]}
+
+        local disp_name="${device}"
+        [[ -n "$aib" ]] && disp_name="${aib} ${device}"
 
         if (( i == 0 )); then
-            pline_hw "$(_emu '🎮')" "$(t gpu_bus) 0" "${device}${vendor:+  ${DIM}(${vendor})${RESET}}"
+            pline_hw "$(_emu '🎮')" "$(t gpu_bus) 0" "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
         else
-            pline_sub "${device}${vendor:+  ${DIM}(${vendor})${RESET}}"
+            pline_sub "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
         fi
         [[ -n "$drv" ]] && pline_sub "$(t gpu_driver): ${W}${drv}${RESET}  ${DIM}${bus}${RESET}"
     done
@@ -90,17 +96,30 @@ print_nvidia() {
         --format=csv,noheader,nounits 2>/dev/null) || out=""
     [[ -z "$out" ]] && { pline "${DIM}$(t gpu_nvidia_none)${RESET}"; return; }
 
+    # resolve AIB partner name from sysfs subsystem_vendor
+    local _aib_name="" _aib_hex=""
+    for _aib_dir in /sys/bus/pci/devices/*/; do
+        [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+        _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
+        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir" | sed 's/0000://')")
+        break
+    done
+
     local idx name drv memtot memused temp util clk_sm clk_mem pow fan
     local n=0
     while IFS= read -r line; do
         IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
         name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
+        [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
         drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
         memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
         memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
-        for i in temp util clk_sm clk_mem pow fan; do
-            eval "$i=\$(printf '%s' \"\$$i\" | sed 's/^ *//;s/ *\$//')"
-        done
+        temp=$(printf '%s' "$temp" | sed 's/^ *//;s/ *$//')
+        util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//')
+        clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//')
+        clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//')
+        pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
+        fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
 
         pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name"
         pline_hw "$(_emu '💾')" "$(t gpu_driver)" "$drv"
@@ -139,7 +158,7 @@ print_nvidia() {
         if [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
             pow_txt="${pow} W"
         else
-            # power.draw is [N/A] on some cards — fall back to the NVML
+            # power.draw is [N/A] on some cards -- fall back to the NVML
             # power-sample average (Avg line of the Power Samples section).
             pow=$(nvidia-smi -q -d POWER 2>/dev/null | grep -A6 'Power Samples' | sed -n 's/^[[:space:]]*Avg[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1)
             [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]] && pow_txt="~${pow} W" || pow_txt="$(t blk_smart_unknown)"
@@ -159,15 +178,16 @@ json_out() {
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "adapters": [\n'
-    local first=1 i bus vendor device drv
+    local first=1 i bus vendor device drv aib
     for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
         bus=${_GPU_BUS[$i]}
         vendor=${_GPU_VENDOR[$i]}
         device=${_GPU_DEVICE[$i]}
         drv=$(gpu_driver "$bus")
+        aib=${_GPU_AIB[$i]}
         (( first )) && first=0 || printf ',\n'
-        printf '    { "bus": "%s", "vendor": "%s", "device": "%s", "driver": "%s" }' \
-            "$(json_esc "$bus")" "$(json_esc "$vendor")" "$(json_esc "$device")" "$(json_esc "$drv")"
+        printf '    { "bus": "%s", "vendor": "%s", "device": "%s", "subsystem_vendor": "%s", "driver": "%s" }' \
+            "$(json_esc "$bus")" "$(json_esc "$vendor")" "$(json_esc "$device")" "$(json_esc "$aib")" "$(json_esc "$drv")"
     done
     printf '\n  ],\n'
 
@@ -177,19 +197,31 @@ json_out() {
         --format=csv,noheader,nounits 2>/dev/null) || out=""
     first=1
     if [[ -n "$out" ]]; then
+        # resolve AIB partner for NVIDIA JSON
+        local _nvaib="" _nvhex=""
+        for _nvdir in /sys/bus/pci/devices/*/; do
+            [[ "$(cat "${_nvdir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+            _nvhex=$(cat "${_nvdir}subsystem_vendor" 2>/dev/null || true)
+            _nvaib=$(gpu_aib_vendor "$(basename "$_nvdir" | sed 's/0000://')")
+            break
+        done
         local idx name drv memtot memused temp util clk_sm clk_mem pow fan
         while IFS= read -r line; do
             IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
             name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
+            [[ -n "$_nvaib" ]] && name="${_nvaib} ${name#NVIDIA }"
             drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
             memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
             memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
-            for i in temp util clk_sm clk_mem pow fan; do
-                eval "$i=\$(printf '%s' \"\$$i\" | sed 's/^ *//;s/ *\$//')"
-            done
+            temp=$(printf '%s' "$temp" | sed 's/^ *//;s/ *$//')
+            util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//')
+            clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//')
+            clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//')
+            pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
+            fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
             (( first )) && first=0 || printf ',\n'
-            printf '    { "index": %s, "name": "%s", "driver": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
-                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" \
+            printf '    { "index": %s, "name": "%s", "driver": "%s", "subsystem_vendor": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
+                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" "$(json_esc "${_nvhex#0x}")" \
                 "$(wu_json_num "$memtot")" "$(wu_json_num "$memused")" "$(wu_json_num "$temp")" \
                 "$(wu_json_num "$util")" "$(wu_json_num "$clk_sm")" "$(wu_json_num "$clk_mem")" \
                 "$(wu_json_num "$pow")" "$(wu_json_num "$fan")"

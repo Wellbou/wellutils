@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellusb v2 — Beautiful USB device listing with IDS database lookup
+# wellusb v2 -- Beautiful USB device listing with IDS database lookup
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -26,7 +26,7 @@ R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
 M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
 
-# ─── USB IDs Lookup (lazy, no associative arrays — bash 3.2) ────
+# ─── USB IDs Lookup (lazy, no associative arrays -- bash 3.2) ────
 USB_IDS=""
 for _p in /usr/local/share/hwdata/usb.ids /usr/share/hwdata/usb.ids /usr/share/misc/usb.ids /usr/share/usb.ids; do
     [[ -f "$_p" ]] && { USB_IDS="$_p"; break; }
@@ -242,7 +242,7 @@ json_out() {
 
     local total_hubs=0 total_devs=0
     for (( i=0; i<dev_count; i++ )); do
-        [[ "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
+        [[ ( "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" ) || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
     done
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
@@ -295,14 +295,14 @@ main() {
     local line
     line=$(printf '═%.0s' {1..72})
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb — %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
+    printf '  %s║%s%s  '"$(_ic "🔌")"'wellusb -- %s                         %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t usb_title)" "$RESET" "$C" "$RESET"
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
 
     usb_scan
 
     local total_hubs=0 total_devs=0
     for (( i=0; i<dev_count; i++ )); do
-        [[ "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
+        [[ ( "${DEV_MFG[$i]}" == "" && "${DEV_PROD[$i]}" == "" && "${DEV_PID[$i]}" == "0003" ) || "${DEV_PID[$i]}" == "0002" ]] && total_hubs=$(( total_hubs + 1 )) || total_devs=$(( total_devs + 1 ))
     done
 
     local ids_status
@@ -340,7 +340,7 @@ main() {
             device_name="$(t usb_unknown)"
         fi
 
-        # Find the sysfs device node and its bDeviceClass — avoids relying
+        # Find the sysfs device node and its bDeviceClass -- avoids relying
         # on any /sys path layout. ID files are already lowercase.
         local bclass="00" devbase=""
         for d in /sys/bus/usb/devices/*/; do

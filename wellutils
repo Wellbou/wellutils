@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# wellutils — launcher for wellutils system utility kit
+# wellutils -- launcher for wellutils system utility kit
 # Usage: wellutils [-l LANG] <command> [args]
-#        wellutils --lang RU|ENG   — set language persistently
-#        wellutils --help          — show help
+#        wellutils --lang RU|ENG   -- set language persistently
+#        wellutils --help          -- show help
 set -euo pipefail
 
 _WU_DIR="$(dirname "$(readlink -f "$0")")"
@@ -25,7 +25,7 @@ BOLD=$'\033[1m'  RESET=$'\033[0m'
 
 show_help() {
     local ttl pad
-    ttl="🛠  wellutils — $(t launcher_title)"
+    ttl="🛠  wellutils -- $(t launcher_title)"
     pad=$(( 54 - ${#ttl} - 1 ))      # box inner is 54 cells; the wrench emoji is 2 cells wide
     (( pad < 1 )) && pad=1
     printf '\n'
@@ -40,19 +40,19 @@ show_help() {
     printf '    wellutils --version             %s\n' "$(t launcher_version)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_commands)" "$RESET"
-    printf '    %susb%s       — %s\n' "$G" "$RESET" "$(t cmd_usb)"
-    printf '    %spci%s       — %s\n' "$G" "$RESET" "$(t cmd_pci)"
-    printf '    %sblock%s     — %s\n' "$G" "$RESET" "$(t cmd_block)"
-    printf '    %smem%s       — %s\n' "$G" "$RESET" "$(t cmd_mem)"
-    printf '    %smod%s       — %s\n' "$G" "$RESET" "$(t cmd_mod)"
-    printf '    %swellsensors%s — %s\n' "$G" "$RESET" "$(t cmd_sensors)"
-    printf '    %shw%s         — %s\n' "$G" "$RESET" "$(t cmd_hw)"
-    printf '    %sper%s        — %s\n' "$G" "$RESET" "$(t cmd_per)"
-    printf '    %sgpu%s        — %s\n' "$G" "$RESET" "$(t cmd_gpu)"
-    printf '    %scpu%s        — %s\n' "$G" "$RESET" "$(t cmd_cpu)"
-    printf '    %sfetch%s      — %s\n' "$G" "$RESET" "$(t cmd_fetch)"
-    printf '    %sup%s         — %s\n' "$G" "$RESET" "$(t cmd_up)"
-    printf '    %sself-update%s  — %s\n' "$G" "$RESET" "$(t cmd_selfupdate)"
+    printf '    %susb%s       -- %s\n' "$G" "$RESET" "$(t cmd_usb)"
+    printf '    %spci%s       -- %s\n' "$G" "$RESET" "$(t cmd_pci)"
+    printf '    %sblock%s     -- %s\n' "$G" "$RESET" "$(t cmd_block)"
+    printf '    %smem%s       -- %s\n' "$G" "$RESET" "$(t cmd_mem)"
+    printf '    %smod%s       -- %s\n' "$G" "$RESET" "$(t cmd_mod)"
+    printf '    %swellsensors%s -- %s\n' "$G" "$RESET" "$(t cmd_sensors)"
+    printf '    %shw%s         -- %s\n' "$G" "$RESET" "$(t cmd_hw)"
+    printf '    %sper%s        -- %s\n' "$G" "$RESET" "$(t cmd_per)"
+    printf '    %sgpu%s        -- %s\n' "$G" "$RESET" "$(t cmd_gpu)"
+    printf '    %scpu%s        -- %s\n' "$G" "$RESET" "$(t cmd_cpu)"
+    printf '    %sfetch%s      -- %s\n' "$G" "$RESET" "$(t cmd_fetch)"
+    printf '    %sup%s         -- %s\n' "$G" "$RESET" "$(t cmd_up)"
+    printf '    %sself-update%s  -- %s\n' "$G" "$RESET" "$(t cmd_selfupdate)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
     printf '    %s--plain%s / %s--color auto|always|never%s  %s\n' "$G" "$RESET" "$G" "$RESET" "$(t opt_plain_color)"

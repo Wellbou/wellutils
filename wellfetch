@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellfetch — detailed system info display with ANSI logo (wellutils suite)
+# wellfetch -- detailed system info display with ANSI logo (wellutils suite)
 # Style: bash, 2-space indent.
 
 # shellcheck disable=SC2034,SC2059,SC2154
@@ -68,7 +68,9 @@ wf_extra_parse() {
             fi
             return 1 ;;
         --logo-width=*)
-            _WF_LWIDTH="${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+            _WF_LWIDTH="${1#*=}"
+            [[ "$_WF_LWIDTH" =~ ^[0-9]+$ ]] || { printf 'wellfetch: --logo-width must be a number\n' >&2; return 1; }
+            _WU_EXTRA_CONSUMED=1; return 0 ;;
     esac
     return 1
 }
@@ -79,55 +81,6 @@ _WU_EXTRA_HELP="      --no-logo              text only, no logo
       --logo-width N        logo width in cells"
 
 # --- i18n ---------------------------------------------------------------------
-
-wft() {
-    case "${WELLUTILS_LANG:-EN}" in
-        RU)
-            case "$1" in
-                user) printf 'Пользователь' ;; os) printf 'ОС' ;;
-                kernel) printf 'Ядро' ;; uptime) printf 'Аптайм' ;;
-                shell) printf 'Оболочка' ;; desktop) printf 'Окружение' ;;
-                wm) printf 'Окна' ;; terminal) printf 'Терминал' ;;
-                theme) printf 'Тема' ;; icons) printf 'Иконки' ;;
-                font) printf 'Шрифт' ;; cpu) printf 'CPU' ;;
-                gpu) printf 'GPU' ;; mem) printf 'Память' ;;
-                swap) printf 'Своп' ;; disk) printf 'Диск' ;;
-                disks) printf 'Диски' ;; monitors) printf 'Мониторы' ;;
-                resolution) printf 'Разрешение' ;; audio) printf 'Аудио' ;;
-                peripherals) printf 'Периферия' ;; packages) printf 'Пакеты' ;;
-                locale) printf 'Локаль' ;; date) printf 'Дата' ;;
-                p_kbd) printf 'Клавиатура' ;; p_mouse) printf 'Мышь' ;;
-                p_tablet) printf 'Планшет' ;; p_pad) printf 'Геймпад' ;;
-                p_audio) printf 'Аудио' ;; p_cam) printf 'Камера' ;;
-                p_print) printf 'Принтер' ;; p_store) printf 'Накопители' ;;
-                p_net) printf 'Сеть' ;; p_phone) printf 'Телефон' ;;
-                p_hub) printf 'Хаб' ;; p_hid) printf 'HID' ;;
-                p_vend) printf 'Прочее' ;; p_dev) printf 'Устройство' ;;
-            esac ;;
-        *)
-            case "$1" in
-                user) printf 'User' ;; os) printf 'OS' ;;
-                kernel) printf 'Kernel' ;; uptime) printf 'Uptime' ;;
-                shell) printf 'Shell' ;; desktop) printf 'Desktop' ;;
-                wm) printf 'WM' ;; terminal) printf 'Terminal' ;;
-                theme) printf 'Theme' ;; icons) printf 'Icons' ;;
-                font) printf 'Font' ;; cpu) printf 'CPU' ;;
-                gpu) printf 'GPU' ;; mem) printf 'Memory' ;;
-                swap) printf 'Swap' ;; disk) printf 'Disk' ;;
-                disks) printf 'Disks' ;; monitors) printf 'Monitors' ;;
-                resolution) printf 'Resolution' ;; audio) printf 'Audio' ;;
-                peripherals) printf 'Peripherals' ;; packages) printf 'Packages' ;;
-                locale) printf 'Locale' ;; date) printf 'Date' ;;
-                p_kbd) printf 'Keyboard' ;; p_mouse) printf 'Mouse' ;;
-                p_tablet) printf 'Tablet' ;; p_pad) printf 'Gamepad' ;;
-                p_audio) printf 'Audio' ;; p_cam) printf 'Camera' ;;
-                p_print) printf 'Printer' ;; p_store) printf 'Storage' ;;
-                p_net) printf 'Network' ;; p_phone) printf 'Phone' ;;
-                p_hub) printf 'Hub' ;; p_hid) printf 'HID' ;;
-                p_vend) printf 'Other' ;; p_dev) printf 'Device' ;;
-            esac ;;
-    esac
-}
 
 # The default sections (os kernel cpu gpu mem resolution) use compact
 # single-width geometric glyphs: they align perfectly and match the
@@ -162,7 +115,7 @@ wfv_user() {
     local u h
     u=$(id -un 2>/dev/null); [[ -n "$u" ]] || u="${USER:-?}"
     h=$(hostname 2>/dev/null); [[ -n "$h" ]] || h="${HOSTNAME:-?}"
-    wf_push user "$(wft user)" "$u@$h"
+    wf_push user "$(t wf_user)" "$u@$h"
 }
 
 wfv_os() {
@@ -172,13 +125,13 @@ wfv_os() {
     fi
     arch=$(uname -m 2>/dev/null)
     if [[ -n "$pretty" ]]; then
-        wf_push os "$(wft os)" "$pretty${arch:+ ($arch)}"
+        wf_push os "$(t wf_os)" "$pretty${arch:+ ($arch)}"
     else
-        wf_push os "$(wft os)" "—"
+        wf_push os "$(t wf_os)" "-"
     fi
 }
 
-wfv_kernel() { wf_push kernel "$(wft kernel)" "$(uname -r 2>/dev/null || printf '—')"; }
+wfv_kernel() { wf_push kernel "$(t wf_kernel)" "$(uname -r 2>/dev/null || printf '-')"; }
 
 wfv_uptime() {
     local s d h m up boot
@@ -192,7 +145,7 @@ wfv_uptime() {
         boot=$(( $(date +%s) - s ))
         up+=" · boot $(date -d "@$boot" '+%F %H:%M' 2>/dev/null)"
     fi
-    wf_push uptime "$(wft uptime)" "$up"
+    wf_push uptime "$(t wf_uptime)" "$up"
 }
 
 wfv_shell() {
@@ -204,26 +157,26 @@ wfv_shell() {
         zsh)  ver="${ZSH_VERSION:-}" ;;
         fish) ver="${FISH_VERSION:-}" ;;
     esac
-    if [[ -n "$ver" ]]; then wf_push shell "$(wft shell)" "$base $ver"
-    else wf_push shell "$(wft shell)" "$base"; fi
+    if [[ -n "$ver" ]]; then wf_push shell "$(t wf_shell)" "$base $ver"
+    else wf_push shell "$(t wf_shell)" "$base"; fi
 }
 
 wfv_desktop() {
     local v="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
     v=$(wf_clean "$v")
-    wf_push desktop "$(wft desktop)" "${v:-—}"
+    wf_push desktop "$(t wf_desktop)" "${v:--}"
 }
 
 wfv_wm() {
     local v="${GDMSESSION:-${DESKTOP_SESSION:-${WM:-}}}"
     v=$(wf_clean "$v")
-    wf_push wm "$(wft wm)" "${v:-—}"
+    wf_push wm "$(t wf_wm)" "${v:--}"
 }
 
 wfv_terminal() {
     local v="${TERM_PROGRAM:-}"
     [[ -n "$v" ]] || v="${TERM##*-}"
-    wf_push terminal "$(wft terminal)" "${v:-—}"
+    wf_push terminal "$(t wf_terminal)" "${v:--}"
 }
 
 wfv_theme() {
@@ -232,7 +185,7 @@ wfv_theme() {
         v=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")
     fi
     v=$(wf_clean "$v")
-    wf_push theme "$(wft theme)" "${v:-—}"
+    wf_push theme "$(t wf_theme)" "${v:--}"
 }
 
 wfv_icons() {
@@ -241,7 +194,7 @@ wfv_icons() {
         v=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")
     fi
     v=$(wf_clean "$v")
-    wf_push icons "$(wft icons)" "${v:-—}"
+    wf_push icons "$(t wf_icons)" "${v:--}"
 }
 
 wfv_font() {
@@ -250,7 +203,7 @@ wfv_font() {
         v=$(gsettings get org.gnome.desktop.interface font-name 2>/dev/null | tr -d "'")
     fi
     v=$(wf_clean "$v")
-    wf_push font "$(wft font)" "${v:-—}"
+    wf_push font "$(t wf_font)" "${v:--}"
 }
 
 wfv_cpu() {
@@ -260,7 +213,7 @@ wfv_cpu() {
     threads=$(nproc 2>/dev/null)
     freq=$(awk -F': ' '/^cpu MHz/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
     load=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
-    wf_push cpu "$(wft cpu)" "${m:-—}"
+    wf_push cpu "$(t wf_cpu)" "${m:--}"
     local detail=""
     if [[ -n "$cores" && -n "$threads" ]]; then
         detail="${cores} cores / ${threads} threads"
@@ -276,7 +229,7 @@ wfv_cpu() {
 }
 
 wfv_gpu() {
-    command -v lspci >/dev/null 2>&1 || { wf_push gpu "$(wft gpu)" "—"; return; }
+    command -v lspci >/dev/null 2>&1 || { wf_push gpu "$(t wf_gpu)" "-"; return; }
     local first=1 line name vram
     while IFS= read -r line; do
         name=$(sed -E 's/.*(VGA compatible controller|3D controller|Display controller): //' <<< "$line")
@@ -290,24 +243,24 @@ wfv_gpu() {
         fi
         name=$(sed -E 's/^(NVIDIA Corporation|Advanced Micro Devices|AMD|Intel Corporation|Intel) //; s/ *\(rev[^)]*\)$//' <<< "$name")
         if (( first )); then
-            wf_push gpu "$(wft gpu)" "$name${vram:+ · $vram}"
+            wf_push gpu "$(t wf_gpu)" "$name${vram:+ · $vram}"
             first=0
         else
             wf_push gpu "" "$name${vram:+ · $vram}"
         fi
     done < <(lspci 2>/dev/null | grep -iE 'VGA compatible|3D controller|Display controller')
-    (( first )) && wf_push gpu "$(wft gpu)" "—"
+    (( first )) && wf_push gpu "$(t wf_gpu)" "-"
 }
 
 wfv_mem() {
     local total avail used pct t
     total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
     avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)
-    [[ -n "$total" && -n "$avail" ]] || { wf_push mem "$(wft mem)" "—"; return; }
+    [[ -n "$total" && -n "$avail" ]] || { wf_push mem "$(t wf_mem)" "-"; return; }
     used=$(( (total - avail) / 1024 / 1024 ))
     t=$(( total / 1024 / 1024 ))
     pct=$(( (total - avail) * 100 / total ))
-    wf_push mem "$(wft mem)" "$used GiB / $t GiB ($pct%)"
+    wf_push mem "$(t wf_mem)" "$used GiB / $t GiB ($pct%)"
 }
 
 wfv_swap() {
@@ -318,13 +271,13 @@ wfv_swap() {
     used=$(( (total - free) / 1024 / 1024 ))
     t=$(( total / 1024 / 1024 ))
     pct=$(( (total - free) * 100 / total ))
-    wf_push swap "$(wft swap)" "$used GiB / $t GiB ($pct%)"
+    wf_push swap "$(t wf_swap)" "$used GiB / $t GiB ($pct%)"
 }
 
 wfv_disk() {
     local line
     line=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s %s / %s (%s)", $6, $3, $2, $5}')
-    wf_push disk "$(wft disk)" "${line:-—}"
+    wf_push disk "$(t wf_disk)" "${line:--}"
 }
 
 wfv_disks() {
@@ -333,9 +286,9 @@ wfv_disks() {
     while read -r name type size model; do
         [[ "$type" == "disk" ]] || continue
         model=$(wf_clean "$model")
-        [[ -n "$model" ]] || model="—"
+        [[ -n "$model" ]] || model="-"
         if (( first )); then
-            wf_push disks "$(wft disks)" "$name $model · $size"
+            wf_push disks "$(t wf_disks)" "$name $model · $size"
             first=0
         else
             wf_push disks "" "$name $model · $size"
@@ -367,9 +320,9 @@ wfv_monitors() {
     fi
     local n=${#outs[@]}
     if (( n == 0 )); then
-        wf_push monitors "$(wft monitors)" "—"; return
+        wf_push monitors "$(t wf_monitors)" "-"; return
     fi
-    wf_push monitors "$(wft monitors)" "$n"
+    wf_push monitors "$(t wf_monitors)" "$n"
     local i
     for (( i=0; i<n; i++ )); do
         wf_push monitors "" "${outs[i]} · ${modes[i]}"
@@ -381,19 +334,19 @@ wfv_resolution() {
     for d in /sys/class/drm/card*-primary-*; do
         [[ -f "$d/modes" ]] || continue
         r=$(head -1 "$d/modes" 2>/dev/null)
-        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
+        if [[ -n "$r" ]]; then wf_push resolution "$(t wf_resolution)" "$r"; return; fi
     done
     for d in /sys/class/drm/card*-HDMI-* /sys/class/drm/card*-DVI-* /sys/class/drm/card*-DP-*; do
         [[ -f "$d/status" ]] || continue
         [[ "$(cat "$d/status" 2>/dev/null)" == "connected" ]] || continue
         r=$(head -1 "$d/modes" 2>/dev/null)
-        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
+        if [[ -n "$r" ]]; then wf_push resolution "$(t wf_resolution)" "$r"; return; fi
     done
     if command -v wlr-randr >/dev/null 2>&1; then
         r=$(wlr-randr 2>/dev/null | awk '/current/{print $1; exit}')
-        if [[ -n "$r" ]]; then wf_push resolution "$(wft resolution)" "$r"; return; fi
+        if [[ -n "$r" ]]; then wf_push resolution "$(t wf_resolution)" "$r"; return; fi
     fi
-    wf_push resolution "$(wft resolution)" "—"
+    wf_push resolution "$(t wf_resolution)" "-"
 }
 
 wfv_audio() {
@@ -406,8 +359,8 @@ wfv_audio() {
         n=$(( n + 1 ))
         names+="${names:+, }$nm"
     done < /proc/asound/cards
-    if (( n > 0 )); then wf_push audio "$(wft audio)" "$n: $names"
-    else wf_push audio "$(wft audio)" "—"; fi
+    if (( n > 0 )); then wf_push audio "$(t wf_audio)" "$n: $names"
+    else wf_push audio "$(t wf_audio)" "-"; fi
 }
 
 wf_classify() {
@@ -415,13 +368,18 @@ wf_classify() {
     local hay
     hay=$(printf '%s %s' "$prod" "$mfg" | tr '[:upper:]' '[:lower:]')
     case "$hay" in
-        *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*)
+        *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*stylus*)
             printf '%s' tablet; return ;;
+    esac
+    case "$hay" in
+        *touch*|*touchscreen*|*touchpad*)
+            printf '%s' touchscreen; return ;;
     esac
     case "$hay" in
         *keyboard*|*k63*|*k55*|*k70*|*typewriter*) printf '%s' keyboard; return ;;
         *mouse*|*trackball*|*deathadder*|*razer*|*logitech*g*|*gaming*mouse*) printf '%s' mouse; return ;;
-        *gamepad*|*controller*|*xbox*|*dualshock*|*joystick*|*fightstick*) printf '%s' gamepad; return ;;
+        *gamepad*|*controller*|*xbox*|*dualshock*|*joystick*|*fightstick*|*nintendo*|*pro*controller*)
+            printf '%s' gamepad; return ;;
     esac
     case "$hay" in
         *webcam*|*camera*|*cam*) printf '%s' webcam; return ;;
@@ -445,17 +403,19 @@ wf_classify() {
 
 wf_ptype() {
     case "$1" in
-        keyboard) wft p_kbd ;; mouse) wft p_mouse ;; tablet) wft p_tablet ;;
-        gamepad)  wft p_pad ;; audio) wft p_audio ;; webcam) wft p_cam ;;
-        printer)  wft p_print ;; storage) wft p_store ;; network) wft p_net ;;
-        phone)    wft p_phone ;; hub) wft p_hub ;; hid) wft p_hid ;;
-        vendor)   wft p_vend ;; *) wft p_dev ;;
+        keyboard) t p_kbd ;; mouse) t p_mouse ;; touchscreen) t p_touch ;;
+        stylus) t p_stylus ;; tablet) t p_tablet ;;
+        gamepad)  t p_pad ;; audio) t p_audio ;; webcam) t p_cam ;;
+        printer)  t p_print ;; storage) t p_store ;; network) t p_net ;;
+        phone)    t p_phone ;; hub) t p_hub ;; hid) t p_hid ;;
+        vendor)   t p_vend ;; *) t p_dev ;;
     esac
 }
 
 wf_picon() {
     case "$1" in
-        keyboard) printf '⌨️' ;; mouse) printf '🖱️' ;; tablet) printf '🎨' ;;
+        keyboard) printf '⌨️' ;; mouse) printf '🖱️' ;; touchscreen) printf '👆' ;;
+        stylus) printf '✏️' ;; tablet) printf '🎨' ;;
         gamepad) printf '🎮' ;; audio) printf '🎧' ;; webcam) printf '📷' ;;
         printer) printf '🖨️' ;; storage) printf '💾' ;; network) printf '📶' ;;
         phone) printf '📱' ;; hub) printf '🔌' ;; hid) printf '⚙️' ;;
@@ -465,7 +425,7 @@ wf_picon() {
 
 wfv_peripherals() {
     local devdir base bclass prod mfg type name
-    local -a order=(keyboard mouse tablet gamepad audio webcam printer storage network phone hid vendor device)
+    local -a order=(keyboard mouse touchscreen stylus tablet gamepad audio webcam printer storage network phone hid vendor device)
 
     # bash 3.2 has no associative arrays: index P by position in $order.
     wfv_pindex() {
@@ -477,6 +437,8 @@ wfv_peripherals() {
     }
 
     local -a P=()
+
+    # ── USB devices (primary source) ──────────────────────────
     for devdir in /sys/bus/usb/devices/*; do
         [[ -d "$devdir" ]] || continue
         base=$(basename "$devdir")
@@ -495,6 +457,93 @@ wfv_peripherals() {
         case ",${P[$pi]:-}," in *",$name,"*) continue ;; esac
         P[$pi]+=",$name"
     done
+
+    # ── PS/2 keyboards and mice ───────────────────────────────
+    for devdir in /sys/bus/serio/devices/*; do
+        [[ -d "$devdir" ]] || continue
+        [[ -r "$devdir/description" ]] || continue
+        local sdesc
+        sdesc=$(cat "$devdir/description" 2>/dev/null)
+        case "$sdesc" in
+            *keyboard*|*kbd*) type="keyboard" ;;
+            *mouse*|*pointing*) type="mouse" ;;
+            *) continue ;;
+        esac
+        name=$(wf_clean "$sdesc")
+        [[ -n "$name" ]] || name="PS/2 ${type}"
+        local pi
+        pi=$(wfv_pindex "$type")
+        case ",${P[$pi]:-}," in *",$name,"*) continue ;; esac
+        P[$pi]+=",$name"
+    done
+
+    # ── evdev input devices (touchscreens, styluses, tablets) ─
+    if [[ -r /proc/bus/input/devices ]]; then
+        local evname="" evphys="" evskip=""
+        while IFS= read -r evline; do
+            case "$evline" in
+                N:\ *)
+                    evname=$(printf '%s' "${evline#*Name=}" | tr -d '"' | sed 's/^ //' | tr -cd '[:print:]')
+                    evname=$(wf_clean "$evname")
+                    evskip="" ;;
+                P:\ *)
+                    evphys=$(printf '%s' "${evline#*Phys=}" | sed 's/^ //' | tr -cd '[:print:]')
+                    # skip USB devices -- already detected via /sys/bus/usb
+                    [[ "$evphys" == usb-* ]] && evskip=1 ;;
+                H:\ *Handlers=*)
+                    # skip if no name or already marked as USB
+                    [[ "$evskip" == "1" ]] && { evname=""; evphys=""; continue; }
+                    [[ -z "$evname" ]] && { evname=""; evphys=""; continue; }
+                    local hay
+                    hay=$(printf '%s' "$evname" | tr '[:upper:]' '[:lower:]')
+                    type=""
+                    case "$hay" in
+                        *touch*|*touchscreen*) type="touchscreen" ;;
+                        *stylus*|*pen*|*wacom*|*huion*|*xp-pen*|*gaomon*|*digitizer*)
+                            type="stylus" ;;
+                        *tablet*|*graphics*|*intuos*|*cintiq*|*bamboo*)
+                            type="tablet" ;;
+                        *joystick*|*gamepad*|*controller*|*xbox*|*ps3*|*ps4*|*ps5*|*nintendo*)
+                            type="gamepad" ;;
+                        *keyboard*|*kbd*) type="keyboard" ;;
+                        *mouse*|*trackball*) type="mouse" ;;
+                        *sensor*|*accel*|*gyro*) type="" ;;  # skip internal sensors
+                    esac
+                    [[ -n "$type" ]] || { evname=""; evphys=""; continue; }
+                    local pi
+                    pi=$(wfv_pindex "$type")
+                    case ",${P[$pi]:-}," in *",$evname,"*) evname=""; evphys=""; continue ;; esac
+                    P[$pi]+=",$evname"
+                    evname=""; evphys=""
+                    ;;
+            esac
+        done < /proc/bus/input/devices
+    fi
+
+    # ── Bluetooth input devices ────────────────────────────────
+    for devdir in /sys/bus/bluetooth/devices/*; do
+        [[ -d "$devdir" ]] || continue
+        [[ -r "$devdir/name" ]] || continue
+        local btname
+        btname=$(wf_clean "$(cat "$devdir/name" 2>/dev/null)")
+        [[ -n "$btname" ]] || continue
+        # Classify by name heuristic
+        type="device"
+        local hay
+        hay=$(printf '%s' "$btname" | tr '[:upper:]' '[:lower:]')
+        case "$hay" in
+            *keyboard*|*kbd*) type="keyboard" ;;
+            *mouse*|*trackball*) type="mouse" ;;
+            *controller*|*gamepad*|*xbox*|*dualshock*) type="gamepad" ;;
+            *headphone*|*headset*|*buds*|*earphone*|*speaker*|*audio*) type="audio" ;;
+            *pen*|*stylus*|*tablet*) type="tablet" ;;
+            *printer*) type="printer" ;;
+        esac
+        local pi
+        pi=$(wfv_pindex "$type")
+        case ",${P[$pi]:-}," in *",$btname,"*) continue ;; esac
+        P[$pi]+=",$btname"
+    done
     local -a rows=()
     local t count=0
     for t in "${order[@]}"; do
@@ -505,10 +554,10 @@ wfv_peripherals() {
         count=$(( count + $(printf '%s' "${P[$pi]}" | tr ',' '\n' | sed '/^$/d' | awk 'END{print NR}') ))
     done
     if (( ${#rows[@]} == 0 )); then
-        wf_push peripherals "$(wft peripherals)" "—"
+        wf_push peripherals "$(t wf_peripherals)" "-"
         return
     fi
-    wf_push peripherals "$(wft peripherals)" "$count"
+    wf_push peripherals "$(t wf_peripherals)" "$count"
     local first=1
     for t in "${rows[@]}"; do
         local names ic label pi
@@ -542,30 +591,48 @@ wfv_packages() {
             [[ -n "$joined" ]] && joined+=", "
             joined+="$p"
         done
-        wf_push packages "$(wft packages)" "$joined"
+        wf_push packages "$(t wf_packages)" "$joined"
     else
-        wf_push packages "$(wft packages)" "—"
+        wf_push packages "$(t wf_packages)" "-"
     fi
 }
 
-wfv_locale() { wf_push locale "$(wft locale)" "${LANG:-—}"; }
+wfv_locale() { wf_push locale "$(t wf_locale)" "${LANG:--}"; }
 
 wfv_date() {
     if command -v date >/dev/null 2>&1; then
-        wf_push date "$(wft date)" "$(date '+%A %d %B %Y %H:%M' 2>/dev/null)"
+        wf_push date "$(t wf_date)" "$(date '+%A %d %B %Y %H:%M' 2>/dev/null)"
     else
-        wf_push date "$(wft date)" "—"
+        wf_push date "$(t wf_date)" "-"
     fi
+}
+
+wfv_battery() {
+    local bat_dir cap="" status=""
+    for bat_dir in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do
+        [[ -d "$bat_dir" ]] || continue
+        cap=$(cat "$bat_dir/capacity" 2>/dev/null || true)
+        status=$(cat "$bat_dir/status" 2>/dev/null || true)
+        [[ -n "$cap" ]] || continue
+        local icon
+        case "$status" in
+            Charging) icon="$(_emu '🔌')" ;;
+            Full)     icon="$(_emu '🔋')" ;;
+            *)        icon="$(_emu '🪫')" ;;
+        esac
+        wf_push battery "$(t wf_battery)" "${icon} ${cap}% (${status})"
+        return
+    done
 }
 
 wf_custom() { :; }
 
 # --- collection ---------------------------------------------------------------
 
-# Default set: essentials only — user@host, system, kernel, uptime, cpu,
+# Default set: essentials only -- user@host, system, kernel, uptime, cpu,
 # gpu, memory, screen. Everything else stays available via --all/--full.
 WF_SECTIONS="user os kernel uptime cpu gpu mem resolution"
-WF_ALL_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale audio resolution peripherals date"
+WF_ALL_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale audio resolution peripherals battery date"
 
 wf_collect() {
     WF_SECS=() WF_LABELS=() WF_VALUES=()
@@ -573,7 +640,7 @@ wf_collect() {
     for sec in $WF_SECTIONS; do
         vname="WF_VALUE_${sec}"
         if [[ -n "${!vname:-}" ]]; then
-            wf_push "$sec" "$(wft "$sec")" "${!vname}"
+            wf_push "$sec" "$(t "wf_$sec")" "${!vname}"
         else
             wfv_${sec}
         fi
@@ -616,10 +683,7 @@ wf_logo_lines() {
     fi
 }
 
-# Drop the transparent margins around the ASCII logo so its real height is
-# known: leading/trailing blank rows are removed. The horizontal offset the
-# art renderer gives the logo (leading/trailing empty cells) is kept so the
-# logo sits at its natural position and the info column stays aligned.
+# Trim transparent margins around ASCII logo (keep horizontal offset for alignment).
 _wf_trim_logo() {
     local -a arr=()
     local line i start=-1 end=-1 kept="" o

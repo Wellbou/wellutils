@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellblock — Beautiful block device listing
+# wellblock -- Beautiful block device listing
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -106,11 +106,13 @@ wblock_smart() {
     fi
 
     local out
-    # NOTE: do not clear $out on non-zero exit. smartctl exits non-zero as soon
-    # as the drive reports ANY error bit (e.g. a failed self-test) while still
-    # printing the full report — `|| out=""` would wipe it and falsely report
-    # "SMART not supported" (see TOSHIBA MK1059GS case).
+    # smartctl exits non-zero on error bits but still prints the report.
     out=$(root_run smartctl -a "$devnode" 2>/dev/null) || true
+
+    # Seagate drives encode attrs 1 & 7 as composite raw values:
+    #   high 32 bits = error count, low 32 bits = total operations.
+    local _SM_SEAGATE=0
+    grep -qi 'Vendor:\|Seagate\|^Device Model:.*ST[0-9]' <<< "$out" && _SM_SEAGATE=1
 
     # S.M.A.R.T. unavailable for the device (e.g. USB card readers)
     if ! grep -q 'SMART overall-health' <<< "$out" && ! grep -q 'SMART Health Information' <<< "$out"; then
@@ -162,7 +164,7 @@ wblock_smart() {
     while IFS='|' read -r id name val worst thr raw; do
         case "$id" in
             5|187|197|198|200|201)
-                if (( 10#${raw%% *} > 0 )); then (( risk < 1 )) && risk=1; fi ;;
+                [[ "$raw" =~ ^[0-9] ]] && (( ${raw%% *} + 0 > 0 )) && (( risk < 1 )) && risk=1 ;;
         esac
     done <<< "$attrs"
 
@@ -174,7 +176,7 @@ wblock_smart() {
     # Readable readout: health verdict + curated attributes, values aligned
     # to the longest label. Risky attributes are always shown (with the raw
     # name if not curated); obscure attributes are dropped.
-    local -a rows=()
+    local -a rows=() _shown_labels=()
     local label="" value="" shown=0 maxl
     label="$(t blk_smart_health)"
     maxl=${#label}
@@ -184,11 +186,16 @@ wblock_smart() {
         if [[ -z "$label" ]]; then
             case "$id" in 5|187|197|198|200|201) label="$name" ;; *) continue ;; esac
         fi
+        # Deduplicate: skip if this label was already emitted (e.g. attrs 190 & 194 both → "Temperature").
+        local _dup=0 _sl
+        for _sl in "${_shown_labels[@]}"; do [[ "$_sl" == "$label" ]] && { _dup=1; break; }; done
+        (( _dup )) && continue
+        _shown_labels+=("$label")
         raw="${raw%% *}"
         value=$(sm_attr_value "$id" "$raw")
         case "$id" in
             5|187|197|198|200|201)
-                if (( 10#$raw > 0 )); then
+                if [[ "$raw" =~ ^[0-9] ]] && (( raw + 0 > 0 )); then
                     value="${Y}${value}${RESET}  ${Y}$(t blk_smart_risk)${RESET}"
                 else
                     value="${G}${value}${RESET}"
@@ -216,6 +223,7 @@ wblock_smart() {
 sm_attr_label() {
     case "$1" in
         1)   printf '%s' "$(t blk_attr_reread)" ;;
+        7)   printf '%s' "$(t blk_attr_seekerr)" ;;
         5)   printf '%s' "$(t blk_attr_realloc)" ;;
         9)   printf '%s' "$(t blk_attr_poh)" ;;
         12)  printf '%s' "$(t blk_attr_pcc)" ;;
@@ -243,6 +251,22 @@ sm_attr_value() {
         9)   printf '%s h' "$((10#$raw))" ;;
         190|194) printf '%s°C' "$((10#$raw))" ;;
         241|242) fmt_size $(( 10#$raw * 512 )) ;;
+        1|7) if [[ "${_SM_SEAGATE:-0}" == "1" ]]; then
+                 local _hi _lo
+                 _hi=$(( (10#$raw) >> 32 ))
+                 _lo=$(( (10#$raw) & 0xFFFFFFFF ))
+                 printf '%s / %s ops' "$_hi" "$_lo"
+             else
+                 printf '%s' "$((10#$raw))"
+             fi ;;
+        188) if [[ "${_SM_SEAGATE:-0}" == "1" ]]; then
+                  local _hi _lo
+                  _hi=$(( (10#$raw) >> 32 ))
+                  _lo=$(( (10#$raw) & 0xFFFFFFFF ))
+                  printf '%s / %s cmds' "$_hi" "$_lo"
+              else
+                  printf '%s' "$((10#$raw))"
+              fi ;;
         *)   printf '%s' "$((10#$raw))" ;;
     esac
 }
@@ -383,6 +407,7 @@ json_out() {
         else dtype="ssd"; fi
 
         local smart_avail=0 smart_health=""
+        local _s_seagate=0 smart_attrs_json="" _s_afirst=1
         if command -v smartctl &>/dev/null; then
             local sout sattrs srisk=0 s_overall
             sout=$(root_run smartctl -a "/dev/$bn" 2>/dev/null) || true
@@ -390,6 +415,8 @@ json_out() {
             if [[ -z "$serial" && -n "$sout" ]]; then
                 serial=$(awk -F': ' '/^Serial Number:/{print $2; exit}' <<< "$sout" | xargs)
             fi
+            # Detect Seagate: composite raw values for attrs 1, 7, 188.
+            grep -qi 'Vendor:\|Seagate\|^Device Model:.*ST[0-9]' <<< "$sout" && _s_seagate=1
             if [[ -n "$sout" ]] && { grep -q 'SMART overall-health' <<< "$sout" || grep -q 'SMART Health Information' <<< "$sout"; }; then
                 smart_avail=1
                 s_overall=$(awk '/^SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$sout")
@@ -397,16 +424,32 @@ json_out() {
                 sattrs=$(awk '
                     /^Vendor Specific SMART Attributes/ { inattrs=1; next }
                     inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
-                        printf "%s|%s\n", $1, $10
+                        id=$1; name=$2; val=$4; worst=$5; thr=$6
+                        raw=$10; for (i=11; i<=NF; i++) raw=raw " " $i
+                        gsub(/^[[:space:]]+|[[:space:]]+$/, "", raw)
+                        printf "%s|%s|%s|%s|%s|%s\n", id, name, val, worst, thr, raw
                     }
                     inattrs && /^SMART Error Log/ { exit }
                 ' <<< "$sout")
-                local sid sraw
-                while IFS='|' read -r sid sraw; do
+                local sid sname sval sworst sthr sraw sdec
+                while IFS='|' read -r sid sname sval sworst sthr sraw; do
+                    # Risk check
                     case "$sid" in
                         5|187|197|198|200|201)
                             if (( 10#${sraw%% *} > 0 )); then (( srisk < 1 )) && srisk=1; fi ;;
                     esac
+                    # Decode Seagate composite raw values for attrs 1, 7, 188.
+                    sdec=""
+                    case "$sid" in
+                        1|7|188) if [[ "$_s_seagate" == "1" ]]; then
+                                     local _hi _lo
+                                     _hi=$(( (10#${sraw%% *}) >> 32 ))
+                                     _lo=$(( (10#${sraw%% *}) & 0xFFFFFFFF ))
+                                     printf -v sdec '%d / %d' "$_hi" "$_lo"
+                                 fi ;;
+                    esac
+                    (( _s_afirst )) && _s_afirst=0 || smart_attrs_json+=","
+                    smart_attrs_json+="{\"id\":$((10#$sid)),\"name\":\"$(json_esc "$sname")\",\"value\":$((10#$sval)),\"worst\":$((10#$sworst)),\"threshold\":$((10#$sthr)),\"raw\":\"$(json_esc "${sdec:-${sraw%% *}}")\"}"
                 done <<< "$sattrs"
                 case "$srisk" in
                     2) smart_health="FAILED" ;;
@@ -425,7 +468,11 @@ json_out() {
         printf '    "rotational": %s,\n' "$rotational"
         printf '    "removable": %s,\n' "$removable"
         printf '    "type": "%s",\n' "$dtype"
-        printf '    "smart": { "available": %s, "health": "%s" },\n' "$smart_avail" "$(json_esc "$smart_health")"
+        printf '    "smart": { "available": %s, "health": "%s"' "$smart_avail" "$(json_esc "$smart_health")"
+        if [[ -n "$smart_attrs_json" ]]; then
+            printf ', "attributes": [%s]' "$smart_attrs_json"
+        fi
+        printf ' },\n'
         printf '    "partitions": [\n'
         local first=1 part pname psize_bytes fstype mountpoint lsblk_out
         for part in "$target_dev"/${bn}*; do
@@ -555,7 +602,7 @@ main() {
 
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
     local hw_title hw_ic hw_pad
-    hw_title="wellblock — $(t blk_title)"
+    hw_title="wellblock -- $(t blk_title)"
     hw_ic="$(_ic '💾')"
     hw_pad=$(( 82 - 5 - ${#hw_title} ))
     [[ -z "$hw_ic" ]] && hw_pad=$(( hw_pad + 3 ))
@@ -607,11 +654,25 @@ main() {
         size_human=$(fmt_size "$size_bytes")
         total_bytes=$(( total_bytes + size_bytes ))
 
-        printf '  %s│%s  %s %s%s%s%s  %s%-20s%s  %s%s%s  %s%8s%s\n' \
+        # Disk health badge (fast -H check, skip removable)
+        local health_badge=""
+        if [[ "$removable" != "1" ]] && command -v smartctl &>/dev/null; then
+            local smart_h
+            smart_h=$(root_run smartctl -H "/dev/$bn" 2>/dev/null) || true
+            case "$smart_h" in
+                *PASSED*)            health_badge=" ${G}✓${RESET}" ;;
+                *FAILED*)            health_badge=" ${R}✗${RESET}" ;;
+                *"SMART not supported"*) health_badge="" ;;
+                *)                   health_badge="" ;;
+            esac
+        fi
+
+        printf '  %s│%s  %s %s%s%s%s  %s%-20s%s  %s%s%s  %s%8s%s%s\n' \
             "$C" "$RESET" "$type_icon" "$BOLD" "$W" "/dev/$bn" "$RESET" \
             "$type_color" "$type_label" "$RESET" \
             "$G" "$model" "$RESET" \
-            "$DIM" "$size_human" "$RESET"
+            "$DIM" "$size_human" "$RESET" \
+            "$health_badge"
 
         if [[ -n "$serial" ]]; then
             printf '  %s│%s     %s%s: %s%s\n' "$C" "$RESET" "$DIM" "$(t blk_serial)" "$serial" "$RESET"

@@ -1,11 +1,137 @@
-# box.sh — shared adaptive box-drawing engine for wellutils
+# box.sh -- shared adaptive box-drawing engine for wellutils
 # Part of wellutils by wellbou_
-# Depends on: lang.sh (source it first — provides t())
+# Depends on: lang.sh (source it first -- provides t())
 
 # ─── Colors & Symbols ───────────────────────────────────────────
 R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
 M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
+
+# ─── ASCII fallbacks for Unicode block elements ─────────────
+# Usage: wu_bar FILLED EMPTY  -- prints a progress bar using Unicode or ASCII.
+wu_bar() {
+    local filled="${1:-0}" empty="${2:-0}" i
+    if [[ "${_WU_UNICODE:-1}" -eq 1 ]]; then
+        for (( i=0; i<filled; i++ )); do printf '█'; done
+        for (( i=0; i<empty; i++ )); do printf '░'; done
+    else
+        for (( i=0; i<filled; i++ )); do printf '#'; done
+        for (( i=0; i<empty; i++ )); do printf '.'; done
+    fi
+}
+
+# wu_scale  -- prints one of 8 bar-height glyphs (▁▂▃▄▅▆▇█) or ASCII fallback.
+wu_scale() {
+    local idx="${1:-0}"
+    if [[ "${_WU_UNICODE:-1}" -eq 1 ]]; then
+        local bars=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
+        printf '%s' "${bars[$(( idx < 0 ? 0 : idx > 7 ? 7 : idx ))]}"
+    else
+        local bars=("." "." "." "-" "-" "=" "=" "#")
+        printf '%s' "${bars[$(( idx < 0 ? 0 : idx > 7 ? 7 : idx ))]}"
+    fi
+}
+
+# ─── GPU AIB vendor detection ────────────────────────────────────
+# Reads subsystem_vendor from sysfs for a PCI bus address.
+gpu_aib_vendor() {
+    local bus="$1" hex
+    hex=$(cat "/sys/bus/pci/devices/0000:${bus}/subsystem_vendor" 2>/dev/null) || { printf ''; return; }
+    hex="${hex#0x}"
+    case "$hex" in
+        1043) printf 'ASUS'       ;;
+        1462) printf 'MSI'        ;;
+        1458) printf 'Gigabyte'   ;;
+        3842) printf 'EVGA'       ;;
+        19da) printf 'ZOTAC'      ;;
+        1569) printf 'Palit'      ;;
+        148c) printf 'PowerColor' ;;
+        1682) printf 'XFX'        ;;
+        1da2) printf 'Sapphire'   ;;
+        196e) printf 'PNY'        ;;
+        1b4c) printf 'GALAX'      ;;
+        10de) printf 'NVIDIA'     ;;
+        1002) printf 'AMD'        ;;
+        8086) printf 'Intel'      ;;
+        102b) printf 'Matrox'     ;;
+        1039) printf 'SiS'        ;;
+        100c) printf 'ATI'        ;;
+        109e) printf 'Brooktree'  ;;
+        1102) printf 'Creative'   ;;
+        1106) printf 'VIA'        ;;
+        1260) printf 'Weitek'     ;;
+        14af) printf 'Guillemot'   ;;
+        1554) printf 'Brooktree'  ;;
+        18ca) printf 'XGI'        ;;
+        1de1) printf 'Trident'    ;;
+        2720) printf 'Glenfly'    ;;
+        *)   printf ''            ;;
+    esac
+}
+
+# ─── PCI slot device filter ──────────────────────────────────────
+# Populates global arrays: _PCI_BUS[], _PCI_CLASS[], _PCI_DESC[]
+# Shows expansion card class devices only, filtering out chipset.
+pci_slot_devices() {
+    _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=()
+    local d addr bus major class_hex
+    for d in /sys/bus/pci/devices/0000:*/; do
+        [[ -d "$d" ]] || continue
+        addr=$(basename "$d")
+        bus=$(echo "$addr" | cut -d: -f2 | cut -d. -f1)
+        class_hex=$(cat "$d/class" 2>/dev/null) || continue
+        class_hex="${class_hex#0x}"
+        major="${class_hex:0:2}"
+        local sub="${class_hex:2:2}"
+
+        # always skip bridges (host, PCI-to-PCI, PCI-to-ISA)
+        [[ "$major" == "06" ]] && continue
+
+        # always skip: Memory, Processor, SMBus, Serial
+        [[ "$major" == "05" || "$major" == "0b" ]] && continue
+        [[ "$major" == "0c" && "$sub" == "05" ]] && continue   # SMBus
+        [[ "$major" == "0c" && "$sub" == "00" ]] && continue   # Serial
+
+        # always show: Display(03xx), Wireless(0dxx)
+        if [[ "$major" == "03" || "$major" == "0d" ]]; then
+            local desc
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+            _PCI_BUS+=("$addr")
+            _PCI_CLASS+=("$class_hex")
+            _PCI_DESC+=("$desc")
+            continue
+        fi
+
+        # always show: RAID(0104), NVMe(0108)
+        if [[ "$major" == "01" && ( "$sub" == "04" || "$sub" == "08" ) ]]; then
+            local desc
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+            _PCI_BUS+=("$addr")
+            _PCI_CLASS+=("$class_hex")
+            _PCI_DESC+=("$desc")
+            continue
+        fi
+
+        # bus 00: hide all remaining chipset classes
+        if [[ "$bus" == "00" ]]; then
+            continue
+        fi
+
+        # bus >00: hide embedded classes (storage, ethernet, USB, comm)
+        # but show audio(04) on bus >00 -- it's often GPU HDMI audio or standalone sound card
+        case "$major" in
+            01|02|07) continue ;;   # storage, network, comm
+        esac
+        [[ "$major" == "0c" ]] && continue   # serial bus (USB etc.)
+
+        # catch-all: show the device
+        local desc
+        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+        _PCI_BUS+=("$addr")
+        _PCI_CLASS+=("$class_hex")
+        _PCI_DESC+=("$desc")
+    done
+}
 
 # ─── Adaptive box engine ────────────────────────────────────────
 # Every section is a rounded-corner box whose width always fits the
@@ -31,7 +157,11 @@ _wuchar() {
                 [[ "${s:j:1}" == "m" ]] && break
                 j=$(( j + 1 ))
             done
-            _WU_ADV=$(( j - i + 1 )); _WU_W=0
+            if (( j < ${#s} )); then
+                _WU_ADV=$(( j - i + 1 )); _WU_W=0
+            else
+                _WU_ADV=1; _WU_W=0
+            fi
         else
             _WU_ADV=1; _WU_W=1
         fi
@@ -59,6 +189,40 @@ _wuchar() {
         fi
     else
         _WU_ADV=4; _WU_W=2
+    fi
+    # Regional indicator pairs (flags): if this is a regional indicator (U+1F1E6..U+1F1FF)
+    # and the next char is also a regional indicator, collapse the pair to width 2.
+    if (( cp >= 0x1F1E6 && cp <= 0x1F1FF && i + 4 < ${#s} )); then
+        local cp2=0
+        if [[ "${s:i+4:1}" == $'\xF0' && "${s:i+5:1}" == $'\x9F' ]]; then
+            printf -v b2 '%d' "'${s:i+6:1}"; printf -v b3 '%d' "'${s:i+7:1}"
+            printf -v b4 '%d' "'${s:i+8:1}"
+            cp2=$(( ((b2 & 0x0f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f) ))
+        fi
+        if (( cp2 >= 0x1F1E6 && cp2 <= 0x1F1FF )); then
+            _WU_ADV=8; _WU_W=2
+            return
+        fi
+    fi
+    # ZWJ sequences: if U+200D follows, skip the entire chain and count as width 2.
+    if (( i + 4 < ${#s} )); then
+        local zwj_check="${s:i+4:3}"
+        if [[ "$zwj_check" == $'\xE2\x80\x8D' ]]; then
+            _WU_ADV=4; _WU_W=0
+            local j=$(( i + 7 ))
+            while (( j + 3 < ${#s} )); do
+                local next3="${s:j:3}"
+                if [[ "$next3" == $'\xE2\x80\x8D' ]]; then
+                    j=$(( j + 3 ))
+                elif [[ "${s:j:1}" == $'\xF0' ]]; then
+                    j=$(( j + 4 ))
+                else
+                    break
+                fi
+            done
+            _WU_ADV=$(( j - i )); _WU_W=2
+            return
+        fi
     fi
 }
 
@@ -94,7 +258,7 @@ wucap() {
 # Longest _LINES width clamped to the terminal (min 8, fallback 100).
 _wu_maxw() {
     local v i w=0
-    for i in "${_LINES[@]}"; do
+    for i in "${_LINES[@]+"${_LINES[@]}"}"; do
         v=$(vislen "$i")
         (( v > w )) && w=$v
     done
@@ -114,7 +278,11 @@ pline_sub() {
 pline_hw() {
     local emoji="$1" label="$2" value="$3" pad_l
     emoji="${emoji% }"
-    pad_l=$(_wu_pad_r "${label}:" 13)
+    if [[ -z "${_HW_LABEL_W:-}" ]]; then
+        pad_l=$(_wu_pad_r "${label}:" 13)
+    else
+        pad_l=$(_wu_pad_r "${label}:" "$_HW_LABEL_W")
+    fi
     _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${value}${RESET}" )
 }
 
@@ -123,6 +291,22 @@ box() {
     icon="${icon% }"
     _LINES=()
     "$fn"
+    # Auto-size pline_hw label column: find max label width across hw lines.
+    _HW_LABEL_W=13
+    local _tmp _lbl _lw
+    for _tmp in "${_LINES[@]+"${_LINES[@]}"}"; do
+        case "$_tmp" in
+            *${W}${pad_l:-}*${RESET}*|*${W}*)
+                # Extract label between BOLD+W and RESET, strip trailing ":"
+                _lbl="${_tmp#*${BOLD}${W}}"
+                _lbl="${_lbl%%${RESET}*}"
+                _lbl="${_lbl%:}"
+                _lbl="${_lbl%% }"
+                [[ -n "$_lbl" ]] || continue
+                _lw=$(vislen "$_lbl")
+                (( _lw > _HW_LABEL_W )) && _HW_LABEL_W=$_lw ;;
+        esac
+    done
     if [[ "$_WU_PLAIN" == "1" ]]; then
         printf '  %s %s%s\n' "$icon" "${BOLD}${W}${title}${RESET}"
         for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done
@@ -176,11 +360,11 @@ box_bottom() {
 box_header() {
     local icon="$1" word="$2" title="$3"
     if [[ "$_WU_PLAIN" == "1" ]]; then
-        printf '\n  %s%s %s — %s%s\n\n' "$icon" "${BOLD}${W}" "$word" "$title" "${RESET}"
+        printf '\n  %s%s %s -- %s%s\n\n' "$icon" "${BOLD}${W}" "$word" "$title" "${RESET}"
         return 0
     fi
     local inner maxw iconw wordw titlew tmax
-    # Middle row spans icon + "  " + word + " — " + title + "  " between the
+    # Middle row spans icon + "  " + word + " -- " + title + "  " between the
     # two ║ = width+9; border rows span "═" + fill + "═" between corners, so
     # fill must be width+7 (width = iconw+wordw+titlew) to match exactly.
     maxw=$(( ${COLUMNS:-100} - 6 ))
@@ -197,7 +381,7 @@ box_header() {
     printf -v line '%*s' "$inner" ''
     line=${line// /═}
     printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  %s  %s — %s  %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$icon" "$word" "$title" "$RESET" "$C" "$RESET"
+    printf '  %s║%s%s  %s  %s -- %s  %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$icon" "$word" "$title" "$RESET" "$C" "$RESET"
     printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellmem — Beautiful memory overview
+# wellmem -- Beautiful memory overview
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -53,9 +53,7 @@ usage_bar() {
     local color
     color=$(usage_color "$pct")
     printf '%s' "$color"
-    for (( i=0; i<filled; i++ )); do printf '█'; done
-    printf '%s' "$DIM"
-    for (( i=0; i<empty; i++ )); do printf '░'; done
+    wu_bar "$filled" "$empty"
     printf '%s' "$RESET"
 }
 
@@ -83,8 +81,9 @@ print_all() {
     shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
     used=$(( total - available ))
     [[ -n "$total" && "$total" -gt 0 ]] || total=1
+    [[ -n "$used" && "$used" -gt 0 ]] || used=0
 
-    # percentages via awk — bash integer arithmetic overflows on huge totals
+    # percentages via awk -- bash integer arithmetic overflows on huge totals
     local pct_used pct_actual
     pct_used=$(awk -v t="$total" -v a="$available" 'BEGIN{ printf "%d", (t-a)*100/t }')
     pct_actual=$(awk -v t="$total" -v u="$used" 'BEGIN{ printf "%d", u*100/t }')

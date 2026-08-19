@@ -8,14 +8,14 @@ _WELLUTILS_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.c
 
 # Read saved language preference
 if [[ -f "$_WELLUTILS_LANG_FILE" ]]; then
-    _WELLUTILS_LANG=$( { sed -n '/^[A-Z]/{p;q}' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
+    _WELLUTILS_LANG=$( { sed -n '/^[A-Za-z]/{p;q}' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
 fi
 
 # Env var overrides file
 WELLUTILS_LANG="${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}"
 
-# Validate (uppercase via tr — bash 3.2-compatible, no ${^^})
-WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}" | tr '[:lower:]' '[:upper:]')
+# Validate (uppercase via tr -- bash 3.2-compatible, no ${^^})
+WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
 case "$WELLUTILS_LANG" in
     RU) WELLUTILS_LANG="RU" ;;
     *)  WELLUTILS_LANG="EN" ;;
@@ -72,6 +72,7 @@ _t_EN() {
         per_displays_none)  printf '%s' "No displays detected" ;;
         per_audio_none)     printf '%s' "No audio devices detected" ;;
         per_unknown)        printf '%s' "Unknown" ;;
+        per_generic_unknown) printf '%s' "unknown" ;;
         per_vendor)         printf '%s' "Vendor" ;;
         per_interface)      printf '%s' "Interface" ;;
         per_if_dp)          printf '%s' "DisplayPort" ;;
@@ -79,6 +80,16 @@ _t_EN() {
         per_if_dvi)         printf '%s' "DVI" ;;
         per_if_vga)         printf '%s' "VGA" ;;
         per_if_edp)         printf '%s' "Embedded DisplayPort" ;;
+        per_isa)            printf '%s' "ISA Devices" ;;
+        per_pcmcia)         printf '%s' "PCMCIA / CardBus" ;;
+        per_isa_none)       printf '%s' "No ISA devices detected" ;;
+        per_pcmcia_none)    printf '%s' "No PCMCIA/CardBus devices detected" ;;
+        p_touch)            printf '%s' "Touchscreen" ;;
+        p_stylus)           printf '%s' "Stylus" ;;
+        per_pci)            printf '%s' "PCI Devices" ;;
+        per_pci_none)       printf '%s' "No PCI expansion cards detected" ;;
+        hw_pci)             printf '%s' "PCI Expansion Cards" ;;
+        hw_pci_none)        printf '%s' "No PCI expansion cards detected" ;;
         pci_title)          printf '%s' "PCI Device Explorer" ;;
         pci_total)          printf '%s' "Total devices" ;;
         pci_drv)            printf '%s' "Drv" ;;
@@ -98,7 +109,6 @@ _t_EN() {
         pci_class_wireless)     printf '%s' "Wireless Controller" ;;
         pci_class_vendor)       printf '%s' "Vendor-Specific" ;;
         pci_class_unknown)      printf '%s' "Unknown" ;;
-        pci_ids_db)             printf '%s' "IDs database" ;;
         blk_title)          printf '%s' "Block Device Explorer" ;;
         blk_summary)        printf '%s' "DISK SUMMARY" ;;
         blk_virtual)        printf '%s' "VIRTUAL / LOOP DEVICES" ;;
@@ -123,16 +133,10 @@ _t_EN() {
         blk_smart_unknown)  printf '%s' "unknown" ;;
         blk_smart_no)       printf '%s' "S.M.A.R.T. not supported" ;;
         blk_smart_na)       printf '%s' "S.M.A.R.T. data unavailable (run as root)" ;;
-        blk_smart_attr)     printf '%s' "ATTRIBUTE" ;;
-        blk_smart_value)    printf '%s' "VAL" ;;
-        blk_smart_worst)    printf '%s' "WORST" ;;
-        blk_smart_thresh)   printf '%s' "THRESH" ;;
-        blk_smart_raw)      printf '%s' "RAW" ;;
         blk_smart_risk)     printf '%s' "risk" ;;
-        blk_health_good)    printf '%s' "HEALTHY" ;;
         blk_health_warn)    printf '%s' "ATTENTION" ;;
-        blk_health_bad)     printf '%s' "CRITICAL" ;;
         blk_attr_reread)    printf '%s' "Read errors" ;;
+        blk_attr_seekerr)   printf '%s' "Seek errors" ;;
         blk_attr_realloc)   printf '%s' "Reallocated sectors" ;;
         blk_attr_poh)       printf '%s' "Power-on hours" ;;
         blk_attr_pcc)       printf '%s' "Power cycles" ;;
@@ -151,7 +155,7 @@ _t_EN() {
         blk_attr_read)      printf '%s' "Data read" ;;
         blk_nvme_used)      printf '%s' "Lifetime used" ;;
         blk_nvme_spare)     printf '%s' "Spare capacity" ;;
-        blk_hint)           printf '%s' "Disk details + S.M.A.R.T.: wellblock [N|device] — e.g. 'wellblock 0' or 'wellblock sda'" ;;
+        blk_hint)           printf '%s' "Disk details + S.M.A.R.T.: wellblock [N|device] -- e.g. 'wellblock 0' or 'wellblock sda'" ;;
         cpu_title)          printf '%s' "CPU Overview" ;;
         cpu_summary)        printf '%s' "PROCESSOR" ;;
         cpu_load)           printf '%s' "PER-CORE LOAD / FREQ" ;;
@@ -168,10 +172,7 @@ _t_EN() {
         cpu_virt)           printf '%s' "Virtualization" ;;
         cpu_features)       printf '%s' "Features" ;;
         cpu_core)           printf '%s' "core" ;;
-        cpu_cur)            printf '%s' "current" ;;
-        cpu_online)         printf '%s' "On-line" ;;
         cpu_hv)             printf '%s' "Hypervisor" ;;
-        cpu_turbo_boost)    printf '%s' "Turbo Boost" ;;
         gpu_title)          printf '%s' "GPU Overview" ;;
         gpu_summary)        printf '%s' "GRAPHICS ADAPTERS" ;;
         gpu_detail)         printf '%s' "DETAILS" ;;
@@ -184,8 +185,8 @@ _t_EN() {
         gpu_power)          printf '%s' "Power" ;;
         gpu_fan)            printf '%s' "Fan" ;;
         gpu_bus)            printf '%s' "Bus" ;;
-        gpu_memory)         printf '%s' "Memory" ;;
         gpu_nvidia_none)    printf '%s' "nvidia-smi not found" ;;
+        gpu_no_hwmon)       printf '%s' "No GPU temperature sensors found" ;;
         gpu_none)           printf '%s' "No GPU detected" ;;
         gpu_pciutils)       printf '%s' "Install pciutils (lspci) to detect GPUs" ;;
         mem_title)          printf '%s' "Memory Overview" ;;
@@ -232,6 +233,8 @@ _t_EN() {
         mod_size_med)       printf '%s' "<256KB" ;;
         mod_size_large)     printf '%s' "<1MB" ;;
         mod_size_huge)      printf '%s' ">1MB" ;;
+        mod_not_found)      printf '%s' "Module or file not found" ;;
+        mod_no_deps)        printf '%s' "No dependencies" ;;
         sens_title)         printf '%s' "System Temperature Monitor" ;;
         sens_sys_overview)  printf '%s' "SYSTEM OVERVIEW" ;;
         sens_cpu_cores)     printf '%s' "CPU CORES" ;;
@@ -242,7 +245,7 @@ _t_EN() {
         sens_storage)       printf '%s' "STORAGE" ;;
         sens_cooling)       printf '%s' "COOLING" ;;
         sens_no_cpu)        printf '%s' "No CPU sensors found" ;;
-        sens_no_gpu)        printf '%s' "No NVIDIA GPU detected" ;;
+        sens_no_gpu)        printf '%s' "No GPU detected" ;;
         sens_no_acpi)       printf '%s' "No ACPI temperature zones" ;;
         sens_all_covered)   printf '%s' "(all zones covered by hwmon)" ;;
         sens_no_chips)      printf '%s' "(no additional sensor chips)" ;;
@@ -256,6 +259,8 @@ _t_EN() {
         sens_cstates)       printf '%s' "CPU C-states" ;;
         sens_powerclamp)    printf '%s' "Powerclamp" ;;
         sens_devices)       printf '%s' "device(s)" ;;
+        sens_high_throttle) printf '%s' "THROTTLE" ;;
+        sens_crit_throttle) printf '%s' "CRITICAL" ;;
         sens_throttle)      printf '%s' "throttle" ;;
         sens_active)        printf '%s' "active" ;;
         sens_min)           printf '%s' "MIN" ;;
@@ -333,7 +338,46 @@ _t_EN() {
         updu_done)          printf '%s' "Wellutils updated to" ;;
         updu_error)         printf '%s' "Self-update failed (see output above)." ;;
         updu_fetch_fail)    printf '%s' "Cannot fetch version info from GitHub." ;;
-        updu_checkout)      printf '%s' "Running from a source checkout — use git pull instead." ;;
+        updu_checkout)      printf '%s' "Running from a source checkout -- use git pull instead." ;;
+        wf_user)            printf '%s' "User" ;;
+        wf_os)              printf '%s' "OS" ;;
+        wf_kernel)          printf '%s' "Kernel" ;;
+        wf_uptime)          printf '%s' "Uptime" ;;
+        wf_shell)           printf '%s' "Shell" ;;
+        wf_desktop)         printf '%s' "Desktop" ;;
+        wf_wm)              printf '%s' "WM" ;;
+        wf_terminal)        printf '%s' "Terminal" ;;
+        wf_theme)           printf '%s' "Theme" ;;
+        wf_icons)           printf '%s' "Icons" ;;
+        wf_font)            printf '%s' "Font" ;;
+        wf_monitors)        printf '%s' "Monitors" ;;
+        wf_resolution)      printf '%s' "Resolution" ;;
+        wf_peripherals)     printf '%s' "Peripherals" ;;
+        wf_packages)        printf '%s' "Packages" ;;
+        wf_cpu)             printf '%s' "CPU" ;;
+        wf_gpu)             printf '%s' "GPU" ;;
+        wf_mem)             printf '%s' "Memory" ;;
+        wf_swap)            printf '%s' "Swap" ;;
+        wf_disk)            printf '%s' "Root" ;;
+        wf_disks)           printf '%s' "Disks" ;;
+        wf_audio)           printf '%s' "Audio" ;;
+        wf_locale)          printf '%s' "Locale" ;;
+        wf_date)            printf '%s' "Date" ;;
+        wf_battery)         printf '%s' "Battery" ;;
+        p_kbd)              printf '%s' "Keyboard" ;;
+        p_mouse)            printf '%s' "Mouse" ;;
+        p_tablet)           printf '%s' "Tablet" ;;
+        p_pad)              printf '%s' "Gamepad" ;;
+        p_audio)            printf '%s' "Audio" ;;
+        p_cam)              printf '%s' "Camera" ;;
+        p_print)            printf '%s' "Printer" ;;
+        p_store)            printf '%s' "Storage" ;;
+        p_net)              printf '%s' "Network" ;;
+        p_phone)            printf '%s' "Phone" ;;
+        p_hub)              printf '%s' "Hub" ;;
+        p_hid)              printf '%s' "HID" ;;
+        p_vend)             printf '%s' "Other" ;;
+        p_dev)              printf '%s' "Device" ;;
     esac
 }
 
@@ -388,6 +432,7 @@ _t_RU() {
         per_displays_none)  printf '%s' "Мониторы не обнаружены" ;;
         per_audio_none)     printf '%s' "Звуковые устройства не обнаружены" ;;
         per_unknown)        printf '%s' "Неизвестно" ;;
+        per_generic_unknown) printf '%s' "неизвестно" ;;
         per_vendor)         printf '%s' "Производитель" ;;
         per_interface)      printf '%s' "Интерфейс" ;;
         per_if_dp)          printf '%s' "DisplayPort" ;;
@@ -395,6 +440,16 @@ _t_RU() {
         per_if_dvi)         printf '%s' "DVI" ;;
         per_if_vga)         printf '%s' "VGA" ;;
         per_if_edp)         printf '%s' "Embedded DisplayPort" ;;
+        per_isa)            printf '%s' "ISA-устройства" ;;
+        per_pcmcia)         printf '%s' "PCMCIA / CardBus" ;;
+        per_isa_none)       printf '%s' "ISA-устройства не обнаружены" ;;
+        per_pcmcia_none)    printf '%s' "Устройства PCMCIA/CardBus не обнаружены" ;;
+        p_touch)            printf '%s' "Сенсорный экран" ;;
+        p_stylus)           printf '%s' "Стилус" ;;
+        per_pci)            printf '%s' "PCI-устройства" ;;
+        per_pci_none)       printf '%s' "PCI-карты не обнаружены" ;;
+        hw_pci)             printf '%s' "PCI-карты расширения" ;;
+        hw_pci_none)        printf '%s' "PCI-карты расширения не обнаружены" ;;
         pci_title)          printf '%s' "Обзор PCI-устройств" ;;
         pci_total)          printf '%s' "Всего устройств" ;;
         pci_drv)            printf '%s' "Дрв" ;;
@@ -414,7 +469,6 @@ _t_RU() {
         pci_class_wireless)     printf '%s' "Беспроводной контроллер" ;;
         pci_class_vendor)       printf '%s' "Вендор-специфичное" ;;
         pci_class_unknown)      printf '%s' "Неизвестно" ;;
-        pci_ids_db)             printf '%s' "База ID" ;;
         blk_title)          printf '%s' "Обзор блочных устройств" ;;
         blk_summary)        printf '%s' "СВОДКА ПО ДИСКАМ" ;;
         blk_virtual)        printf '%s' "ВИРТУАЛЬНЫЕ / LOOP" ;;
@@ -439,16 +493,10 @@ _t_RU() {
         blk_smart_unknown)  printf '%s' "неизвестно" ;;
         blk_smart_no)       printf '%s' "S.M.A.R.T. не поддерживается" ;;
         blk_smart_na)       printf '%s' "Данные S.M.A.R.T. недоступны (запустите от root)" ;;
-        blk_smart_attr)     printf '%s' "АТРИБУТ" ;;
-        blk_smart_value)    printf '%s' "VAL" ;;
-        blk_smart_worst)    printf '%s' "ХУДШ" ;;
-        blk_smart_thresh)   printf '%s' "ПОРОГ" ;;
-        blk_smart_raw)      printf '%s' "RAW" ;;
         blk_smart_risk)     printf '%s' "риск" ;;
-        blk_health_good)    printf '%s' "ЗДОРОВ" ;;
         blk_health_warn)    printf '%s' "ВНИМАНИЕ" ;;
-        blk_health_bad)     printf '%s' "КРИТИЧНО" ;;
         blk_attr_reread)    printf '%s' "Ошибки чтения" ;;
+        blk_attr_seekerr)   printf '%s' "Ошибки позиционирования" ;;
         blk_attr_realloc)   printf '%s' "Переназначенные сектора" ;;
         blk_attr_poh)       printf '%s' "Часы работы" ;;
         blk_attr_pcc)       printf '%s' "Циклы включения" ;;
@@ -467,7 +515,7 @@ _t_RU() {
         blk_attr_read)      printf '%s' "Прочитано данных" ;;
         blk_nvme_used)      printf '%s' "Использовано ресурса" ;;
         blk_nvme_spare)     printf '%s' "Резерв доступен" ;;
-        blk_hint)           printf '%s' "Подробно о диске: wellblock [N|устройство] — напр. 'wellblock 0' или 'wellblock sda'" ;;
+        blk_hint)           printf '%s' "Подробно о диске: wellblock [N|устройство] -- напр. 'wellblock 0' или 'wellblock sda'" ;;
         cpu_title)          printf '%s' "Обзор CPU" ;;
         cpu_summary)        printf '%s' "ПРОЦЕССОР" ;;
         cpu_load)           printf '%s' "НАГРУЗКА ЯДЕР / ЧАСТОТА" ;;
@@ -479,15 +527,12 @@ _t_RU() {
         cpu_freq)           printf '%s' "Частота" ;;
         cpu_base)           printf '%s' "база" ;;
         cpu_turbo)          printf '%s' "макс" ;;
-        cpu_governor)       printf '%s' "Губернатор" ;;
+        cpu_governor)       printf '%s' "Режим управления" ;;
         cpu_caches)         printf '%s' "Кэши" ;;
         cpu_virt)           printf '%s' "Виртуализация" ;;
         cpu_features)       printf '%s' "Фичи" ;;
         cpu_core)           printf '%s' "ядро" ;;
-        cpu_cur)            printf '%s' "текущая" ;;
-        cpu_online)         printf '%s' "В сети" ;;
         cpu_hv)             printf '%s' "Гипервизор" ;;
-        cpu_turbo_boost)    printf '%s' "Turbo Boost" ;;
         gpu_title)          printf '%s' "Обзор GPU" ;;
         gpu_summary)        printf '%s' "ВИДЕОАДАПТЕРЫ" ;;
         gpu_detail)         printf '%s' "ДЕТАЛИ" ;;
@@ -500,14 +545,14 @@ _t_RU() {
         gpu_power)          printf '%s' "Питание" ;;
         gpu_fan)            printf '%s' "Вентилятор" ;;
         gpu_bus)            printf '%s' "Шина" ;;
-        gpu_memory)         printf '%s' "Память" ;;
         gpu_nvidia_none)    printf '%s' "nvidia-smi не найден" ;;
+        gpu_no_hwmon)       printf '%s' "Датчики температуры GPU не найдены" ;;
         gpu_none)           printf '%s' "GPU не обнаружен" ;;
         gpu_pciutils)       printf '%s' "Установите pciutils (lspci) для обнаружения GPU" ;;
         mem_title)          printf '%s' "Обзор памяти" ;;
         mem_ram)            printf '%s' "ФИЗИЧЕСКАЯ ПАМЯТЬ (RAM)" ;;
         mem_swap)           printf '%s' "ПОДКАЧКА" ;;
-        mem_zram)           printf '%s' "ZRAM — сжатая RAM" ;;
+        mem_zram)           printf '%s' "ZRAM -- сжатая RAM" ;;
         mem_huge)           printf '%s' "Большие страницы" ;;
         mem_numa)           printf '%s' "NUMA-ноды" ;;
         mem_total)          printf '%s' "Всего" ;;
@@ -548,6 +593,8 @@ _t_RU() {
         mod_size_med)       printf '%s' "<256КБ" ;;
         mod_size_large)     printf '%s' "<1МБ" ;;
         mod_size_huge)      printf '%s' ">1МБ" ;;
+        mod_not_found)      printf '%s' "Модуль или файл не найден" ;;
+        mod_no_deps)        printf '%s' "Нет зависимостей" ;;
         sens_title)         printf '%s' "Мониторинг температуры" ;;
         sens_sys_overview)  printf '%s' "ОБЗОР СИСТЕМЫ" ;;
         sens_cpu_cores)     printf '%s' "ЯДРА CPU" ;;
@@ -558,7 +605,7 @@ _t_RU() {
         sens_storage)       printf '%s' "ХРАНИЛИЩЕ" ;;
         sens_cooling)       printf '%s' "ОХЛАЖДЕНИЕ" ;;
         sens_no_cpu)        printf '%s' "Датчики CPU не найдены" ;;
-        sens_no_gpu)        printf '%s' "NVIDIA GPU не обнаружен" ;;
+        sens_no_gpu)        printf '%s' "GPU не обнаружен" ;;
         sens_no_acpi)       printf '%s' "Нет ACPI-температурных зон" ;;
         sens_all_covered)   printf '%s' "(все зоны покрыты hwmon)" ;;
         sens_no_chips)      printf '%s' "(нет дополнительных датчиков)" ;;
@@ -572,6 +619,8 @@ _t_RU() {
         sens_cstates)       printf '%s' "Состояния CPU" ;;
         sens_powerclamp)    printf '%s' "Powerclamp" ;;
         sens_devices)       printf '%s' "устройств" ;;
+        sens_high_throttle) printf '%s' "ТРОТТЛИНГ" ;;
+        sens_crit_throttle) printf '%s' "КРИТИЧНО" ;;
         sens_throttle)      printf '%s' "троттлинг" ;;
         sens_active)        printf '%s' "активно" ;;
         sens_min)           printf '%s' "МИН" ;;
@@ -649,13 +698,58 @@ _t_RU() {
         updu_done)          printf '%s' "Wellutils обновлён до" ;;
         updu_error)         printf '%s' "Ошибка самообновления (вывод выше)." ;;
         updu_fetch_fail)    printf '%s' "Не удалось получить версию с GitHub." ;;
-        updu_checkout)      printf '%s' "Запуск из исходников — используйте git pull." ;;
+        updu_checkout)      printf '%s' "Запуск из исходников -- используйте git pull." ;;
+        wf_user)            printf '%s' "Пользователь" ;;
+        wf_os)              printf '%s' "ОС" ;;
+        wf_kernel)          printf '%s' "Ядро" ;;
+        wf_uptime)          printf '%s' "Аптайм" ;;
+        wf_shell)           printf '%s' "Оболочка" ;;
+        wf_desktop)         printf '%s' "Окружение" ;;
+        wf_wm)              printf '%s' "Окна" ;;
+        wf_terminal)        printf '%s' "Терминал" ;;
+        wf_theme)           printf '%s' "Тема" ;;
+        wf_icons)           printf '%s' "Иконки" ;;
+        wf_font)            printf '%s' "Шрифт" ;;
+        wf_monitors)        printf '%s' "Мониторы" ;;
+        wf_resolution)      printf '%s' "Разрешение" ;;
+        wf_peripherals)     printf '%s' "Периферия" ;;
+        wf_packages)        printf '%s' "Пакеты" ;;
+        wf_cpu)             printf '%s' "Процессор" ;;
+        wf_gpu)             printf '%s' "Видеокарта" ;;
+        wf_mem)             printf '%s' "Память" ;;
+        wf_swap)            printf '%s' "Подкачка" ;;
+        wf_disk)            printf '%s' "Корень" ;;
+        wf_disks)           printf '%s' "Диски" ;;
+        wf_audio)           printf '%s' "Звук" ;;
+        wf_locale)          printf '%s' "Локаль" ;;
+        wf_date)            printf '%s' "Дата" ;;
+        wf_battery)         printf '%s' "Аккумулятор" ;;
+        p_kbd)              printf '%s' "Клавиатура" ;;
+        p_mouse)            printf '%s' "Мышь" ;;
+        p_tablet)           printf '%s' "Планшет" ;;
+        p_pad)              printf '%s' "Геймпад" ;;
+        p_audio)            printf '%s' "Аудио" ;;
+        p_cam)              printf '%s' "Камера" ;;
+        p_print)            printf '%s' "Принтер" ;;
+        p_store)            printf '%s' "Накопители" ;;
+        p_net)              printf '%s' "Сеть" ;;
+        p_phone)            printf '%s' "Телефон" ;;
+        p_hub)              printf '%s' "Хаб" ;;
+        p_hid)              printf '%s' "HID" ;;
+        p_vend)             printf '%s' "Прочее" ;;
+        p_dev)              printf '%s' "Устройство" ;;
     esac
 }
 
 t() {
+    local _out
     case "$WELLUTILS_LANG" in
-        RU) _t_RU "$@" ;;
-        *)  _t_EN "$@" ;;
+        RU) _out=$(_t_RU "$@") ;;
+        *)  _out=$(_t_EN "$@") ;;
     esac
+    if [[ -z "$_out" ]]; then
+        _t_EN "$@" || printf '%s' "$1"
+    else
+        printf '%s' "$_out"
+    fi
 }

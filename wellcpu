@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellcpu — Beautiful CPU overview (topology, load, frequencies)
+# wellcpu -- Beautiful CPU overview (topology, load, frequencies)
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -50,9 +50,7 @@ load_bar() {
     local filled=$(( pct * width / 100 ))
     local empty=$(( width - filled ))
     printf '%s' "$(load_color "$pct")"
-    for (( i=0; i<filled; i++ )); do printf '█'; done
-    printf '%s' "$DIM"
-    for (( i=0; i<empty; i++ )); do printf '░'; done
+    wu_bar "$filled" "$empty"
     printf '%s' "$RESET"
 }
 

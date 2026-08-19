@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wellhw — Beautiful hardware report (chat-ready)
+# wellhw -- Beautiful hardware report (chat-ready)
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -52,6 +52,8 @@ root_run() {
 print_cpu() {
     local model cores threads
     model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+    [[ -z "$model" ]] && model=$(awk -F': *' '/^Processor/{print $2; exit}' /proc/cpuinfo)
+    [[ -z "$model" ]] && model=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo)
     cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
     threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
     pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${model}  ${DIM}($(t hw_cores): ${cores}, $(t hw_threads): ${threads})${RESET}"
@@ -90,72 +92,147 @@ print_board() {
 }
 
 print_ram() {
-    local mout modules types sizes speeds manufs pns forms concat ram_line="" ram_sub=""
+    local mout
     mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
-    modules=$(awk '/^[[:space:]]*Size: [0-9]+ /{c++} END{print c+0}' <<< "$mout")
-    if (( modules > 0 )); then
-        local msize_mb per_gb
-        msize_mb=$(awk '/^[[:space:]]*Size: [0-9]+ (MiB|GiB)/{if($3=="GiB") s+=$2*1024; else s+=$2} END{print s+0}' <<< "$mout")
-        per_gb=$(( (msize_mb / modules + 512) / 1024 ))
-        mtype=$(awk '/^[[:space:]]*Type: (DDR|LPDDR)/{print $2; exit}' <<< "$mout")
-        mspeed=$(awk '/^[[:space:]]*Speed: [0-9]+ MT\/s/{print $2; exit}' <<< "$mout")
-        mmanuf=$(awk '/^[[:space:]]*Manufacturer:/{sub(/^[[:space:]]*Manufacturer:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
-        mpn=$(awk '/^[[:space:]]*Part Number:/{sub(/^[[:space:]]*Part Number:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
-        mform=$(awk '/^[[:space:]]*Form Factor:/{sub(/^[[:space:]]*Form Factor:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
-        mform="${mform//[$'\t']}"
+    local _HT=$'\t'
 
-        local type_label="DDR"
-        case "$mtype" in
-            DDR2|DDR3|DDR4|DDR5) type_label="$mtype" ;;
-            DDR) : ;;
-        esac
-        local speed_txt=""
-        [[ -n "$mspeed" ]] && speed_txt="-${mspeed}"
+    local -a slot_size=() slot_type=() slot_speed=() slot_manuf=() slot_pn=() slot_form=() slot_locator=()
+    local in_slot=0 s_size="" s_type="" s_speed="" s_manuf="" s_pn="" s_form="" s_loc="" s_empty=0
 
-        local form_label=""
-        [[ -n "$mform" && "$mform" != "DIMM" ]] && form_label=" (${mform})"
-
-        # Resolve JEDEC vendor code if present (e.g. "8313" -> Golden Empire)
-        if [[ "$mmanuf" =~ ^[0-9A-Fa-f]{4}$ ]]; then
-            local dec
-            dec=$(wu_jedec_decode "$mmanuf") || dec=""
-            [[ -n "$dec" ]] && mmanuf="$dec"
+    flush_slot() {
+        [[ $in_slot -eq 1 ]] || return 0
+        if [[ "$s_empty" -eq 0 && "$s_size" != *No* ]]; then
+            slot_size+=("$s_size"); slot_type+=("$s_type"); slot_speed+=("$s_speed")
+            slot_manuf+=("$s_manuf"); slot_pn+=("$s_pn"); slot_form+=("$s_form")
+            slot_locator+=("$s_loc")
         fi
+        in_slot=0; s_size=""; s_type=""; s_speed=""; s_manuf=""; s_pn=""; s_form=""; s_loc=""; s_empty=0
+    }
 
-        ram_line="${modules}× ${per_gb} GiB ${type_label}${speed_txt}${form_label}"
-
-        local sub_parts=()
-        [[ -n "$mmanuf" ]] && sub_parts+=("$mmanuf")
-        [[ -n "$mpn" ]]  && sub_parts+=("$(t hw_pn): ${mpn}")
-        if ((${#sub_parts[@]})); then
-            printf -v ram_sub "%s | " "${sub_parts[@]}"
-            ram_sub="${ram_sub% | }"
-        fi
+    if [[ -n "$mout" ]]; then
+        while IFS= read -r line; do
+            case "$line" in
+                *[Mm]emory\ [Dd]evice*) flush_slot; in_slot=1 ;;
+                *Size:\ *)              s_size="${line#*: }"; s_size="${s_size%%$_HT*}"
+                    s_size="$(printf '%s' "$s_size" | xargs)"
+                    [[ "$s_size" == *No* ]] && s_empty=1 ;;
+                *Type:\ *)              s_type="${line#*: }"; s_type="${s_type%%$_HT*}"
+                    s_type="$(printf '%s' "$s_type" | xargs)" ;;
+                *Speed:\ *MT/*)         s_speed="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
+                *Manufacturer:\ *)     s_manuf="${line#*: }"; s_manuf="${s_manuf%%$_HT*}"
+                    s_manuf="$(printf '%s' "$s_manuf" | xargs | tr -d '\r')" ;;
+                *Part\ Number:\ *)     s_pn="${line#*: }"; s_pn="${s_pn%%$_HT*}"
+                    s_pn="$(printf '%s' "$s_pn" | xargs | tr -d '\r')" ;;
+                *Form\ Factor:\ *)     s_form="${line#*: }"; s_form="${s_form%%$_HT*}"
+                    s_form="$(printf '%s' "$s_form" | xargs | tr -d '\r')" ;;
+                *Locator:\ *)          s_loc="${line#*: }"; s_loc="${s_loc%%$_HT*}"
+                    s_loc="$(printf '%s' "$s_loc" | xargs | tr -d '\r')" ;;
+            esac
+        done <<< "$mout"
+        flush_slot
     fi
 
-    # If dmidecode gave nothing, fall back to decode-dimms SPD JSON-less output
-    if [[ -z "$ram_line" ]] && command -v decode-dimms &>/dev/null; then
-        local dout dcount dsize_mb dper dmanu dpart dform
+    local modules=${#slot_size[@]}
+
+    if (( modules == 0 )) && command -v decode-dimms &>/dev/null; then
+        local dout dcount
         dout=$(root_run decode-dimms 2>/dev/null) || dout=""
         dcount=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
         if (( dcount > 0 )); then
-            dmanu=$(awk '/^Module Manufacturer/{sub(/^Module Manufacturer[ \t]+/, ""); print; exit}' <<< "$dout")
-            dpart=$(awk '/^Part Number/{sub(/^Part Number[ \t]+/, ""); print; exit}' <<< "$dout")
-            dform=$(awk '/^Module Type/{sub(/^Module Type[ \t]+/, ""); print; exit}' <<< "$dout")   # e.g. UDIMM
-            dsize_mb=$(awk '/^Size/{sub(/^Size[ \t]+/, ""); sub(/ MB.*/,""); print; exit}' <<< "$dout")
-            dper=""
-            [[ "$dsize_mb" =~ ^[0-9]+$ ]] && dper=$(( (dsize_mb + 512) / 1024 ))
-            ram_line="${dcount}× ${dper:+${dper} GiB }${dform:-UDIMM} ${dmanu}"
-            [[ -n "$dpart" ]] && ram_sub="$(t hw_pn): ${dpart}"
+            local -a dd_size=() dd_manu=() dd_pn=() dd_form=() dd_type=() dd_speed=()
+            local _s="" _m="" _p="" _f="" _t="" _sp=""
+            while IFS= read -r line; do
+                case "$line" in
+                    Decoding\ EEPROM*)
+                        [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
+                        _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
+                    Size*)                   _s="${line#Size[ $_HT ]}"; _s="${_s%% MB*}" ;;
+                    Module\ Manufacturer*)  _m="${line#Module Manufacturer[ $_HT ]}"; _m="${_m%%$_HT*}" ;;
+                    Part\ Number*)           _p="${line#Part Number[ $_HT ]}"; _p="${_p%%$_HT*}" ;;
+                    Module\ Type*)           _f="${line#Module Type[ $_HT ]}"; _f="${_f%%$_HT*}" ;;
+                    Memory\ Type*)           _t="${line#Memory Type[ $_HT ]}"; _t="${_t%%[ $_HT ]*}" ;;
+                    Speed*)                   _sp="${line#Speed[ $_HT ]}"; _sp="${_sp%% *}" ;;
+                esac
+            done <<< "$dout"
+            [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
+            modules=${#dd_size[@]}
+            local i
+            for (( i=0; i<modules; i++ )); do
+                local mb="${dd_size[$i]:-0}"
+                [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
+                if (( mb >= 1024 )); then
+                    slot_size+=("$(( mb / 1024 )) GiB")
+                else
+                    slot_size+=("${mb} MiB")
+                fi; slot_type+=("${dd_type[$i]:-DDR}"); slot_speed+=("${dd_speed[$i]:-}")
+                slot_manuf+=("${dd_manu[$i]:-}"); slot_pn+=("${dd_pn[$i]:-}"); slot_form+=("${dd_form[$i]:-UDIMM}")
+                slot_locator+=("DIMM $(( i + 1 ))")
+            done
+            modules=${#slot_size[@]}
         fi
     fi
 
-    if [[ -n "$ram_line" ]]; then
-        pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
-        [[ -n "$ram_sub" ]] && pline_sub "$ram_sub"
-    else
+    if (( modules == 0 )); then
         pline_hw "$(_emu '🧩')" "$(t hw_ram)" "${DIM}$(t hw_ram_none)${RESET}"
+        return
     fi
+
+    local i
+    for (( i=0; i<modules; i++ )); do
+        if [[ "${slot_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+            local dec
+            dec=$(wu_jedec_decode "${slot_manuf[$i]}") || dec=""
+            [[ -n "$dec" ]] && slot_manuf[$i]="$dec"
+        fi
+    done
+
+    local uniform=1 first_t="${slot_type[0]}" first_s="${slot_speed[0]}" first_sz="${slot_size[0]}"
+    for (( i=1; i<modules; i++ )); do
+        [[ "${slot_type[$i]}" == "$first_t" && "${slot_speed[$i]}" == "$first_s" && "${slot_size[$i]}" == "$first_sz" ]] || { uniform=0; break; }
+    done
+
+    local ram_line ram_sub=""
+    if (( uniform )); then
+        local type_label="DDR"
+        case "$first_t" in
+            DDR2|DDR3|DDR4|DDR5) type_label="$first_t" ;;
+        esac
+        local speed_txt=""
+        [[ -n "$first_s" ]] && speed_txt="-$first_s"
+        ram_line="${modules}× ${first_sz} ${type_label}${speed_txt}"
+        local sub_parts=()
+        [[ -n "${slot_manuf[0]}" ]] && sub_parts+=("${slot_manuf[0]}")
+        [[ -n "${slot_pn[0]}" ]]   && sub_parts+=("$(t hw_pn): ${slot_pn[0]}")
+            if ((${#sub_parts[@]})); then
+            ram_sub=""
+            local _sp_i
+            for (( _sp_i=0; _sp_i<${#sub_parts[@]}; _sp_i++ )); do
+                ram_sub+="${sub_parts[$_sp_i]}"
+                (( _sp_i < ${#sub_parts[@]} - 1 )) && ram_sub+=" | "
+            done
+        fi
+    else
+        ram_line="${modules} slots"
+        pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
+        for (( i=0; i<modules; i++ )); do
+            local t2="DDR"
+            case "${slot_type[$i]}" in
+                DDR2|DDR3|DDR4|DDR5) t2="${slot_type[$i]}" ;;
+            esac
+            local sp2=""
+            [[ -n "${slot_speed[$i]}" ]] && sp2="-${slot_speed[$i]}"
+            local detail="  ${slot_locator[$i]:-DIMM $(( i + 1 ))}: ${slot_size[$i]} ${t2}${sp2}"
+            local extra=""
+            [[ -n "${slot_manuf[$i]}" ]] && extra+="${slot_manuf[$i]} "
+            [[ -n "${slot_pn[$i]}" ]]   && extra+="${slot_pn[$i]}"
+            [[ -n "$extra" ]] && detail+=" ${DIM}(${extra})${RESET}"
+            pline_sub "$detail"
+        done
+        return
+    fi
+
+    pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
+    [[ -n "$ram_sub" ]] && pline_sub "$ram_sub"
 }
 
 print_storage() {
@@ -212,7 +289,6 @@ print_battery() {
         stat=$(cat "$bat/status" 2>/dev/null || true)
         if [[ -n "$cap" ]]; then
             pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%%${RESET} ${DIM}(${stat})${RESET}"
-            return
         fi
     done
 }
@@ -242,6 +318,19 @@ print_cooling() {
     fi
 }
 
+# ─── PCI Expansion Cards ───────────────────────────────────────
+print_pci() {
+    pci_slot_devices
+    if (( ${#_PCI_BUS[@]} == 0 )); then
+        pline "${DIM}$(t hw_pci_none)${RESET}"
+        return
+    fi
+    local i
+    for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
+        pline_hw "$(_emu '🔌')" "${_PCI_BUS[$i]}" "${_PCI_DESC[$i]}"
+    done
+}
+
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
     local model cores threads
@@ -260,35 +349,90 @@ json_out() {
     bver=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
     bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
 
-    local mout="" modules=0 msize_mb=0 mtype="" mspeed="" mmanuf="" mpn="" mform=""
+    # ── Per-slot memory collection (shared with print_ram) ──
+    local mout="" msize_mb=0
     mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
+    local _HT=$'\t'
+    local -a j_size=() j_type=() j_speed=() j_manuf=() j_pn=() j_form=() j_locator=()
+    local in_slot=0 j_s="" j_t="" j_sp="" j_m="" j_p="" j_f="" j_l="" j_empty=0
+
+    j_flush() {
+        [[ $in_slot -eq 1 ]] || return 0
+        if [[ "$j_empty" -eq 0 && "$j_s" != *No* ]]; then
+            j_size+=("$j_s"); j_type+=("$j_t"); j_speed+=("$j_sp")
+            j_manuf+=("$j_m"); j_pn+=("$j_p"); j_form+=("$j_f"); j_locator+=("$j_l")
+        fi
+        in_slot=0; j_s=""; j_t=""; j_sp=""; j_m=""; j_p=""; j_f=""; j_l=""; j_empty=0
+    }
+
     if [[ -n "$mout" ]]; then
-        modules=$(awk '/^[[:space:]]*Size: [0-9]+ /{c++} END{print c+0}' <<< "$mout")
-        msize_mb=$(awk '/^[[:space:]]*Size: [0-9]+ (MiB|GiB)/{if($3=="GiB") s+=$2*1024; else s+=$2} END{print s+0}' <<< "$mout")
-        mtype=$(awk '/^[[:space:]]*Type: (DDR|LPDDR)/{print $2; exit}' <<< "$mout")
-        mspeed=$(awk '/^[[:space:]]*Speed: [0-9]+ MT\/s/{print $2; exit}' <<< "$mout")
-        mmanuf=$(awk '/^[[:space:]]*Manufacturer:/{sub(/^[[:space:]]*Manufacturer:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
-        mpn=$(awk '/^[[:space:]]*Part Number:/{sub(/^[[:space:]]*Part Number:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
-        mform=$(awk '/^[[:space:]]*Form Factor:/{sub(/^[[:space:]]*Form Factor:[[:space:]]*/,""); gsub(/\r/,""); sub(/[[:space:]]+$/,""); print; exit}' <<< "$mout")
+        while IFS= read -r line; do
+            case "$line" in
+                *[Mm]emory\ [Dd]evice*) j_flush; in_slot=1 ;;
+                *Size:\ *)              j_s="${line#*: }"; j_s="${j_s%%$_HT*}"
+                    j_s="$(printf '%s' "$j_s" | xargs)"
+                    [[ "$j_s" == *No* ]] && j_empty=1 ;;
+                *Type:\ *)              j_t="${line#*: }"; j_t="${j_t%%$_HT*}"
+                    j_t="$(printf '%s' "$j_t" | xargs)" ;;
+                *Speed:\ *MT/*)         j_sp="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
+                *Manufacturer:\ *)     j_m="${line#*: }"; j_m="${j_m%%$_HT*}"
+                    j_m="$(printf '%s' "$j_m" | xargs | tr -d '\r')" ;;
+                *Part\ Number:\ *)     j_p="${line#*: }"; j_p="${j_p%%$_HT*}"
+                    j_p="$(printf '%s' "$j_p" | xargs | tr -d '\r')" ;;
+                *Form\ Factor:\ *)     j_f="${line#*: }"; j_f="${j_f%%$_HT*}"
+                    j_f="$(printf '%s' "$j_f" | xargs | tr -d '\r')" ;;
+                *Locator:\ *)          j_l="${line#*: }"; j_l="${j_l%%$_HT*}"
+                    j_l="$(printf '%s' "$j_l" | xargs | tr -d '\r')" ;;
+            esac
+        done <<< "$mout"
+        j_flush
     fi
-    if [[ -z "$mout" ]] && command -v decode-dimms &>/dev/null; then
-        local dout
+
+    local modules=${#j_size[@]}
+    if (( modules == 0 )); then
+        local dout dcount
         dout=$(root_run decode-dimms 2>/dev/null) || dout=""
-        if [[ -n "$dout" ]]; then
-            modules=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
-            msize_mb=$(awk '/^Size/{sub(/^Size[ \t]+/, ""); sub(/ MB.*/,""); s+=$1} END{print s+0}' <<< "$dout")
-            mtype=$(awk '/^Memory Type/{sub(/^Memory Type[ \t]+/, ""); gsub(/[ \t]+.*/,""); print; exit}' <<< "$dout")
-            mspeed=$(awk '/^Speed/{sub(/^Speed[ \t]+/, ""); print $1; exit}' <<< "$dout")
-            mmanuf=$(awk '/^Module Manufacturer/{sub(/^Module Manufacturer[ \t]+/, ""); print; exit}' <<< "$dout")
-            mpn=$(awk '/^Part Number/{sub(/^Part Number[ \t]+/, ""); print; exit}' <<< "$dout")
-            mform=$(awk '/^Module Type/{sub(/^Module Type[ \t]+/, ""); print; exit}' <<< "$dout")
+        dcount=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
+        if (( dcount > 0 )); then
+            local _s="" _m="" _p="" _f="" _t="" _sp=""
+            while IFS= read -r line; do
+                case "$line" in
+                    Decoding\ EEPROM*)
+                        [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
+                        _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
+                    Size*)                   _s="${line#Size[ $_HT ]}"; _s="${_s%% MB*}" ;;
+                    Module\ Manufacturer*)  _m="${line#Module Manufacturer[ $_HT ]}"; _m="${_m%%$_HT*}" ;;
+                    Part\ Number*)           _p="${line#Part Number[ $_HT ]}"; _p="${_p%%$_HT*}" ;;
+                    Module\ Type*)           _f="${line#Module Type[ $_HT ]}"; _f="${_f%%$_HT*}" ;;
+                    Memory\ Type*)           _t="${line#Memory Type[ $_HT ]}"; _t="${_t%%[ $_HT ]*}" ;;
+                    Speed*)                   _sp="${line#Speed[ $_HT ]}"; _sp="${_sp%% *}" ;;
+                esac
+            done <<< "$dout"
+            [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
+            modules=${#j_size[@]}
+            local i
+            for (( i=0; i<modules; i++ )); do
+                local mb="${j_size[$i]:-0}"; [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
+                j_size[$i]="$(( mb / 1024 )) GiB"
+                [[ -z "${j_locator[$i]}" ]] && j_locator[$i]="DIMM $(( i + 1 ))"
+            done
         fi
     fi
-    if [[ "$mmanuf" =~ ^[0-9A-Fa-f]{4}$ ]]; then
-        local mdec
-        mdec=$(wu_jedec_decode "$mmanuf") || mdec=""
-        [[ -n "$mdec" ]] && mmanuf="$mdec"
-    fi
+    msize_mb=0
+    for (( i=0; i<modules; i++ )); do
+        local v="${j_size[$i]:-0}"
+        if [[ "$v" == *GiB ]]; then v="${v% GiB}"; v=$(( v * 1024 )); elif [[ "$v" =~ ^[0-9]+$ ]]; then v=$(( v / 1024 )); else v=0; fi
+        msize_mb=$(( msize_mb + v ))
+    done
+
+    # Resolve JEDEC codes
+    for (( i=0; i<modules; i++ )); do
+        if [[ "${j_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+            local mdec
+            mdec=$(wu_jedec_decode "${j_manuf[$i]}") || mdec=""
+            [[ -n "$mdec" ]] && j_manuf[$i]="$mdec"
+        fi
+    done
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "cpu": { "model": "%s", "cores": "%s", "threads": "%s" },\n' \
@@ -304,12 +448,15 @@ json_out() {
     printf '  "memory": {\n'
     printf '    "modules": %d,\n' "$modules"
     printf '    "size_mb": %d,\n' "$msize_mb"
-    printf '    "type": "%s",\n' "$(json_esc "$mtype")"
-    printf '    "speed_mts": "%s",\n' "$(json_esc "$mspeed")"
-    printf '    "manufacturer": "%s",\n' "$(json_esc "$mmanuf")"
-    printf '    "part_number": "%s",\n' "$(json_esc "$mpn")"
-    printf '    "form_factor": "%s"\n' "$(json_esc "$mform")"
-    printf '  },\n'
+    printf '    "slots": [\n'
+    local jfirst=1
+    for (( i=0; i<modules; i++ )); do
+        (( jfirst )) && jfirst=0 || printf ',\n'
+        printf '      { "locator": "%s", "size": "%s", "type": "%s", "speed_mts": "%s", "manufacturer": "%s", "part_number": "%s", "form_factor": "%s" }' \
+            "$(json_esc "${j_locator[$i]}")" "$(json_esc "${j_size[$i]}")" "$(json_esc "${j_type[$i]}")" \
+            "$(json_esc "${j_speed[$i]}")" "$(json_esc "${j_manuf[$i]}")" "$(json_esc "${j_pn[$i]}")" "$(json_esc "${j_form[$i]}")"
+    done
+    printf '\n    ]\n  },\n'
 
     printf '  "storage": [\n'
     local first=1 row dev smodel size
@@ -361,9 +508,19 @@ json_out() {
     done
     printf '\n  ],\n'
 
+    printf '  "pci_expansion": [\n'
+    first=1
+    pci_slot_devices
+    for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "bus": "%s", "class": "%s", "description": "%s" }' \
+            "$(json_esc "${_PCI_BUS[$i]}")" "$(json_esc "${_PCI_CLASS[$i]}")" "$(json_esc "${_PCI_DESC[$i]}")"
+    done
+    printf '\n  ],\n'
+
     local n_storage n_net
-    n_storage=$(lsblk -nd -o NAME 2>/dev/null | grep -cvE '^(loop|zram|sr)' || echo 0)
-    n_net=$(ls /sys/class/net/ 2>/dev/null | grep -cvE '^(lo|virbr|docker|br-|veth)' || echo 0)
+    n_storage=$(lsblk -nd -o NAME 2>/dev/null | grep -cvE '^(loop|zram|sr)' || true)
+    n_net=$(ls /sys/class/net/ 2>/dev/null | grep -cvE '^(lo|virbr|docker|br-|veth)' || true)
     printf '  "summary": { "cpu": "%s", "gpu": "%s", "ram_modules": %d, "ram_size_mb": %d, "storage_devices": %d, "network_interfaces": %d }\n' \
         "$(json_esc "$model")" "$(json_esc "$gpu")" "$modules" "$msize_mb" "$n_storage" "$n_net"
     wu_json_end
@@ -382,6 +539,7 @@ main() {
     box "$(_emu '💿')" "$(t hw_storage)" print_storage
     box "$(_emu '🌐')" "$(t hw_network)" print_network
     box "$(_emu '🌀')" "$(t hw_cooling)" print_cooling
+    box "$(_emu '🔌')" "$(t hw_pci)" print_pci
 
     print_battery
 

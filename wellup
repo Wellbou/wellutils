@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WellUp v1.0 — Check for system updates and apply them automatically
+# WellUp v1.0 -- Check for system updates and apply them automatically
 # Supports: pacman (Arch), dnf/yum (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi),
 #           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo)
 # by wellbou_
@@ -453,14 +453,15 @@ self_main() {
     local src
     src="$(self_acquire)" || { printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"; return 3; }
     if self_install_to "$src"; then
+        trap - INT
         printf '\n  %s%s %s%s\n\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
         printf '  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     else
+        trap - INT
         printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"
         return 3
     fi
-    trap - INT
 }
 
 main() {
