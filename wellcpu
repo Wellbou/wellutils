@@ -16,7 +16,7 @@ command -v lscpu  >/dev/null 2>&1 || lscpu()  { :; }
 command -v sleep  >/dev/null 2>&1 || sleep()  { :; }
 
 
-[[ "$_WU_COLOR" == "yes" ]] && ORANGE=$'\033[1;38;5;208m' || ORANGE=""
+ORANGE=$'\033[1;38;5;208m'
 
 # ─── Helpers ─────────────────────────────────────────────────────
 load_color() {

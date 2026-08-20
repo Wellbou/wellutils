@@ -230,6 +230,7 @@ sm_attr_label() {
 # Human-formatted raw value for a known attribute id.
 sm_attr_value() {
     local id="$1" raw="$2"
+    [[ "$raw" =~ ^[0-9]+$ ]] || { printf '%s' "$raw"; return; }
     case "$id" in
         9)   printf '%s h' "$((10#$raw))" ;;
         190|194) printf '%s°C' "$((10#$raw))" ;;
@@ -340,7 +341,7 @@ detail_parts() {
 
         local line="  ├─ ${BOLD}${W}${pname}${RESET}  ${DIM}${psize_human}${RESET}"
         [[ -n "$fstype" ]] && line="$line  $fstype"
-        [[ -n "$mountpoint" ]] && line="$line  ${mp_icon}→ ${G}${mountpoint}${RESET}"
+        [[ -n "$mountpoint" ]] && line="$line  ${mp_icon}-> ${G}${mountpoint}${RESET}"
         _LINES+=( "$line" )
         found=1
     done
@@ -692,7 +693,7 @@ main() {
                 printf '  %s%s%s' "$C" "$fstype" "$RESET"
             fi
             if [[ -n "$mountpoint" ]]; then
-                printf '  → %s%s%s' "$G" "$mountpoint" "$RESET"
+                printf '  -> %s%s%s' "$G" "$mountpoint" "$RESET"
             fi
             printf '\n'
         done

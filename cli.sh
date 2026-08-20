@@ -109,7 +109,7 @@ wu_parse() {
         ru) WELLUTILS_LANG=RU ;;
         en) WELLUTILS_LANG=EN ;;
         auto) _wu_detect_lang ;;
-        "") [[ -z "${_WELLUTILS_LANG:-}" ]] && _wu_detect_lang ;;
+        "") [[ -z "${WELLUTILS_LANG:-}" ]] && _wu_detect_lang ;;
     esac
 
     [[ "$_WU_DEBUG" == "1" ]] && set -x

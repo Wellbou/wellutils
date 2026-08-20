@@ -145,7 +145,7 @@ print_nvidia() {
         else
             # power.draw is [N/A] on some cards -- fall back to the NVML
             # power-sample average (Avg line of the Power Samples section).
-            pow=$(nvidia-smi -q -d POWER 2>/dev/null | grep -A6 'Power Samples' | sed -n 's/^[[:space:]]*Avg[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1)
+            pow=$(nvidia-smi -q -d POWER 2>/dev/null | grep -A6 'Power Samples' | sed -n 's/^[[:space:]]*Avg[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1) || true
             [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]] && pow_txt="~${pow} W" || pow_txt="$(t blk_smart_unknown)"
         fi
         pline_hw "$(_emu '🔌')" "$(t gpu_power)" "$pow_txt"

@@ -11,7 +11,7 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 
 
-[[ "$_WU_COLOR" == "yes" ]] && ORANGE=$'\033[1;38;5;208m' || ORANGE=""
+ORANGE=$'\033[1;38;5;208m'
 
 # ─── Helpers ─────────────────────────────────────────────────────
 usage_color() {
@@ -125,7 +125,7 @@ local zram_dev zram_size zram_kb zram_h zram_algorithm
         zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
         zram_kb=$(( zram_size / 1024 ))
         zram_h=$(fmt_kb "$zram_kb")
-        zram_algorithm=$(awk '/^[^ ]+ / { match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2) }' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
+        zram_algorithm=$(awk 'BEGIN{f=0} /\[[^]]+\]/{match($0,/\[[^]]+\]/); printf "%s",substr($0,RSTART+1,RLENGTH-2); f=1; exit} END{if(!f) print "unknown"}' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
         [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
         _LINES+=( "" )
         _LINES+=( "  ${BOLD}${W}$(_ic '📦')$(t mem_zram)${RESET}" )
@@ -221,7 +221,7 @@ json_out() {
     for zram_dev in /sys/block/zram*; do
         [[ -d "$zram_dev" ]] || continue
         zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
-        zram_algorithm=$(awk '/^[^ ]+ / { match($0, /\[[^]]+\]/); print substr($0, RSTART+1, RLENGTH-2) }' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
+        zram_algorithm=$(awk 'BEGIN{f=0} /\[[^]]+\]/{match($0,/\[[^]]+\]/); printf "%s",substr($0,RSTART+1,RLENGTH-2); f=1; exit} END{if(!f) print "unknown"}' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
         [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
         local zdata_z=0 zcompr_z=0 zused_z=0
         if [[ -f "$zram_dev/mm_stat" ]]; then
