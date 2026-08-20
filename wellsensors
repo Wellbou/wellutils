@@ -137,12 +137,13 @@ print_cpu() {
         [[ -f "$label_file" ]] && label=$(cat "$label_file")
 
         local raw_temp
-        raw_temp=$(cat "$input_file")
+        raw_temp=$(cat "$input_file" 2>/dev/null) || continue
+        [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
         local temp=$(( raw_temp / 1000 ))
 
         local high="-" crit="-"
-        [[ -f "$high_file" ]] && high=$(( $(cat "$high_file") / 1000 ))
-        [[ -f "$crit_file" ]] && crit=$(( $(cat "$crit_file") / 1000 ))
+        if [[ -f "$high_file" ]]; then local _hv; _hv=$(cat "$high_file" 2>/dev/null) || true; [[ "$_hv" =~ ^-?[0-9]+$ ]] && high=$(( _hv / 1000 )); fi
+        if [[ -f "$crit_file" ]]; then local _cv; _cv=$(cat "$crit_file" 2>/dev/null) || true; [[ "$_cv" =~ ^-?[0-9]+$ ]] && crit=$(( _cv / 1000 )); fi
 
         local color emoji bar suffix=""
         color=$(temp_color "$temp")
@@ -308,7 +309,8 @@ print_acpi() {
                 local idx
                 idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
                 local raw_temp
-                raw_temp=$(cat "$input_file")
+                raw_temp=$(cat "$input_file" 2>/dev/null) || continue
+                [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
                 local temp=$(( raw_temp / 1000 ))
 
                 valid_temp "$input_file" "$temp" || continue
@@ -380,7 +382,10 @@ print_network_temp() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for input_file in "$base"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
-                local temp=$(( $(cat "$input_file") / 1000 ))
+                local raw_t
+                raw_t=$(cat "$input_file" 2>/dev/null) || continue
+                [[ "$raw_t" =~ ^-?[0-9]+$ ]] || continue
+                local temp=$(( raw_t / 1000 ))
                 valid_temp "$input_file" "$temp" || continue
 
                 local color emoji bar
@@ -600,7 +605,10 @@ print_summary() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for f in "$base"/temp*_input; do
                 [[ -f "$f" ]] || continue
-                local t=$(( $(cat "$f") / 1000 ))
+                local _rv
+                _rv=$(cat "$f" 2>/dev/null) || continue
+                [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue
+                local t=$(( _rv / 1000 ))
                 (( t > 0 && t < 200 )) && temps+=("$t")
             done
         done
@@ -609,7 +617,11 @@ print_summary() {
     if command -v nvidia-smi &>/dev/null; then
         local gt
         gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
-        [[ -n "$gt" ]] && temps+=("$gt")
+        if [[ -n "$gt" ]]; then
+            while IFS= read -r _gline; do
+                [[ -n "$_gline" ]] && [[ "$_gline" =~ ^[0-9]+$ ]] && temps+=("$_gline")
+            done <<< "$gt"
+        fi
     fi
 
     _LINES=()
@@ -685,11 +697,12 @@ json_out() {
             idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
             label="Sensor $idx"
             [[ -f "${hwmon}/temp${idx}_label" ]] && label=$(cat "${hwmon}/temp${idx}_label")
-            raw_temp=$(cat "$input_file")
+            raw_temp=$(cat "$input_file" 2>/dev/null) || continue
+            [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
             temp=$(( raw_temp / 1000 ))
             high="-"; crit="-"
-            [[ -f "${hwmon}/temp${idx}_high" ]] && high=$(( $(cat "${hwmon}/temp${idx}_high") / 1000 ))
-            [[ -f "${hwmon}/temp${idx}_crit" ]] && crit=$(( $(cat "${hwmon}/temp${idx}_crit") / 1000 ))
+            if [[ -f "${hwmon}/temp${idx}_high" ]]; then local _hv2; _hv2=$(cat "${hwmon}/temp${idx}_high" 2>/dev/null) || true; [[ "$_hv2" =~ ^-?[0-9]+$ ]] && high=$(( _hv2 / 1000 )); fi
+            if [[ -f "${hwmon}/temp${idx}_crit" ]]; then local _cv2; _cv2=$(cat "${hwmon}/temp${idx}_crit" 2>/dev/null) || true; [[ "$_cv2" =~ ^-?[0-9]+$ ]] && crit=$(( _cv2 / 1000 )); fi
             (( first )) && first=0 || printf ',\n'
             printf '    { "label": "%s", "temp_c": %d, "high_c": %s, "crit_c": %s }' \
                 "$(json_esc "$label")" "$temp" \
@@ -821,7 +834,10 @@ json_out() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for input_file in "$base"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
-                temp=$(( $(cat "$input_file") / 1000 ))
+                local _cv3
+                _cv3=$(cat "$input_file" 2>/dev/null) || continue
+                [[ "$_cv3" =~ ^-?[0-9]+$ ]] || continue
+                temp=$(( _cv3 / 1000 ))
                 valid_temp "$input_file" "$temp" || continue
                 (( first )) && first=0 || printf ',\n'
                 printf '    { "chip": "%s", "input": "%s", "temp_c": %d }' \
@@ -932,7 +948,10 @@ json_out() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for f in "$base"/temp*_input; do
                 [[ -f "$f" ]] || continue
-                local t=$(( $(cat "$f") / 1000 ))
+                local _rv
+                _rv=$(cat "$f" 2>/dev/null) || continue
+                [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue
+                local t=$(( _rv / 1000 ))
                 (( t > 0 && t < 200 )) && temps+=("$t")
             done
         done
@@ -940,7 +959,11 @@ json_out() {
     if command -v nvidia-smi &>/dev/null; then
         local gt
         gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
-        [[ -n "$gt" ]] && temps+=("$gt")
+        if [[ -n "$gt" ]]; then
+            while IFS= read -r _gline; do
+                [[ -n "$_gline" ]] && [[ "$_gline" =~ ^[0-9]+$ ]] && temps+=("$_gline")
+            done <<< "$gt"
+        fi
     fi
     if (( ${#temps[@]} == 0 )); then
         printf '    "samples": 0, "min_c": null, "avg_c": null, "max_c": null\n'

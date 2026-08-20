@@ -391,7 +391,11 @@ json_out() {
             local i
             for (( i=0; i<modules; i++ )); do
                 local mb="${j_size[$i]:-0}"; [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
-                j_size[$i]="$(( mb / 1024 )) GiB"
+                if (( mb >= 1024 )); then
+                    j_size[$i]="$(( mb / 1024 )) GiB"
+                else
+                    j_size[$i]="${mb} MiB"
+                fi
                 [[ -z "${j_locator[$i]}" ]] && j_locator[$i]="DIMM $(( i + 1 ))"
             done
         fi

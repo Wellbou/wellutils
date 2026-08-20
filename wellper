@@ -167,6 +167,7 @@ else
     box_top()   { :; }
     box_row()   { :; }
     box_bottom(){ :; }
+    pci_slot_devices() { _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=(); }
 fi
 
 # ─── Output policy ───────────────────────────────────────────────
@@ -514,6 +515,7 @@ read_edid() {
     B=$(od -An -v -tx1 "$f" 2>/dev/null) || { printf '|'; return; }
     A=( $B )
     (( ${#A[@]} >= 18 )) || { printf '|'; return; }
+    [[ "${A[8]}" =~ ^[0-9a-f]{2}$ && "${A[9]}" =~ ^[0-9a-f]{2}$ ]] || { printf '|'; return; }
     local i c1 c2 c3
     c1=$(( (0x${A[8]} >> 2) & 0x1f ))
     c2=$(( ((0x${A[8]} & 0x03) << 3) | ((0x${A[9]} >> 5) & 0x07) ))
@@ -528,6 +530,7 @@ read_edid() {
     for (( i = 0; i + 4 < ${#A[@]}; i++ )); do
         [[ "${A[$i]}" == "00" && "${A[$((i+1))]}" == "00" && "${A[$((i+2))]}" == "00" && "${A[$((i+3))]}" == "fc" ]] || continue
         for (( j = i + 5; j < i + 18 && j < ${#A[@]}; j++ )); do
+            [[ "${A[$j]}" =~ ^[0-9a-f]{2}$ ]] || continue
             c=$(( 0x${A[$j]} ))
             (( c >= 32 && c <= 126 )) && printf "\\$(printf '%03o' "$c")"
         done

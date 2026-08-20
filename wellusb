@@ -358,8 +358,10 @@ main() {
 
         if [[ "$bus" != "$prev_bus" ]]; then
             [[ -n "$prev_bus" ]] && printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..74})" "$RESET"
-            local hub_spd
-            hub_spd=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/speed" 2>/dev/null || echo "0")
+            local hub_spd="0"
+            if [[ "$bus" =~ ^[0-9]+$ ]]; then
+                hub_spd=$(cat "/sys/bus/usb/devices/usb$((10#$bus))/speed" 2>/dev/null || echo "0")
+            fi
             printf '\n  %s┌───%s '"$(_ic "🏭")"'%s%s %s%s%s  ' "$C" "$RESET" "$BOLD" "$(t usb_bus)" "$W" "$bus" "$RESET"
             printf '%s%s%s\n' "$(speed_color "$hub_spd")" "$(speed_name "$hub_spd")" "$RESET"
             printf '  %s│%s\n' "$C" "$RESET"
