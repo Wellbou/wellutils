@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=21
+pkgrel=22
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -35,6 +35,7 @@ source=(
     'lang.sh'
     'box.sh'
     'cli.sh'
+    'bootstrap.sh'
     'jedec.sh'
     'wfetch_art.py'
     'logo.png'
@@ -68,21 +69,22 @@ source=(
     'LICENSE'
 )
 sha256sums=('29eaca19ad30d0ca5e4d2f5daeb59fbdaf95cd811da430083148416f443e4b66'
-            '3729c4c8a3cff79f1e401c05e1a7d925c248ff08798c1c4974f8715daec949c9'
-            'd5ee529942782a03aa005dc3692045a5b1e6a433adb0ae8364a8c1f5dde9ed61'
-            '36bec982a13fd742d7539abde4c27ed6e9cedb4f7e372338d70007e12e626208'
-            '1e0143207c41121bc754d98324e001f66c0525c19ed5782f0b756902f03e1c72'
-            '3154342e4817bfe520f8e3dfdac1836fe6549f5df278323cea7cef2c6992445e'
-            '492981c16658908e0af10509ec99da30c98ef3022452e126f85430be25c98c1b'
-            'ce96efaa0e895ed8c5cea79fd3d33d897d3522baab9830416d3a6ceec1918178'
-            '97881bd59e363fb16ece4e9d26030ea2cd4da83bbcba7ab0781bd72eb3e69b39'
-            'ceafd4176840e17b2e950a728b37617ca718ba6518b4b9e3d9ab0ff952b450c6'
+            '288db8559e43b2cf3ce95bc2a7f49dbbb5dcd6ab2b9ffafe80975b7f8c10b1da'
+            'e453c8f9051e1aad5075307cd5d8eb695b9c140c95def170b9de23cac37e8a53'
+            'a3ee2cb0041cb3189e0e7d9d85347c6478df491804e8a7b5b2ef522b341e51ed'
+            '27c7ee9bda05ea224fb50915593fbe7f06deca5a2c81f83bb1ed8b3f24c752ec'
+            '7dcb73df53a9524517e267193a9cacc0c9430ae3b879f1dca8a1db9dd0943dce'
+            '84f71ff131bf75b6a530e7b696442686ce861d350a47fc9bcbc9a3628d675552'
+            '4be518869c35ae3df6485221f159cca7d9fb39f91640ed5463f7d5f02360778a'
+            'b071a5b316433c189a5d1ea8ef651433e8de9892b0fdd084ea840f00e1653a6c'
+            'f4f97b8d4a64d52da159d391e89eb49ee23512865d141251dfc305ca10e79010'
             '7ad05307b38b5beccd3fc1ca90da31944124dcd0d0306b5eaaf0d2c877cfefc2'
-            '7121c3943172e0c9f133d806a03e914ad1264d9208c5335ee393eaa2df65d6aa'
-            'bdec4c02744972c8a2dda7375a69e94e81380e65e843391a624ee0d56cb98473'
-            'f3a33c8a07eecad11193412e3a126af54e57f1f0cf85a6ccf1b4e9be48b45ebc'
+            'd1951b00bb8c28c361692bc2bdc897d5046884578f7ab1606384afc3cfa4be9f'
+            'ebcdf543a4c9ecd974f63353fb5806f6cc4dcc5f5b8ab6d964770d264677e988'
+            '848e4df0772709a91ec3205efc0beaec6b5d4b2ef153b3b213706dcbc49af782'
             'b802e08e46831e9d243ec224b7f77faf752d0b695769bbb4ab288ec17e4da601'
             '022aba70374558791b86c7b7be86500c41f0e0df08495a029094170f22f5bc21'
+            '4dbe77cd7af164d5628fddd03197328f503ece8e9f10f92e167df6ff49ab5f75'
             'd4d5cc0a866b6e733bd94bad0bef09206a11c00a30d8c14b8de7ce87a9375632'
             '408bca678af56ddb9f56aed9c9cb213f82608a781c27eb5adb91aca7cb731c35'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'

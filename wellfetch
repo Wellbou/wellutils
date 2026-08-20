@@ -18,37 +18,11 @@ command -v df     >/dev/null 2>&1 || df()     { :; }
 command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 
+_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    _WU_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -n "${_WU_LIBDIR:-}" ]]; then
-        . "$_WU_LIBDIR/lang.sh"
-        . "$_WU_LIBDIR/box.sh"
-        . "$_WU_LIBDIR/cli.sh"
-    elif [[ -d "$_WU_DIR/../share/wellutils" ]]; then
-        . "$_WU_DIR/../share/wellutils/lang.sh"
-        . "$_WU_DIR/../share/wellutils/box.sh"
-        . "$_WU_DIR/../share/wellutils/cli.sh"
-    else
-        if [[ -d /usr/local/share/wellutils ]]; then
-            . /usr/local/share/wellutils/lang.sh
-            . /usr/local/share/wellutils/box.sh
-            . /usr/local/share/wellutils/cli.sh
-        else
-            . /usr/share/wellutils/lang.sh
-            . /usr/share/wellutils/box.sh
-            . /usr/share/wellutils/cli.sh
-        fi
-    fi
+    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 else
-    if [[ -d /usr/local/share/wellutils ]]; then
-        . /usr/local/share/wellutils/lang.sh
-        . /usr/local/share/wellutils/box.sh
-        . /usr/local/share/wellutils/cli.sh
-    else
-        . /usr/share/wellutils/lang.sh
-        . /usr/share/wellutils/box.sh
-        . /usr/share/wellutils/cli.sh
-    fi
+    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
     return 0 2>/dev/null || exit 0
 fi
 

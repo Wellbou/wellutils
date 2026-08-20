@@ -4,15 +4,10 @@
 set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
-_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-source "$_WU_LIB"
-# ─── CLI (shared cli.sh) ──────────────────────────────────
 _WU_TOOLNAME="wellpci" _WU_NAME="WellPCI" _WU_VERSION="2.1" _WU_MANUAL=1
 _WU_TAGLINE="PCI device listing with IDS database lookup"
+_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang cli
 _PCI_ALL=0
 
 wpci_extra_parse() {
@@ -23,12 +18,6 @@ wpci_extra_parse() {
 }
 _WU_EXTRA_PARSE=wpci_extra_parse
 _WU_EXTRA_HELP="      --all                   show all devices (default: expansion cards only)"
-_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
-source "$_WU_CLI"
 
 
 # ─── Colors ──────────────────────────────────────────────────────

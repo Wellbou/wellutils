@@ -4,20 +4,10 @@
 set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
-_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-source "$_WU_LIB"
-_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
-source "$_WU_BOX"
-# JEDEC JEP106 manufacturer table (wellhw resolves dmidecode RAM vendor codes)
-_WU_JEDEC="$(dirname "$(readlink -f "$0")")/jedec.sh"
+_WU_TOOLNAME="wellhw" _WU_NAME="WellHW" _WU_VERSION="1.3"
+_WU_TAGLINE="Beautiful hardware report (chat-ready)"
+_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
 command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
@@ -25,20 +15,10 @@ command -v df     >/dev/null 2>&1 || df()     { :; }
 command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
-[[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/jedec.sh"
-[[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/usr/local/share/wellutils/jedec.sh"
+# JEDEC JEP106 RAM vendor codes (loaded after guards since it's optional)
+_WU_JEDEC="$_WU_BOOT_DIR/jedec.sh"
 [[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/usr/share/wellutils/jedec.sh"
-[[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/etc/wellutils/jedec.sh"
-source "$_WU_JEDEC"
-# ─── CLI (shared cli.sh) ──────────────────────────────────
-_WU_TOOLNAME="wellhw" _WU_NAME="WellHW" _WU_VERSION="1.3"
-_WU_TAGLINE="Beautiful hardware report (chat-ready)"
-_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
-source "$_WU_CLI"
+[[ -f "$_WU_JEDEC" ]] && source "$_WU_JEDEC"
 
 
 # ─── Helpers ────────────────────────────────────────────────────
@@ -92,8 +72,7 @@ print_board() {
 }
 
 print_ram() {
-    local mout
-    mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
+    local mout="$_WU_DMIDECODE"
     local _HT=$'\t'
 
     local -a slot_size=() slot_type=() slot_speed=() slot_manuf=() slot_pn=() slot_form=() slot_locator=()
@@ -350,8 +329,7 @@ json_out() {
     bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
 
     # ── Per-slot memory collection (shared with print_ram) ──
-    local mout="" msize_mb=0
-    mout=$(root_run dmidecode -t memory 2>/dev/null) || mout=""
+    local mout="$_WU_DMIDECODE" msize_mb=0
     local _HT=$'\t'
     local -a j_size=() j_type=() j_speed=() j_manuf=() j_pn=() j_form=() j_locator=()
     local in_slot=0 j_s="" j_t="" j_sp="" j_m="" j_p="" j_f="" j_l="" j_empty=0
@@ -527,7 +505,10 @@ json_out() {
 }
 
 # ─── Main ────────────────────────────────────────────────────────
+_WU_DMIDECODE=""
 main() {
+    # Cache dmidecode once (used by both print_ram and json_out)
+    _WU_DMIDECODE=$(root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
 
     box_header "$(_emu '🖥')" "wellhw" "$(t hw_title)"
@@ -541,7 +522,10 @@ main() {
     box "$(_emu '🌀')" "$(t hw_cooling)" print_cooling
     box "$(_emu '🔌')" "$(t hw_pci)" print_pci
 
-    print_battery
+    # Battery: only render box if a battery exists
+    if ls /sys/class/power_supply/BAT* /sys/class/power_supply/bat* 1>/dev/null 2>&1; then
+        box "$(_emu '🔋')" "$(t hw_battery)" print_battery
+    fi
 
     printf '\n  %sWellHW v1.3 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }

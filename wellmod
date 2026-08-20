@@ -4,32 +4,25 @@
 set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
-_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-source "$_WU_LIB"
-# ─── CLI (shared cli.sh) ──────────────────────────────────
 _WU_TOOLNAME="wellmod" _WU_NAME="WellMod" _WU_VERSION="1.0" _WU_MANUAL=1
 _WU_TAGLINE="Kernel modules listing"
-_MOD_DEPS=""
+_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang cli
+_MOD_DEPS="" _MOD_FILTER=""
 wmod_extra_parse() {
     case "$1" in
         --deps)
             [[ $# -ge 2 ]] || { printf 'wellmod: --deps needs a module name\n' >&2; exit 2; }
-            _MOD_DEPS="$2"; _WU_EXTRA_CONSUMED=1; shift; return 0 ;;
+            _MOD_DEPS="$2"; _WU_EXTRA_CONSUMED=2; return 0 ;;
+        --filter|-f)
+            [[ $# -ge 2 ]] || { printf 'wellmod: --filter needs a pattern\n' >&2; exit 2; }
+            _MOD_FILTER="$2"; _WU_EXTRA_CONSUMED=2; return 0 ;;
     esac
     return 1
 }
 _WU_EXTRA_PARSE=wmod_extra_parse
-_WU_EXTRA_HELP="      --deps MODULE          show module dependencies"
-_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
-source "$_WU_CLI"
+_WU_EXTRA_HELP="      --deps MODULE          show module dependencies
+      --filter, -f PATTERN   filter modules by name"
 
 
 # ─── Colors ──────────────────────────────────────────────────────
@@ -93,6 +86,7 @@ json_out() {
     local total=0 total_size=0
     local name size used
     while IFS=' ' read -r name size used; do
+        [[ -z "$_MOD_FILTER" || "$name" == *$_MOD_FILTER* ]] || continue
         names+=("$name")
         sizes+=("$size")
         used_bys+=("$used")
@@ -155,6 +149,7 @@ main() {
 
     local -a names=() sizes=() used_bys=()
     while IFS=' ' read -r name size used; do
+        [[ -z "$_MOD_FILTER" || "$name" == *$_MOD_FILTER* ]] || continue
         names+=("$name")
         sizes+=("$size")
         used_bys+=("$used")

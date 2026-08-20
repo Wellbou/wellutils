@@ -6,27 +6,10 @@
 set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
-_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-source "$_WU_LIB"
-_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
-source "$_WU_BOX"
-# ─── CLI (shared cli.sh) ──────────────────────────────────
 _WU_TOOLNAME="wellup" _WU_NAME="WellUp" _WU_VERSION="1.0"
 _WU_TAGLINE="Check for system updates and apply them automatically"
-_WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/local/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/usr/share/wellutils/cli.sh"
-[[ -f "$_WU_CLI" ]] || _WU_CLI="/etc/wellutils/cli.sh"
-source "$_WU_CLI"
+_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 
 # ─── Flags ─────────────────────────────────────────────────────
 _UP_CHECK=0
