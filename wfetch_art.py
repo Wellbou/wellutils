@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wfetch_art.py — render a PNG as ANSI truecolor half-block art (stdlib only).
+"""wfetch_art.py - render a PNG as ANSI truecolor half-block art (stdlib only).
 
 Usage:
     wfetch_art.py <logo.png> [--width N] [--bg R,G,B] [--key N]
@@ -10,7 +10,7 @@ top pixel, background the bottom pixel, giving 2x vertical resolution).
 Transparency handling:
   * Pixels with alpha < --key (default 40) are treated as fully transparent and
     rendered with the terminal default background (ESC[49m), so the real
-    terminal background shows through — the logo never sits on a painted block.
+    terminal background shows through - the logo never sits on a painted block.
   * When stdout+stdin are ttys the terminal background is queried via OSC 11
     and used only to blend the few semi-transparent pixels.
   * --bg R,G,B overrides that blend colour (fallback when not a tty).
@@ -166,7 +166,7 @@ def query_term_bg():
 
 
 def encode_png_rgba(w, h, px):
-    """Minimal RGBA8 PNG encoder (stdlib only) — used for kitty/iTerm2 output."""
+    """Minimal RGBA8 PNG encoder (stdlib only) - used for kitty/iTerm2 output."""
     def chunk(typ, data):
         c = struct.pack(">I", len(data)) + typ + data
         crc = zlib.crc32(typ + data) & 0xFFFFFFFF
