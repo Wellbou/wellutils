@@ -29,12 +29,12 @@
 Twelve single-file tools that report on what your machine is doing:
 USB and PCI devices, block storage, memory, CPU topology, graphics,
 kernel modules, temperatures, and peripherals. Every tool shares the
-same CLI — same flags, same exit codes, same box-drawing output. A
+same CLI - same flags, same exit codes, same box-drawing output. A
 launcher (`wellutils`) ties them together, and short aliases
 (`wusb`, `wpci`, `wmem`, ...) are installed alongside.
 
 The same interface ships as a single PowerShell file for Windows.
-No WSL, no admin rights, no installers — data comes from CIM/WMI.
+No WSL, no admin rights, no installers - data comes from CIM/WMI.
 
 ```
 $ well fetch
@@ -63,7 +63,7 @@ $ well fetch
 
 ### Any Linux (Arch, Fedora, Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...)
 
-One command — the installer detects your package manager (pacman,
+One command - the installer detects your package manager (pacman,
 dnf/yum, apt, zypper, apk, xbps, emerge), installs the optional
 dependencies (hwdata ID database, lm-sensors, smartmontools,
 dmidecode, ...) and drops the tools into `/usr/local/bin`:
@@ -94,7 +94,7 @@ logo).
 
 ### Windows
 
-Uses the PowerShell that ships with Windows — nothing to download
+Uses the PowerShell that ships with Windows - nothing to download
 beyond a single file. Pick one:
 
 ```powershell
@@ -137,7 +137,7 @@ tool [options]
       --debug              shell tracing
 ```
 
-Every tool can emit JSON — pipe it into `jq`, or save for a backend
+Every tool can emit JSON - pipe it into `jq`, or save for a backend
 service. Warnings and errors still go to stderr, so the JSON stream is
 always clean:
 
@@ -198,7 +198,7 @@ wellup --self-update        # check and update wellutils
 wellup --self-update --check  # only report the version difference
 ```
 
-Note: `wellutils sensors` is intentionally not an alias — it would
+Note: `wellutils sensors` is intentionally not an alias - it would
 shadow the `sensors` binary from lm_sensors. Use `wellsensors`.
 
 ## Features
@@ -209,7 +209,7 @@ shadow the `sensors` binary from lm_sensors. Use `wellsensors`.
   printers, webcams and gamepads are identified correctly even when
   `bDeviceClass` reports `0x00` or `0xEF`.
 - **JEDEC RAM vendor decoding.** `wellhw` resolves raw JEP106
-  manufacturer codes from dmidecode (e.g. `8313` → Golden Empire).
+  manufacturer codes from dmidecode (e.g. `8313` -> Golden Empire).
   The ID table ships as `/usr/share/wellutils/jedec.sh`.
 - **No root required.** Everything is read from sysfs and `/proc`.
   dmidecode and decode-dimms are used only when passwordless sudo is
@@ -218,7 +218,7 @@ shadow the `sensors` binary from lm_sensors. Use `wellsensors`.
   overall health and flags failing critical attributes (reallocated
   sectors, pending and uncorrectable errors, CRC errors) in colour.
 - **Same options everywhere.** One CLI, one output style, one set of
-  exit codes — on Linux and Windows alike.
+  exit codes - on Linux and Windows alike.
 
 ## Dependencies
 
