@@ -33,7 +33,7 @@ _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
 source "$_WU_CLI"
 
 
-ORANGE=$'\033[1;38;5;208m'
+[[ "$_WU_COLOR" == "yes" ]] && ORANGE=$'\033[1;38;5;208m' || ORANGE=""
 
 # ─── Helpers ─────────────────────────────────────────────────────
 load_color() {
@@ -114,15 +114,18 @@ print_cpu_info() {
     lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
 
     arch=$(awk -F': *' '/^Architecture/{print $2}' <<< "$lscpu_out" | head -1)
-    sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
-    threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
-    cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -n "$cores" && -n "$sockets" ]] && cores=$(( cores * sockets ))
-    [[ -z "$cores" ]] && cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    [[ -z "$threads" ]] && threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
-    [[ -n "$threads" && -n "$cores" ]] && threads=$(( threads * cores ))
-    [[ -z "$sockets" ]] && sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
+    local _sockets _threads _cores
+    _sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
+    _threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
+    _cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
+    [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
+    [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
+    [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
     [[ -z "$arch" ]] && arch=$(uname -m)
+    [[ -z "$_sockets" || "$_sockets" -lt 1 ]] && _sockets=1
+    [[ -z "$_cores" || "$_cores" -lt 1 ]] && _cores=1
+    [[ -z "$_threads" || "$_threads" -lt 1 ]] && _threads=1
+    sockets="$_sockets"; cores=$(( _cores * _sockets )); threads=$(( _threads * _cores * _sockets ))
 
     local turbo_hint base_hint
     turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)
@@ -217,7 +220,7 @@ print_cpu_load() {
         local freq_txt=""
         [[ -n "$freq" ]] && freq_txt="  ${DIM}@ $(fmt_mhz "$freq")${RESET}"
         local gov_txt=""
-        [[ -n "$gov" && "$gov" != "schedutil" ]] && gov_txt="  ${DIM}($gov)${RESET}"
+        [[ -n "$gov" ]] && gov_txt="  ${DIM}($gov)${RESET}"
 
         _LINES+=( "  ${BOLD}${W}${label}${RESET}  ${bar}  ${val}${freq_txt}${gov_txt}" )
     done
@@ -232,15 +235,18 @@ json_out() {
     lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
 
     arch=$(awk -F': *' '/^Architecture/{print $2}' <<< "$lscpu_out" | head -1)
-    sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
-    threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
-    cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -n "$cores" && -n "$sockets" ]] && cores=$(( cores * sockets ))
-    [[ -z "$cores" ]] && cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    [[ -z "$threads" ]] && threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
-    [[ -n "$threads" && -n "$cores" ]] && threads=$(( threads * cores ))
-    [[ -z "$sockets" ]] && sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
+    local _sockets _threads _cores
+    _sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
+    _threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
+    _cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
+    [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
+    [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
+    [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
     [[ -z "$arch" ]] && arch=$(uname -m)
+    [[ -z "$_sockets" || "$_sockets" -lt 1 ]] && _sockets=1
+    [[ -z "$_cores" || "$_cores" -lt 1 ]] && _cores=1
+    [[ -z "$_threads" || "$_threads" -lt 1 ]] && _threads=1
+    sockets="$_sockets"; cores=$(( _cores * _sockets )); threads=$(( _threads * _cores * _sockets ))
 
     local turbo_hint
     turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)

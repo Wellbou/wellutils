@@ -193,7 +193,7 @@ print_gpu() {
                 local _nv_bus
                 for _nv_bus in /sys/bus/pci/devices/*/; do
                     [[ "$(cat "${_nv_bus}vendor" 2>/dev/null)" == "0x10de" ]] || continue
-                    _aib_name=$(gpu_aib_vendor "$(basename "$_nv_bus" | sed 's/0000://')")
+                    _aib_name=$(gpu_aib_vendor "$(basename "$_nv_bus")")
                     break
                 done
                 [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
@@ -248,7 +248,7 @@ print_gpu() {
             devdir=$(dirname "$card_dir")
             # resolve AIB partner name
             local _amd_aib=""
-            _amd_aib=$(gpu_aib_vendor "$(basename "$(readlink -f "$devdir")" | sed 's/.*\///;s/0000://')")
+            _amd_aib=$(gpu_aib_vendor "$(basename "$(readlink -f "$devdir")")")
             if [[ -f "$devdir/uevent" ]]; then
                 local model_line
                 model_line=$(grep "^PCI_ID=" "$devdir/uevent" 2>/dev/null | head -1)
@@ -723,7 +723,7 @@ json_out() {
     for _aib_dir in /sys/bus/pci/devices/*/; do
         [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
         _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
-        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir" | sed 's/0000://')")
+        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir")")
         break
     done
     # NVIDIA
@@ -764,7 +764,7 @@ json_out() {
         for _amd_dir in /sys/bus/pci/devices/*/; do
             [[ "$(cat "${_amd_dir}vendor" 2>/dev/null)" == "0x1002" ]] || continue
             _amd_hex=$(cat "${_amd_dir}subsystem_vendor" 2>/dev/null || true)
-            _amd_aib=$(gpu_aib_vendor "$(basename "$_amd_dir" | sed 's/0000://')")
+            _amd_aib=$(gpu_aib_vendor "$(basename "$_amd_dir")")
             [[ -n "$_amd_aib" ]] && _amd_name="AMD GPU ($_amd_aib)"
             break
         done

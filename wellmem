@@ -34,7 +34,7 @@ _WU_CLI="$(dirname "$(readlink -f "$0")")/cli.sh"
 source "$_WU_CLI"
 
 
-ORANGE=$'\033[1;38;5;208m'
+[[ "$_WU_COLOR" == "yes" ]] && ORANGE=$'\033[1;38;5;208m' || ORANGE=""
 
 # ─── Helpers ─────────────────────────────────────────────────────
 usage_color() {
@@ -79,9 +79,10 @@ print_all() {
     buffers=$(awk '/^Buffers:/{print $2}' /proc/meminfo)
     cached=$(awk '/^(Cached|SReclaimable):/{s+=$2} END{print s+0}' /proc/meminfo)
     shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
-    used=$(( total - available ))
     [[ -n "$total" && "$total" -gt 0 ]] || total=1
-    [[ -n "$used" && "$used" -gt 0 ]] || used=0
+    [[ -z "$available" || "$available" -lt 0 ]] && available=0
+    used=$(( total - available ))
+    (( used < 0 )) && used=0
 
     # percentages via awk -- bash integer arithmetic overflows on huge totals
     local pct_used pct_actual
@@ -119,7 +120,10 @@ print_all() {
     local swap_total swap_used swap_free
     swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
     swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo)
+    [[ -n "$swap_total" && "$swap_total" -gt 0 ]] || swap_total=0
+    [[ -z "$swap_free" || "$swap_free" -lt 0 ]] && swap_free=0
     swap_used=$(( swap_total - swap_free ))
+    (( swap_used < 0 )) && swap_used=0
 
     _LINES+=( "" )
     _LINES+=( "  ${BOLD}${W}$(_ic '🔄')$(t mem_swap)${RESET}" )

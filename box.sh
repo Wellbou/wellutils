@@ -35,8 +35,11 @@ wu_scale() {
 # ─── GPU AIB vendor detection ────────────────────────────────────
 # Reads subsystem_vendor from sysfs for a PCI bus address.
 gpu_aib_vendor() {
-    local bus="$1" hex
-    hex=$(cat "/sys/bus/pci/devices/0000:${bus}/subsystem_vendor" 2>/dev/null) || { printf ''; return; }
+    local bus="$1" hex _dev
+    _dev="/sys/bus/pci/devices/0000:${bus}"
+    [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
+    [[ -d "$_dev" ]] || { printf ''; return; }
+    hex=$(cat "${_dev}/subsystem_vendor" 2>/dev/null) || { printf ''; return; }
     hex="${hex#0x}"
     case "$hex" in
         1043) printf 'ASUS'       ;;
@@ -75,7 +78,7 @@ gpu_aib_vendor() {
 pci_slot_devices() {
     _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=()
     local d addr bus major class_hex
-    for d in /sys/bus/pci/devices/0000:*/; do
+    for d in /sys/bus/pci/devices/*/; do
         [[ -d "$d" ]] || continue
         addr=$(basename "$d")
         bus=$(echo "$addr" | cut -d: -f2 | cut -d. -f1)
@@ -147,7 +150,7 @@ _WU_PLAIN=${_WU_PLAIN:-0}
 # are skipped whole with width 0. Byte-level (works under any locale).
 _wuchar() {
     local s="$1" i="$2"
-    local c b b2 b3 cp j
+    local c b b2 b3 cp=0 j
     c="${s:i:1}"
     printf -v b '%d' "'$c"
     if (( b < 0x80 )); then

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # wellfetch -- detailed system info display with ANSI logo (wellutils suite)
 # Style: bash, 2-space indent.
+set -uo pipefail
 
 # shellcheck disable=SC2034,SC2059,SC2154
 
@@ -48,7 +49,7 @@ else
         . /usr/share/wellutils/box.sh
         . /usr/share/wellutils/cli.sh
     fi
-    return 0
+    return 0 2>/dev/null || exit 0
 fi
 
 _WF_LOGO=1
@@ -114,7 +115,7 @@ wf_clean() {
 wfv_user() {
     local u h
     u=$(id -un 2>/dev/null); [[ -n "$u" ]] || u="${USER:-?}"
-    h=$(hostname 2>/dev/null); [[ -n "$h" ]] || h="${HOSTNAME:-?}"
+    h=$(hostname 2>/dev/null || true); [[ -n "$h" ]] || h="${HOSTNAME:-?}"
     wf_push user "$(t wf_user)" "$u@$h"
 }
 
@@ -551,7 +552,7 @@ wfv_peripherals() {
         pi=$(wfv_pindex "$t")
         [[ -n "${P[$pi]:-}" ]] || continue
         rows+=("$t")
-        count=$(( count + $(printf '%s' "${P[$pi]}" | tr ',' '\n' | sed '/^$/d' | awk 'END{print NR}') ))
+        [[ -n "${P[$pi]:-}" ]] && count=$(( count + ${#P[$pi]//,/} + 1 ))
     done
     if (( ${#rows[@]} == 0 )); then
         wf_push peripherals "$(t wf_peripherals)" "-"
@@ -601,7 +602,10 @@ wfv_locale() { wf_push locale "$(t wf_locale)" "${LANG:--}"; }
 
 wfv_date() {
     if command -v date >/dev/null 2>&1; then
+        local _lc_save="${LC_TIME:-}"
+        [[ "$WELLUTILS_LANG" == "EN" ]] && export LC_TIME="en_US.UTF-8" 2>/dev/null || true
         wf_push date "$(t wf_date)" "$(date '+%A %d %B %Y %H:%M' 2>/dev/null)"
+        [[ -n "$_lc_save" ]] && export LC_TIME="$_lc_save" || unset LC_TIME
     else
         wf_push date "$(t wf_date)" "-"
     fi

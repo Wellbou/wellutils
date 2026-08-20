@@ -93,7 +93,7 @@ wucap() {
 pci_slot_devices() {
     _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=()
     local d addr bus major class_hex
-    for d in /sys/bus/pci/devices/0000:*/; do
+    for d in /sys/bus/pci/devices/*/; do
         [[ -d "$d" ]] || continue
         addr=$(basename "$d")
         bus=$(echo "$addr" | cut -d: -f2 | cut -d. -f1)
@@ -338,7 +338,7 @@ main() {
         fi
 
         # PCIe link speed/width badge from sysfs
-        local link_badge="" sysfs_addr="/sys/bus/pci/devices/0000:${addr}/"
+        local link_badge="" sysfs_addr="/sys/bus/pci/devices/${addr}/"
         if [[ -r "${sysfs_addr}current_link_speed" ]]; then
             local ls lw
             ls=$(cat "${sysfs_addr}current_link_speed" 2>/dev/null || true)

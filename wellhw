@@ -53,7 +53,7 @@ print_cpu() {
     local model cores threads
     model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
     [[ -z "$model" ]] && model=$(awk -F': *' '/^Processor/{print $2; exit}' /proc/cpuinfo)
-    [[ -z "$model" ]] && model=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo)
+    [[ -z "$model" ]] && model=$(awk '/^Hardware/{sub(/^[^:]*:[[:space:]]*/,""); sub(/[[:space:]]*$/,""); print; exit}' /proc/cpuinfo)
     cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
     threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
     pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${model}  ${DIM}($(t hw_cores): ${cores}, $(t hw_threads): ${threads})${RESET}"
@@ -288,7 +288,7 @@ print_battery() {
         cap=$(cat "$bat/capacity" 2>/dev/null || true)
         stat=$(cat "$bat/status" 2>/dev/null || true)
         if [[ -n "$cap" ]]; then
-            pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%%${RESET} ${DIM}(${stat})${RESET}"
+            pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%${RESET} ${DIM}(${stat})${RESET}"
         fi
     done
 }

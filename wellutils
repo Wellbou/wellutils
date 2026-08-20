@@ -15,6 +15,12 @@ _WU_LIB="$_WU_DIR/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
 [[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
 source "$_WU_LIB"
+_WU_BOX="$_WU_DIR/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="$_WU_DIR/../share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
+[[ -f "$_WU_BOX" ]] && source "$_WU_BOX"
 
 _WU_VERSION="1.4.0"
 
@@ -26,7 +32,7 @@ BOLD=$'\033[1m'  RESET=$'\033[0m'
 show_help() {
     local ttl pad
     ttl="🛠  wellutils -- $(t launcher_title)"
-    pad=$(( 54 - ${#ttl} - 1 ))      # box inner is 54 cells; the wrench emoji is 2 cells wide
+    pad=$(( 54 - $(vislen "$ttl") - 1 ))      # box inner is 54 cells
     (( pad < 1 )) && pad=1
     printf '\n'
     printf '  %s╔══════════════════════════════════════════════════════╗%s\n' "$C" "$RESET"
@@ -94,8 +100,9 @@ while [[ $# -gt 0 ]]; do
     [[ -n "$CMD" ]] && break    # rest of args belong to the tool
     case "$1" in
         --lang|-l)
+            [[ $# -lt 2 || "$2" == -* ]] && { printf '  %s%s:%s --lang %s\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_set_lang)"; exit 1; }
             shift
-            set_lang "${1:-EN}"
+            set_lang "$1"
             exit 0
             ;;
         --help|-h)
@@ -111,7 +118,7 @@ while [[ $# -gt 0 ]]; do
         block|wellblock|wblock)    CMD="wellblock";   shift ;;
         mem|wellmem|wmem|ram|wellram|wram) CMD="wellmem"; shift ;;
         mod|wellmod|wmod)          CMD="wellmod";     shift ;;
-        wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
+        sensors|wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
         hw|wellhw|whw)             CMD="wellhw";      shift ;;
         per|wellper|wper)          CMD="wellper";     shift ;;
         gpu|wellgpu|wgpu)          CMD="wellgpu";     shift ;;

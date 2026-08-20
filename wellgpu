@@ -51,9 +51,11 @@ gpu_adapters() {
 }
 
 gpu_driver() {
-    # /sys/bus/pci/devices/0000:01:00.0/driver -> nvidia
-    local bus="$1" drv
-    drv=$(readlink "/sys/bus/pci/devices/0000:${bus}/driver" 2>/dev/null || true)
+    local bus="$1" drv _dev
+    _dev="/sys/bus/pci/devices/0000:${bus}"
+    [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
+    [[ -d "$_dev" ]] || { printf ''; return; }
+    drv=$(readlink "${_dev}/driver" 2>/dev/null || true)
     printf '%s' "$(basename "$drv")"
 }
 
@@ -101,7 +103,7 @@ print_nvidia() {
     for _aib_dir in /sys/bus/pci/devices/*/; do
         [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
         _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
-        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir" | sed 's/0000://')")
+        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir")")
         break
     done
 
@@ -202,7 +204,7 @@ json_out() {
         for _nvdir in /sys/bus/pci/devices/*/; do
             [[ "$(cat "${_nvdir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
             _nvhex=$(cat "${_nvdir}subsystem_vendor" 2>/dev/null || true)
-            _nvaib=$(gpu_aib_vendor "$(basename "$_nvdir" | sed 's/0000://')")
+            _nvaib=$(gpu_aib_vendor "$(basename "$_nvdir")")
             break
         done
         local idx name drv memtot memused temp util clk_sm clk_mem pow fan
