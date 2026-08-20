@@ -29,7 +29,7 @@ up_extra_parse() {
     return 1
 }
 _WU_EXTRA_PARSE=up_extra_parse
-_WU_EXTRA_HELP="      --check                 only list available updates, do not install
+_WU_EXTRA_HELP="      --check, --list         only list available updates, do not install
       --self-update           update wellutils itself from GitHub
       --self                  alias of --self-update"
 

@@ -124,8 +124,8 @@ pci_slot_devices() {
 }
 
 pci_vendor_name() {
-    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "Unknown"; return 0; }
-    [[ -f "$PCI_IDS" ]] || { printf '%s' "Unknown"; return 0; }
+    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
+    [[ -f "$PCI_IDS" ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
     awk -v v="$(_wlc "$1")" '
         /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
     ' "$PCI_IDS"

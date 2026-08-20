@@ -23,8 +23,8 @@ done
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 usb_vendor_name() {
-    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "Unknown"; return 0; }
-    [[ -f "$USB_IDS" ]] || { printf '%s' "Unknown"; return 0; }
+    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
+    [[ -f "$USB_IDS" ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
     awk -v v="$(_wlc "$1")" '
         /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
     ' "$USB_IDS"
@@ -245,7 +245,7 @@ json_out() {
         local vendor_name="$mfg" device_name="$prod"
         [[ -z "$vendor_name" ]] && vendor_name=$(usb_vendor_name "$vid")
         [[ -z "$device_name" ]] && device_name=$(usb_device_name "$vid" "$pid")
-        [[ -z "$device_name" ]] && device_name="Unknown"
+        [[ -z "$device_name" ]] && device_name="$(t hw_unknown)"
 
         local bclass="00" devbase=""
         for d in /sys/bus/usb/devices/*/; do
