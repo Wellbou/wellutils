@@ -7,7 +7,7 @@ set -euo pipefail
 _WU_TOOLNAME="wellmod" _WU_NAME="WellMod" _WU_VERSION="1.0" _WU_MANUAL=1
 _WU_TAGLINE="Kernel modules listing"
 _WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang cli
+source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box
 _MOD_DEPS="" _MOD_FILTER=""
 wmod_extra_parse() {
     case "$1" in
@@ -124,6 +124,8 @@ main() {
         _line=$(awk -v mod="$_MOD_DEPS" '{split($1,a,"/"); fn=a[length(a)]; gsub(/\.ko.*/,"",fn); if(fn==mod){print;exit}}' "$_depfile" 2>/dev/null || true)
         if [[ -z "$_line" ]]; then
             pline "${R}$(t mod_not_found): ${_MOD_DEPS}${RESET}"
+            for _d in "${_LINES[@]}"; do printf '%s\n' "$_d"; done
+            _LINES=()
         else
             pline "$(_emu '📦') ${BOLD}${W}${_MOD_DEPS}:${RESET}"
             local _deps="${_line#*:}"
@@ -135,6 +137,8 @@ main() {
                 _dc=$(( _dc + 1 ))
             done
             (( _dc == 0 )) && pline_sub "${DIM}$(t mod_no_deps)${RESET}"
+            for _d in "${_LINES[@]}"; do printf '%s\n' "$_d"; done
+            _LINES=()
         fi
         printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..80})" "$RESET"
         printf '\n  %sWellMod v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"

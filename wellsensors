@@ -252,7 +252,7 @@ print_gpu() {
         local freq_file="$hdir/pp_dpm_sclk"
         if [[ -f "$freq_file" ]]; then
             local freq_line
-            freq_line=$(grep '\*' "$freq_file" 2>/dev/null | head -1)
+            freq_line=$(grep '\*' "$freq_file" 2>/dev/null | head -1 || true)
             freq_line=$(echo "$freq_line" | sed 's/.*: //; s/ .*//')
             [[ -n "$freq_line" ]] && _LINES+=( "  ${DIM}  └── $(t sens_clock): ${freq_line}${RESET}" )
         fi
@@ -475,7 +475,7 @@ print_disks() {
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
         fi
-        [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
+        [[ -z "$temp" || ! "$temp" =~ ^[0-9]+$ || "$temp" == "0" || "$temp" -gt 150 ]] && continue
 
         model=$(ws_disk_model "$dev")
 
@@ -882,7 +882,7 @@ json_out() {
         if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
             temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
         fi
-        [[ -z "$temp" || "$temp" == "0" || "$temp" -gt 150 ]] && continue
+        [[ -z "$temp" || ! "$temp" =~ ^[0-9]+$ || "$temp" == "0" || "$temp" -gt 150 ]] && continue
         model2=$(ws_disk_model "$dev")
         (( first )) && first=0 || printf ',\n'
         printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "sata" }' \

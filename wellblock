@@ -123,8 +123,8 @@ wblock_smart() {
         # NVMe: report the key health fields instead of an attribute table
         local temp="" used="" spare="" verdict padl e label value
         temp=$(awk '/^Temperature:[[:space:]]+[0-9]+/ {print $2; exit}' <<< "$out")
-        used=$(awk '/^Percentage Used:/ {print $3; exit}' <<< "$out")
-        spare=$(awk '/^Available Spare:/ {print $3; exit}' <<< "$out")
+        used=$(awk '/^Percentage Used:/ {gsub(/%/,"",$3); print $3; exit}' <<< "$out")
+        spare=$(awk '/^Available Spare:/ {gsub(/%/,"",$3); print $3; exit}' <<< "$out")
         if (( risk )); then verdict="${R}$(t blk_smart_fail)${RESET}"
         else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
 
@@ -355,7 +355,7 @@ json_out() {
         if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
             local n=0
             while IFS= read -r dev; do
-                if (( n == _WU_DISK_ARG )); then target_dev="$dev"; break; fi
+                if (( n == 10#$_WU_DISK_ARG )); then target_dev="$dev"; break; fi
                 n=$(( n + 1 ))
             done < <(wblock_disks)
         else
@@ -570,7 +570,7 @@ main() {
         if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
             local n=0
             while IFS= read -r dev; do
-                if (( n == _WU_DISK_ARG )); then target_dev="$dev"; break; fi
+                if (( n == 10#$_WU_DISK_ARG )); then target_dev="$dev"; break; fi
                 n=$(( n + 1 ))
             done < <(wblock_disks)
         else

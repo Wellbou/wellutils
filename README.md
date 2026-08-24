@@ -226,7 +226,7 @@ aliases: `wsensors`, `wtemp`. See wellutils(1) for the full list.
 **Required:** `bash`, `python`, `coreutils`, `procps-ng` (on
 Debian/Ubuntu the package names differ: `procps`, `python3`).
 
-**Optional:** `pciutils` (PCI descriptions), `usbutils` (USB ID
+**Optional:** `pciutils` (PCI descriptions), `hwdata` (USB ID
 database), `smartmontools` (wellsensors and wellblock S.M.A.R.T.),
 `nvme-cli` (NVMe temperatures), `dmidecode` + `i2c-tools` (RAM detail
 via decode-dimms), `util-linux` (lscpu for wellcpu). The `install.sh`

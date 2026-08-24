@@ -229,7 +229,7 @@ wellup --self-update --check  # только показать разницу в�
 **Обязательные:** `bash`, `python`, `coreutils`, `procps-ng`
 (на Debian/Ubuntu имена пакетов другие - `procps`, `python3`).
 
-**Опциональные:** `pciutils` (описания PCI), `usbutils` (база
+**Опциональные:** `pciutils` (описания PCI), `hwdata` (база
 USB-идентификаторов), `smartmontools` (wellsensors и S.M.A.R.T. в
 wellblock), `nvme-cli` (температуры NVMe), `dmidecode` + `i2c-tools`
 (детали памяти через decode-dimms), `util-linux` (lscpu для wellcpu).

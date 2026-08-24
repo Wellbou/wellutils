@@ -36,7 +36,8 @@ wu_scale() {
 # Reads subsystem_vendor from sysfs for a PCI bus address.
 gpu_aib_vendor() {
     local bus="$1" hex _dev
-    _dev="/sys/bus/pci/devices/0000:${bus}"
+    [[ "$bus" == 0000:* ]] || bus="0000:${bus}"
+    _dev="/sys/bus/pci/devices/${bus}"
     [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
     [[ -d "$_dev" ]] || { printf ''; return; }
     hex=$(cat "${_dev}/subsystem_vendor" 2>/dev/null) || { printf ''; return; }

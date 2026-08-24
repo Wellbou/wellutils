@@ -390,7 +390,9 @@ json_out() {
             modules=${#j_size[@]}
             local i
             for (( i=0; i<modules; i++ )); do
-                local mb="${j_size[$i]:-0}"; [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
+                local mb="${j_size[$i]:-0}"
+                mb=$(printf '%s' "$mb" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')
+                [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
                 if (( mb >= 1024 )); then
                     j_size[$i]="$(( mb / 1024 )) GiB"
                 else

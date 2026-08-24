@@ -98,7 +98,7 @@ wu_parse() {
     done
 
     case "$(_wlc "$_WU_COLOR")" in
-        always|auto|never) : ;;
+        always|auto|never) _WU_COLOR="$(_wlc "$_WU_COLOR")" ;;
         *) printf '%s: --color must be always|auto|never\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
     case "$(_wlc "$_WU_LANG_ARG")" in
