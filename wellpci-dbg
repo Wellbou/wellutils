@@ -2,6 +2,7 @@
 # wellpci v2 -- Beautiful PCI device listing with IDS database lookup
 # Part of wellutils by wellbou_
 set -euo pipefail
+__pe(){ [[ -o errexit ]] && echo "PE-top-ON" || echo "PE-top-OFF"; }; __pe top
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellpci" _WU_NAME="WellPCI" _WU_VERSION="2.1" _WU_MANUAL=1
@@ -98,14 +99,14 @@ pci_slot_devices() {
 
         if [[ "$major" == "03" || "$major" == "0d" ]]; then
             local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
             _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
             continue
         fi
 
         if [[ "$major" == "01" && ( "$sub" == "04" || "$sub" == "08" ) ]]; then
             local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
             _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
             continue
         fi
@@ -118,7 +119,7 @@ pci_slot_devices() {
         [[ "$major" == "0c" ]] && continue
 
         local desc
-        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
         _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
     done
 }
@@ -171,7 +172,7 @@ pci_scan_slot_filter() {
             driver_name=$(basename "$(readlink "$devdir/driver")")
         fi
 
-        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
         vname=$(pci_vendor_name "$vid")
         dname=$(pci_device_name "$vid" "$did")
@@ -179,7 +180,7 @@ pci_scan_slot_filter() {
             dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
         fi
 
-        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
         ADDRS+=("$addr")
         CLASSES+=("$class")
@@ -210,7 +211,7 @@ pci_scan_all() {
             driver_name=$(basename "$(readlink "$devdir/driver")")
         fi
 
-        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
         vname=$(pci_vendor_name "$vid")
         dname=$(pci_device_name "$vid" "$did")
@@ -218,7 +219,7 @@ pci_scan_all() {
             dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
         fi
 
-        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
+        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
 
         ADDRS+=("$addr")
         CLASSES+=("$class")
@@ -347,4 +348,5 @@ main() {
     printf '\n  %sWellPCI v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
+__pe(){ [[ -o errexit ]] && echo "PE-bottom-ON" || echo "PE-bottom-OFF"; }; __pe bottom
 wu_run main "$@"

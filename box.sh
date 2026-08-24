@@ -99,7 +99,7 @@ pci_slot_devices() {
         # always show: Display(03xx), Wireless(0dxx)
         if [[ "$major" == "03" || "$major" == "0d" ]]; then
             local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
             _PCI_BUS+=("$addr")
             _PCI_CLASS+=("$class_hex")
             _PCI_DESC+=("$desc")
@@ -109,7 +109,7 @@ pci_slot_devices() {
         # always show: RAID(0104), NVMe(0108)
         if [[ "$major" == "01" && ( "$sub" == "04" || "$sub" == "08" ) ]]; then
             local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
             _PCI_BUS+=("$addr")
             _PCI_CLASS+=("$class_hex")
             _PCI_DESC+=("$desc")
@@ -130,7 +130,7 @@ pci_slot_devices() {
 
         # catch-all: show the device
         local desc
-        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
+        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
         _PCI_BUS+=("$addr")
         _PCI_CLASS+=("$class_hex")
         _PCI_DESC+=("$desc")
