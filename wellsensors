@@ -183,6 +183,7 @@ print_gpu() {
                 [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
             fi
             temp=$(echo "$temp" | xargs)
+            [[ "$temp" =~ ^[0-9]+$ ]] || continue
             fan=$(echo "$fan" | xargs)
             power=$(echo "$power" | xargs)
             [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
@@ -898,7 +899,7 @@ json_out() {
         [[ -f "$tfile" ]] || continue
         local dtype cur=0
         dtype=$(cat "$tfile" 2>/dev/null || echo "")
-        [[ -f "$cfile" ]] && cur=$(cat "$cfile")
+        [[ -f "$cfile" ]] && cur=$(cat "$cfile" 2>/dev/null) || true
         case "$dtype" in
             *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
             *Fan*) acpi_fan=$(( acpi_fan + 1 )) ;;

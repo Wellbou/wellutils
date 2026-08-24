@@ -1,7 +1,7 @@
 pkgbase = wellutils
 	pkgdesc = Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)
 	pkgver = 1.4.0
-	pkgrel = 29
+	pkgrel = 30
 	url = https://github.com/Wellbou/wellutils
 	arch = any
 	license = MIT
@@ -11,7 +11,7 @@ pkgbase = wellutils
 	depends = procps-ng
 	depends = hwdata
 	optdepends = pciutils: PCI descriptions and listing (wellpci, wellhw, wellgpu)
-	optdepends = usbutils: USB device enumeration (wellusb)
+	optdepends = hwdata: USB device identification database (wellusb, wellper)
 	optdepends = smartmontools: disk temperature monitoring (wellsensors) and S.M.A.R.T. health (wellblock)
 	optdepends = nvme-cli: NVMe temperature monitoring (wellsensors)
 	optdepends = dmidecode: detailed memory info (wellhw)

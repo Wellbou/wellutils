@@ -247,7 +247,7 @@ deps_for() {
     case "$1" in
         pacman)        echo "bash coreutils util-linux procps-ng python hwdata lm_sensors smartmontools dmidecode" ;;
         dnf|yum)       echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode" ;;
-        apt-get|apt)   echo "bash coreutils util-linux procps python3 usbutils pciutils lm-sensors smartmontools dmidecode" ;;
+        apt-get|apt)   echo "bash coreutils util-linux procps python3 hwdata pciutils lm-sensors smartmontools dmidecode" ;;
         zypper)        echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
         apk)           echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
         xbps-install)  echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode" ;;

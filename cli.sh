@@ -81,7 +81,7 @@ wu_parse() {
             --plain) _WU_MODE="plain"; _WU_MODE_WAS_SET=1; shift ;;
             --box) _WU_MODE="box"; _WU_MODE_WAS_SET=1; shift ;;
             --no-emoji) _WU_EMOJI="no"; shift ;;
-            --emoji)    _WU_EMOJI="auto"; shift ;;
+            --emoji)    _WU_EMOJI="yes"; shift ;;
             --json)   _WU_JSON=1; shift ;;
             --debug)  _WU_DEBUG=1; shift ;;
             -*) if [[ -n "$_WU_EXTRA_PARSE" ]] && $_WU_EXTRA_PARSE "$@"; then
