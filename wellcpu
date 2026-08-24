@@ -180,7 +180,7 @@ print_cpu_info() {
 
     [[ -n "$virt" ]] && pline_hw "$(_emu '🛡️')" "$(t cpu_virt)" "$virt"
     [[ "$flags" == *hypervisor* ]] && pline_hw "$(_emu '☁️')" "$(t cpu_hv)" "$hv_label"
-    [[ -n "$gov" ]] && pline_hw "$(_emu '🎚️')" "$(t cpu_governor)" "$gov"
+    [[ -n "$gov" ]] && pline_hw "$(_emu '🎚️')" "$(t cpu_governor)" "$gov" || true
 }
 
 print_cpu_load() {
@@ -283,7 +283,7 @@ json_out() {
         "$(json_esc "$c_l1d")" "$(json_esc "$c_l1i")" "$(json_esc "$c_l2")" "$(json_esc "$c_l3")"
     printf '    "features": ['
     local first=1
-    for f in "${feats[@]}"; do
+    for f in ${feats[@]+"${feats[@]}"}; do
         (( first )) && first=0 || printf ','
         printf ' "%s"' "$(json_esc "$f")"
     done

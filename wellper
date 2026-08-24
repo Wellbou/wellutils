@@ -161,9 +161,9 @@ else
     pline()     { _LINES+=( " $*" ); }
     pline_sub() { _LINES+=( "       └─ $*" ); }
     pline_hw()  { _LINES+=( "  $1 $2: $3" ); }
-    box()       { local icon="$1" title="$2" fn="$3"; _LINES=(); "$fn"; printf '  %s\n' "$title"; for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
+    box()       { local icon="$1" title="$2" fn="$3"; _LINES=(); "$fn"; printf '  %s\n' "$title"; for i in ${_LINES[@]+"${_LINES[@]}"}; do printf '%s\n' "$i"; done; }
     box_header(){ printf '  %s -- %s\n' "$2" "$3"; }
-    banner()    { for i in "${_LINES[@]}"; do printf '%s\n' "$i"; done; }
+    banner()    { for i in ${_LINES[@]+"${_LINES[@]}"}; do printf '%s\n' "$i"; done; }
     box_top()   { :; }
     box_row()   { :; }
     box_bottom(){ :; }
@@ -531,8 +531,8 @@ read_edid() {
     printf '|'
     local j c
     for (( i = 0; i + 4 < ${#A[@]}; i++ )); do
-        [[ "${A[$i]}" == "00" && "${A[$((i+1))]}" == "00" && "${A[$((i+2))]}" == "00" && "${A[$((i+3))]}" == "fc" ]] || continue
-        for (( j = i + 5; j < i + 18 && j < ${#A[@]}; j++ )); do
+        [[ "${A[$i]}" == "00" && "${A[$((i+1))]}" == "00" && "${A[$((i+2))]}" == "fc" && "${A[$((i+3))]}" == "00" ]] || continue
+        for (( j = i + 4; j < i + 18 && j < ${#A[@]}; j++ )); do
             [[ "${A[$j]}" =~ ^[0-9a-f]{2}$ ]] || continue
             c=$(( 0x${A[$j]} ))
             (( c >= 32 && c <= 126 )) && printf "\\$(printf '%03o' "$c")"
@@ -670,7 +670,7 @@ collect_audio() {
             if [[ -n "$dn" ]]; then
                 desc="$dn"
             else
-                desc="USB Audio (${BASH_REMATCH[1]}:${BASH_REMATCH[2]})"
+                desc="$(t per_usb_audio) (${BASH_REMATCH[1]}:${BASH_REMATCH[2]})"
             fi
             id=""
         elif [[ "$desc" == *" - "* ]]; then
@@ -909,8 +909,8 @@ terse_out() {
     (( ${#ISA_NAME[@]} > 0 )) && parts+=( "$(t per_isa): ${#ISA_NAME[@]}" )
     (( ${#PCM_NAME[@]} > 0 )) && parts+=( "$(t per_pcmcia): ${#PCM_NAME[@]}" )
     (( ${#PCI_BUS[@]} > 0 )) && parts+=( "$(t per_pci): ${#PCI_BUS[@]}" )
-    local s
-    s=$(IFS=' · '; printf '%s' "${parts[*]}")
+    local s="" _sep=""
+    for _p in ${parts[@]+"${parts[@]}"}; do s+="${_sep}${_p}"; _sep=" · "; done
     printf '%s%s%s\n' "$BOLD" "$s" "$RESET"
 }
 

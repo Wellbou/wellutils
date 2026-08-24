@@ -93,19 +93,19 @@ print_ram() {
             case "$line" in
                 *[Mm]emory\ [Dd]evice*) flush_slot; in_slot=1 ;;
                 *Size:\ *)              s_size="${line#*: }"; s_size="${s_size%%$_HT*}"
-                    s_size="$(printf '%s' "$s_size" | xargs)"
+                    s_size="$(printf '%s' "$s_size" | awk '{$1=$1}1')"
                     [[ "$s_size" == *No* ]] && s_empty=1 ;;
                 *Type:\ *)              s_type="${line#*: }"; s_type="${s_type%%$_HT*}"
-                    s_type="$(printf '%s' "$s_type" | xargs)" ;;
+                    s_type="$(printf '%s' "$s_type" | awk '{$1=$1}1')" ;;
                 *Speed:\ *MT/*)         s_speed="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
                 *Manufacturer:\ *)     s_manuf="${line#*: }"; s_manuf="${s_manuf%%$_HT*}"
-                    s_manuf="$(printf '%s' "$s_manuf" | xargs | tr -d '\r')" ;;
+                    s_manuf="$(printf '%s' "$s_manuf" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Part\ Number:\ *)     s_pn="${line#*: }"; s_pn="${s_pn%%$_HT*}"
-                    s_pn="$(printf '%s' "$s_pn" | xargs | tr -d '\r')" ;;
+                    s_pn="$(printf '%s' "$s_pn" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Form\ Factor:\ *)     s_form="${line#*: }"; s_form="${s_form%%$_HT*}"
-                    s_form="$(printf '%s' "$s_form" | xargs | tr -d '\r')" ;;
+                    s_form="$(printf '%s' "$s_form" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Locator:\ *)          s_loc="${line#*: }"; s_loc="${s_loc%%$_HT*}"
-                    s_loc="$(printf '%s' "$s_loc" | xargs | tr -d '\r')" ;;
+                    s_loc="$(printf '%s' "$s_loc" | awk '{$1=$1}1' | tr -d '\r')" ;;
             esac
         done <<< "$mout"
         flush_slot
@@ -125,12 +125,12 @@ print_ram() {
                     Decoding\ EEPROM*)
                         [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
                         _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line#Size[ $_HT ]}"; _s="${_s%% MB*}" ;;
-                    Module\ Manufacturer*)  _m="${line#Module Manufacturer[ $_HT ]}"; _m="${_m%%$_HT*}" ;;
-                    Part\ Number*)           _p="${line#Part Number[ $_HT ]}"; _p="${_p%%$_HT*}" ;;
-                    Module\ Type*)           _f="${line#Module Type[ $_HT ]}"; _f="${_f%%$_HT*}" ;;
-                    Memory\ Type*)           _t="${line#Memory Type[ $_HT ]}"; _t="${_t%%[ $_HT ]*}" ;;
-                    Speed*)                   _sp="${line#Speed[ $_HT ]}"; _sp="${_sp%% *}" ;;
+                    Size*)                   _s="${line##*Size}"; _s="${_s%% MB*}"; _s="$(printf '%s' "$_s" | awk '{$1=$1}1')" ;;
+                    Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Memory\ Type*)           _t="${line##*Memory Type}"; _t="$(printf '%s' "$_t" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Speed*)                   _sp="${line##*Speed}"; _sp="$(printf '%s' "$_sp" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')" ;;
                 esac
             done <<< "$dout"
             [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
@@ -158,7 +158,7 @@ print_ram() {
 
     local i
     for (( i=0; i<modules; i++ )); do
-        if [[ "${slot_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+        if [[ "${slot_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
             local dec
             dec=$(wu_jedec_decode "${slot_manuf[$i]}") || dec=""
             [[ -n "$dec" ]] && slot_manuf[$i]="$dec"
@@ -348,19 +348,19 @@ json_out() {
             case "$line" in
                 *[Mm]emory\ [Dd]evice*) j_flush; in_slot=1 ;;
                 *Size:\ *)              j_s="${line#*: }"; j_s="${j_s%%$_HT*}"
-                    j_s="$(printf '%s' "$j_s" | xargs)"
+                    j_s="$(printf '%s' "$j_s" | awk '{$1=$1}1')"
                     [[ "$j_s" == *No* ]] && j_empty=1 ;;
                 *Type:\ *)              j_t="${line#*: }"; j_t="${j_t%%$_HT*}"
-                    j_t="$(printf '%s' "$j_t" | xargs)" ;;
+                    j_t="$(printf '%s' "$j_t" | awk '{$1=$1}1')" ;;
                 *Speed:\ *MT/*)         j_sp="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
                 *Manufacturer:\ *)     j_m="${line#*: }"; j_m="${j_m%%$_HT*}"
-                    j_m="$(printf '%s' "$j_m" | xargs | tr -d '\r')" ;;
+                    j_m="$(printf '%s' "$j_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Part\ Number:\ *)     j_p="${line#*: }"; j_p="${j_p%%$_HT*}"
-                    j_p="$(printf '%s' "$j_p" | xargs | tr -d '\r')" ;;
+                    j_p="$(printf '%s' "$j_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Form\ Factor:\ *)     j_f="${line#*: }"; j_f="${j_f%%$_HT*}"
-                    j_f="$(printf '%s' "$j_f" | xargs | tr -d '\r')" ;;
+                    j_f="$(printf '%s' "$j_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Locator:\ *)          j_l="${line#*: }"; j_l="${j_l%%$_HT*}"
-                    j_l="$(printf '%s' "$j_l" | xargs | tr -d '\r')" ;;
+                    j_l="$(printf '%s' "$j_l" | awk '{$1=$1}1' | tr -d '\r')" ;;
             esac
         done <<< "$mout"
         j_flush
@@ -378,12 +378,12 @@ json_out() {
                     Decoding\ EEPROM*)
                         [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
                         _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line#Size[ $_HT ]}"; _s="${_s%% MB*}" ;;
-                    Module\ Manufacturer*)  _m="${line#Module Manufacturer[ $_HT ]}"; _m="${_m%%$_HT*}" ;;
-                    Part\ Number*)           _p="${line#Part Number[ $_HT ]}"; _p="${_p%%$_HT*}" ;;
-                    Module\ Type*)           _f="${line#Module Type[ $_HT ]}"; _f="${_f%%$_HT*}" ;;
-                    Memory\ Type*)           _t="${line#Memory Type[ $_HT ]}"; _t="${_t%%[ $_HT ]*}" ;;
-                    Speed*)                   _sp="${line#Speed[ $_HT ]}"; _sp="${_sp%% *}" ;;
+                    Size*)                   _s="${line##*Size}"; _s="${_s%% MB*}"; _s="$(printf '%s' "$_s" | awk '{$1=$1}1')" ;;
+                    Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Memory\ Type*)           _t="${line##*Memory Type}"; _t="$(printf '%s' "$_t" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                    Speed*)                   _sp="${line##*Speed}"; _sp="$(printf '%s' "$_sp" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')" ;;
                 esac
             done <<< "$dout"
             [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
@@ -409,7 +409,7 @@ json_out() {
 
     # Resolve JEDEC codes
     for (( i=0; i<modules; i++ )); do
-        if [[ "${j_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]]; then
+        if [[ "${j_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
             local mdec
             mdec=$(wu_jedec_decode "${j_manuf[$i]}") || mdec=""
             [[ -n "$mdec" ]] && j_manuf[$i]="$mdec"

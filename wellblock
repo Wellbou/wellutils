@@ -171,7 +171,7 @@ wblock_smart() {
         fi
         # Deduplicate: skip if this label was already emitted (e.g. attrs 190 & 194 both → "Temperature").
         local _dup=0 _sl
-        for _sl in "${_shown_labels[@]}"; do [[ "$_sl" == "$label" ]] && { _dup=1; break; }; done
+        for _sl in ${_shown_labels[@]+"${_shown_labels[@]}"}; do [[ "$_sl" == "$label" ]] && { _dup=1; break; }; done
         (( _dup )) && continue
         _shown_labels+=("$label")
         raw="${raw%% *}"
@@ -309,7 +309,7 @@ detail_info() {
     [[ -n "$fwrev" ]] && pline_hw "$(_emu '📝')" "$(t blk_firmware)" "$fwrev"
     pline_hw "$(_emu '📏')" "$(t blk_size)" "$size_human"
     pline_hw "$(_emu '🏷️')" "$(t blk_type)" "$type_color$type_label$RESET"
-    [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}"
+    [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}" || true
 }
 
 detail_parts() {

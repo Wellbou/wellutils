@@ -40,6 +40,7 @@ Options:
       --plain                plain text, no box drawing
       --box                  force box drawing even when piped
       --no-emoji             drop emoji icons
+      --emoji                force emoji icons
       --json                 machine-readable JSON
       --debug                shell tracing
 ${_WU_EXTRA_HELP}

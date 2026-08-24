@@ -121,7 +121,7 @@ main() {
             return 1
         fi
         local _line
-        _line=$(grep -F "${_MOD_DEPS}:" "$_depfile" 2>/dev/null | head -1 || true)
+        _line=$(awk -v mod="$_MOD_DEPS" '{split($1,a,"/"); fn=a[length(a)]; gsub(/\.ko.*/,"",fn); if(fn==mod){print;exit}}' "$_depfile" 2>/dev/null || true)
         if [[ -z "$_line" ]]; then
             pline "${R}$(t mod_not_found): ${_MOD_DEPS}${RESET}"
         else

@@ -134,7 +134,7 @@ print_cpu() {
         local crit_file="${hwmon}/temp${idx}_crit"
 
         local label="Sensor $idx"
-        [[ -f "$label_file" ]] && label=$(cat "$label_file")
+        [[ -f "$label_file" ]] && label=$(cat "$label_file" 2>/dev/null) || true
 
         local raw_temp
         raw_temp=$(cat "$input_file" 2>/dev/null) || continue
@@ -254,7 +254,7 @@ print_gpu() {
             local freq_line
             freq_line=$(grep '\*' "$freq_file" 2>/dev/null | head -1)
             freq_line=$(echo "$freq_line" | sed 's/.*: //; s/ .*//')
-            [[ -n "$freq_line" ]] && _LINES+=( "  ${DIM}  └── Clock: ${freq_line}${RESET}" )
+            [[ -n "$freq_line" ]] && _LINES+=( "  ${DIM}  └── $(t sens_clock): ${freq_line}${RESET}" )
         fi
         found_gpu=1
     done
@@ -277,14 +277,14 @@ print_gpu() {
         local emoji bar
         emoji=$(temp_emoji "$temp")
         bar=$(temp_bar "$temp" 100)
-        tline "$emoji" "Intel GPU" "$temp" "$bar"
+        tline "$emoji" "$(t sens_intel_gpu)" "$temp" "$bar"
 
         local freq_file="$hdir/freq1_input"
         if [[ -f "$freq_file" ]]; then
             local freq_raw
             freq_raw=$(cat "$freq_file" 2>/dev/null) || continue
             local freq_mhz=$(( freq_raw / 1000000 ))
-            _LINES+=( "  ${DIM}  └── Clock: ${freq_mhz} MHz${RESET}" )
+            _LINES+=( "  ${DIM}  └── $(t sens_clock): ${freq_mhz} MHz${RESET}" )
         fi
         found_gpu=1
     done
@@ -321,7 +321,7 @@ print_acpi() {
                 color=$(temp_color "$temp")
                 emoji=$(temp_emoji "$temp")
                 bar=$(temp_bar "$temp" 100)
-                tline "$emoji" "ACPI Zone $idx" "$temp" "$bar"
+                tline "$emoji" "$(t sens_acpi) $idx" "$temp" "$bar"
                 found=1
             done
         fi
@@ -453,7 +453,8 @@ print_disks() {
                 for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
                     if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
                 }
-            }') || continue
+            }') || true
+        [[ "$temp" =~ ^[0-9]+$ ]] || continue
         (( temp > 150 )) && continue
         local color emoji bar
         color=$(temp_color "$temp")
@@ -505,7 +506,7 @@ print_cooling() {
         [[ -f "$type_file" ]] || continue
 
         local dtype
-        dtype=$(cat "$type_file")
+        dtype=$(cat "$type_file" 2>/dev/null || echo "")
         local cur=0
         [[ -f "$cur_file" ]] && cur=$(cat "$cur_file")
 
@@ -539,7 +540,7 @@ print_cooling() {
                 [[ -f "$fan_file" ]] || continue
                 local fidx rpm color
                 fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
-                rpm=$(cat "$fan_file")
+                rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
                 (( rpm > 0 )) || continue
                 real_fan=$(( real_fan + 1 ))
                 if   (( rpm < 400 )); then color="$R"
@@ -699,7 +700,7 @@ json_out() {
             [[ -f "$input_file" ]] || continue
             idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
             label="Sensor $idx"
-            [[ -f "${hwmon}/temp${idx}_label" ]] && label=$(cat "${hwmon}/temp${idx}_label")
+            [[ -f "${hwmon}/temp${idx}_label" ]] && label=$(cat "${hwmon}/temp${idx}_label" 2>/dev/null) || true
             raw_temp=$(cat "$input_file" 2>/dev/null) || continue
             [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
             temp=$(( raw_temp / 1000 ))
@@ -784,7 +785,7 @@ json_out() {
         itemp=$(( iraw_temp / 1000 ))
         (( itemp > 0 && itemp < 125 )) || continue
         (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "Intel GPU", "driver": "i915", "temp_c": %d }' "$itemp"
+        printf '    { "name": "%s", "driver": "i915", "temp_c": %d }' "$(t sens_intel_gpu)" "$itemp"
     done
     printf '\n  ],\n'
 
@@ -864,7 +865,8 @@ json_out() {
                 for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
                     if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
                 }
-            }') || continue
+            }') || true
+        [[ "$temp" =~ ^[0-9]+$ ]] || continue
         (( temp > 150 )) && continue
         model=$(ws_disk_model "$dev")
         (( first )) && first=0 || printf ',\n'
@@ -895,7 +897,7 @@ json_out() {
         local tfile="${dev_dir}type" cfile="${dev_dir}cur_state"
         [[ -f "$tfile" ]] || continue
         local dtype cur=0
-        dtype=$(cat "$tfile")
+        dtype=$(cat "$tfile" 2>/dev/null || echo "")
         [[ -f "$cfile" ]] && cur=$(cat "$cfile")
         case "$dtype" in
             *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
@@ -919,7 +921,7 @@ json_out() {
                 [[ -f "$fan_file" ]] || continue
                 local fidx rpm
                 fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
-                rpm=$(cat "$fan_file")
+                rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
                 (( rpm > 0 )) || continue
                 fan_chip+=("$hname")
                 fan_idx+=("$fidx")

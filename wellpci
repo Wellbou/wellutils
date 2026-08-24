@@ -176,7 +176,7 @@ pci_scan_slot_filter() {
         vname=$(pci_vendor_name "$vid")
         dname=$(pci_device_name "$vid" "$did")
         if [[ -z "$dname" ]]; then
-            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f]* //')
+            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
         fi
 
         full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
@@ -215,7 +215,7 @@ pci_scan_all() {
         vname=$(pci_vendor_name "$vid")
         dname=$(pci_device_name "$vid" "$did")
         if [[ -z "$dname" ]]; then
-            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f]* //')
+            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
         fi
 
         full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //')
@@ -329,11 +329,11 @@ main() {
         # PCIe link speed/width badge from sysfs
         local link_badge="" sysfs_addr="/sys/bus/pci/devices/${addr}/"
         if [[ -r "${sysfs_addr}current_link_speed" ]]; then
-            local ls lw
-            ls=$(cat "${sysfs_addr}current_link_speed" 2>/dev/null || true)
-            lw=$(cat "${sysfs_addr}current_link_width" 2>/dev/null || true)
-            [[ -n "$ls" ]] && link_badge=" ${DIM}${ls}${RESET}"
-            [[ -n "$lw" ]] && link_badge+="${DIM} x${lw}${RESET}"
+            local lnk_spd lnk_wid
+            lnk_spd=$(cat "${sysfs_addr}current_link_speed" 2>/dev/null || true)
+            lnk_wid=$(cat "${sysfs_addr}current_link_width" 2>/dev/null || true)
+            [[ -n "$lnk_spd" ]] && link_badge=" ${DIM}${lnk_spd}${RESET}"
+            [[ -n "$lnk_wid" ]] && link_badge+="${DIM} x${lnk_wid}${RESET}"
         fi
 
         printf '  %s│%s  %s %s%s%s  %s%s%s  %s%s%s%s\n' \

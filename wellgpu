@@ -71,7 +71,7 @@ print_gpu_list() {
         else
             pline_sub "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
         fi
-        [[ -n "$drv" ]] && pline_sub "$(t gpu_driver): ${W}${drv}${RESET}  ${DIM}${bus}${RESET}"
+        [[ -n "$drv" ]] && pline_sub "$(t gpu_driver): ${W}${drv}${RESET}  ${DIM}${bus}${RESET}" || true
     done
 }
 
@@ -189,6 +189,9 @@ json_out() {
         local _nvaib="" _nvhex=""
         for _nvdir in /sys/bus/pci/devices/*/; do
             [[ "$(cat "${_nvdir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+            local _nvclass
+            _nvclass=$(cat "${_nvdir}class" 2>/dev/null || echo "")
+            [[ "$_nvclass" == "0x030000" || "$_nvclass" == "0x030200" ]] || continue
             _nvhex=$(cat "${_nvdir}subsystem_vendor" 2>/dev/null || true)
             _nvaib=$(gpu_aib_vendor "$(basename "$_nvdir")")
             break
