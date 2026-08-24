@@ -369,6 +369,25 @@ json_out() {
     fi
 
     local modules=${#j_size[@]}
+
+    # Normalize raw dmidecode size strings to GiB/MiB
+    if (( modules > 0 )); then
+        local i
+        for (( i=0; i<modules; i++ )); do
+            local mb="${j_size[$i]:-0}"
+            if [[ "$mb" == *GiB || "$mb" == *MiB ]]; then
+                continue  # already normalized (decode-dimms path)
+            fi
+            mb=$(printf '%s' "$mb" | awk '{n=0; for(i=1;i<=NF;i++) if($i+0==$i){n=$i; u=$(i+1); break} if(u~/[Gg][Bb]/) n*=1024; print n}')
+            [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
+            if (( mb >= 1024 )); then
+                j_size[$i]="$(( mb / 1024 )) GiB"
+            else
+                j_size[$i]="${mb} MiB"
+            fi
+        done
+    fi
+
     if (( modules == 0 )); then
         local dout dcount
         dout=$(root_run decode-dimms 2>/dev/null) || dout=""

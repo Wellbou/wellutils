@@ -39,7 +39,7 @@ gpu_driver() {
     [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
     [[ -d "$_dev" ]] || { printf ''; return; }
     drv=$(readlink "${_dev}/driver" 2>/dev/null || true)
-    [[ -n "$drv" ]] && printf '%s' "$(basename "$drv")"
+    [[ -n "$drv" ]] && printf '%s' "$(basename "$drv")" || true
 }
 
 # ─── Sections ───────────────────────────────────────────────────
