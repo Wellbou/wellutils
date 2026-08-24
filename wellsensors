@@ -369,7 +369,7 @@ print_network_temp() {
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         local hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
         [[ "$hname" == "coretemp" ]] && continue
         [[ "$hname" == "acpitz" ]] && continue
 
@@ -508,7 +508,7 @@ print_cooling() {
         local dtype
         dtype=$(cat "$type_file" 2>/dev/null || echo "")
         local cur=0
-        [[ -f "$cur_file" ]] && cur=$(cat "$cur_file")
+        [[ -f "$cur_file" ]] && cur=$(cat "$cur_file" 2>/dev/null) || true
 
         case "$dtype" in
             *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
@@ -524,7 +524,7 @@ print_cooling() {
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         local hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
         [[ "$hname" == "coretemp" ]] && continue
         [[ "$hname" == "acpitz" ]] && continue
 
@@ -566,14 +566,14 @@ print_cooling() {
 
 print_system() {
     local uptime_str
-    uptime_str=$(uptime -p 2>/dev/null | sed 's/up //')
+    uptime_str=$(LC_ALL=C uptime -p 2>/dev/null | sed 's/up //')
     local load
     load=$(cut -d' ' -f1-3 /proc/loadavg)
     local cores
     cores=$(nproc)
 
     local mem_total mem_used mem_pct
-    read -r mem_total mem_used _ <<< "$(free -m | awk '/^Mem:/ {print $2, $3}')"
+    read -r mem_total mem_used _ <<< "$(LC_ALL=C free -m | awk '/^Mem:/ {print $2, $3}')"
     if [[ -n "$mem_total" && "$mem_total" != 0 ]]; then
         mem_pct=$(( mem_used * 100 / mem_total ))
     else
@@ -669,10 +669,10 @@ json_out() {
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
 
     local uptime_str load cores mem_total mem_used mem_pct model
-    uptime_str=$(uptime -p 2>/dev/null | sed 's/up //')
+    uptime_str=$(LC_ALL=C uptime -p 2>/dev/null | sed 's/up //')
     load=$(cut -d' ' -f1-3 /proc/loadavg)
     cores=$(nproc)
-    read -r mem_total mem_used _ <<< "$(free -m | awk '/^Mem:/ {print $2, $3}')"
+    read -r mem_total mem_used _ <<< "$(LC_ALL=C free -m | awk '/^Mem:/ {print $2, $3}')"
     mem_pct=0
     [[ -n "$mem_total" && "$mem_total" != 0 ]] && mem_pct=$(( mem_used * 100 / mem_total ))
     model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
@@ -831,7 +831,7 @@ json_out() {
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
         [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
         dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then
@@ -908,7 +908,7 @@ json_out() {
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name")
+        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
         [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
         dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then

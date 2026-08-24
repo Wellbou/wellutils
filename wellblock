@@ -330,7 +330,7 @@ detail_parts() {
         local fstype="" mountpoint=""
         if command -v lsblk &>/dev/null; then
             local lsblk_out
-            lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+            lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
             fstype=$(echo "$lsblk_out" | awk '{print $1}')
             mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
         fi
@@ -470,7 +470,7 @@ json_out() {
             psize_bytes=$(( psize_bytes * 512 ))
             fstype="" mountpoint=""
             if command -v lsblk &>/dev/null; then
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
                 fstype=$(echo "$lsblk_out" | awk '{print $1}')
                 mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
             fi
@@ -526,7 +526,7 @@ json_out() {
             total_parts=$(( total_parts + 1 ))
             fstype="" mountpoint=""
             if command -v lsblk &>/dev/null; then
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
                 fstype=$(echo "$lsblk_out" | awk '{print $1}')
                 mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
             fi
@@ -680,7 +680,7 @@ main() {
             local fstype="" mountpoint=""
             if command -v lsblk &>/dev/null; then
                 local lsblk_out
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null) || true
+                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
                 fstype=$(echo "$lsblk_out" | awk '{print $1}')
                 mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
             fi

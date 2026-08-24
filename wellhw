@@ -104,6 +104,7 @@ print_ram() {
                     s_pn="$(printf '%s' "$s_pn" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Form\ Factor:\ *)     s_form="${line#*: }"; s_form="${s_form%%$_HT*}"
                     s_form="$(printf '%s' "$s_form" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                *Bank\ Locator:\ *)    : ;;  # skip — handled separately if needed
                 *Locator:\ *)          s_loc="${line#*: }"; s_loc="${s_loc%%$_HT*}"
                     s_loc="$(printf '%s' "$s_loc" | awk '{$1=$1}1' | tr -d '\r')" ;;
             esac
@@ -359,6 +360,7 @@ json_out() {
                     j_p="$(printf '%s' "$j_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Form\ Factor:\ *)     j_f="${line#*: }"; j_f="${j_f%%$_HT*}"
                     j_f="$(printf '%s' "$j_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
+                *Bank\ Locator:\ *)    : ;;  # skip
                 *Locator:\ *)          j_l="${line#*: }"; j_l="${j_l%%$_HT*}"
                     j_l="$(printf '%s' "$j_l" | awk '{$1=$1}1' | tr -d '\r')" ;;
             esac
@@ -391,7 +393,7 @@ json_out() {
             local i
             for (( i=0; i<modules; i++ )); do
                 local mb="${j_size[$i]:-0}"
-                mb=$(printf '%s' "$mb" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')
+                mb=$(printf '%s' "$mb" | awk '{n=0; for(i=1;i<=NF;i++) if($i+0==$i){n=$i; u=$(i+1); break} if(u~/[Gg][Bb]/) n*=1024; print n}')
                 [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
                 if (( mb >= 1024 )); then
                     j_size[$i]="$(( mb / 1024 )) GiB"
@@ -405,7 +407,7 @@ json_out() {
     msize_mb=0
     for (( i=0; i<modules; i++ )); do
         local v="${j_size[$i]:-0}"
-        if [[ "$v" == *GiB ]]; then v="${v% GiB}"; v=$(( v * 1024 )); elif [[ "$v" =~ ^[0-9]+$ ]]; then v=$(( v / 1024 )); else v=0; fi
+        if [[ "$v" == *GiB ]]; then v="${v% GiB}"; v=$(( v * 1024 )); elif [[ "$v" == *MiB ]]; then v="${v% MiB}"; elif [[ "$v" =~ ^[0-9]+$ ]]; then v=$(( v / 1024 )); else v=0; fi
         msize_mb=$(( msize_mb + v ))
     done
 

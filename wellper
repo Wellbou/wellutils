@@ -439,7 +439,7 @@ collect_usb() {
         [[ "$bclass" == "09" ]] && continue             # hub
         local ifaces
         ifaces=$(iface_classes "$base")
-        [[ "$ifaces" == " 09 " ]] && continue           # hub (class 0x00)
+        [[ "$ifaces" == " 09" ]] && continue           # hub (class 0x00)
         local mfg prod
         mfg=$(clean_name "$(cat "$devdir/manufacturer" 2>/dev/null || true)")
         if junk_manufacturer "$mfg"; then

@@ -182,7 +182,17 @@ json_esc() {
     s=${s//$'\r'/\\r}
     s=${s//$'\b'/\\b}
     s=${s//$'\f'/\\f}
-    printf '%s' "$s"
+    local rest="" out="" i c ord
+    for (( i=0; i<${#s}; i++ )); do
+        c="${s:$i:1}"
+        printf -v ord '%d' "'$c" 2>/dev/null || ord=0
+        if (( ord > 0 && ord < 32 )); then
+            out+="$(printf '\\u%04x' "$ord")"
+        else
+            out+="$c"
+        fi
+    done
+    printf '%s' "$out"
 }
 
 # Print the JSON envelope head (no trailing comma on the date field).
