@@ -126,7 +126,7 @@ print_ram() {
                     Decoding\ EEPROM*)
                         [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
                         _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line##*Size}"; _s="${_s%% MB*}"; _s="$(printf '%s' "$_s" | awk '{$1=$1}1')" ;;
+                    Size*)                   _s="${line##*Size}"; _s="$(printf '%s' "$_s" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')" ;;
                     Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
                     Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
                     Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
@@ -380,7 +380,7 @@ json_out() {
                     Decoding\ EEPROM*)
                         [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
                         _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line##*Size}"; _s="${_s%% MB*}"; _s="$(printf '%s' "$_s" | awk '{$1=$1}1')" ;;
+                    Size*)                   _s="${line##*Size}"; _s="$(printf '%s' "$_s" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')" ;;
                     Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
                     Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
                     Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;

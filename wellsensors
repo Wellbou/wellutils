@@ -112,8 +112,9 @@ tline() {
 print_cpu() {
     local hwmon=""
     for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
         local name
-        name=$(cat "$d" 2>/dev/null)
+        name=$(cat "$d" 2>/dev/null || true)
         if [[ "$name" == "coretemp" ]]; then
             hwmon=$(dirname "$d")
             break
@@ -209,8 +210,9 @@ print_gpu() {
 
     # ── AMD GPU via hwmon (amdgpu driver) ──────────────────────
     for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
         local hwname
-        hwname=$(cat "$d" 2>/dev/null)
+        hwname=$(cat "$d" 2>/dev/null || true)
         [[ "$hwname" == "amdgpu" ]] || continue
         local hdir
         hdir=$(dirname "$d")
@@ -262,8 +264,9 @@ print_gpu() {
 
     # ── Intel GPU via i915 hwmon ───────────────────────────────
     for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
         local hwname
-        hwname=$(cat "$d" 2>/dev/null)
+        hwname=$(cat "$d" 2>/dev/null || true)
         [[ "$hwname" == "i915" ]] || continue
         local hdir
         hdir=$(dirname "$d")
@@ -302,8 +305,9 @@ print_gpu() {
 print_acpi() {
     local found=0
     for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
         local name
-        name=$(cat "$d" 2>/dev/null)
+        name=$(cat "$d" 2>/dev/null || true)
         if [[ "$name" == "acpitz" ]]; then
             local hwmon
             hwmon=$(dirname "$d")
@@ -692,8 +696,9 @@ json_out() {
     first=1
     local hwmon=""
     for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
         local dname
-        dname=$(cat "$d" 2>/dev/null)
+        dname=$(cat "$d" 2>/dev/null || true)
         if [[ "$dname" == "coretemp" ]]; then hwmon=$(dirname "$d"); break; fi
     done
     if [[ -n "$hwmon" ]]; then
@@ -750,7 +755,8 @@ json_out() {
     fi
     # AMD GPU via hwmon
     for d in /sys/class/hwmon/hwmon*/name; do
-        name2=$(cat "$d" 2>/dev/null)
+        [[ -f "$d" ]] || continue
+        name2=$(cat "$d" 2>/dev/null || true)
         [[ "$name2" == "amdgpu" ]] || continue
         local ahwmon atfile araw_temp atemp
         ahwmon=$(dirname "$d")
@@ -775,7 +781,8 @@ json_out() {
     done
     # Intel GPU via i915 hwmon
     for d in /sys/class/hwmon/hwmon*/name; do
-        name2=$(cat "$d" 2>/dev/null)
+        [[ -f "$d" ]] || continue
+        name2=$(cat "$d" 2>/dev/null || true)
         [[ "$name2" == "i915" ]] || continue
         local ihwmon itfile iraw_temp itemp
         ihwmon=$(dirname "$d")
@@ -793,7 +800,8 @@ json_out() {
     printf '  "acpi": [\n'
     first=1
     for d in /sys/class/hwmon/hwmon*/name; do
-        name2=$(cat "$d" 2>/dev/null)
+        [[ -f "$d" ]] || continue
+        name2=$(cat "$d" 2>/dev/null || true)
         if [[ "$name2" == "acpitz" ]]; then
             local ahwmon
             ahwmon=$(dirname "$d")
