@@ -6,7 +6,7 @@ set -uo pipefail
 # shellcheck disable=SC2034,SC2059,SC2154
 
 _WU_NAME="wellfetch"
-_WU_VERSION="1.3.0"
+_WU_VERSION="1.4.0"
 _WU_TAGLINE="detailed system information with logo"
 
 _WU_MANUAL=0
@@ -50,9 +50,9 @@ wf_extra_parse() {
     return 1
 }
 
-_WU_EXTRA_HELP="      --no-logo              text only, no logo
+_WU_EXTRA_HELP="      --no-logo, --text     text only, no logo
       --logo                show logo (default on tty)
-      --all                 show all sections (audio, resolution, peripherals…)
+      --all, --full         show all sections (audio, resolution, peripherals…)
       --logo-width N        logo width in cells"
 
 # --- i18n ---------------------------------------------------------------------
@@ -118,7 +118,7 @@ wfv_uptime() {
     else up="${m}m"; fi
     if command -v date >/dev/null 2>&1; then
         boot=$(( $(date +%s) - s ))
-        up+=" · boot $(date -d "@$boot" '+%F %H:%M' 2>/dev/null)"
+        up+=" · $(t wf_boot) $(date -d "@$boot" '+%F %H:%M' 2>/dev/null)"
     fi
     wf_push uptime "$(t wf_uptime)" "$up"
 }
@@ -191,15 +191,15 @@ wfv_cpu() {
     wf_push cpu "$(t wf_cpu)" "${m:--}"
     local detail=""
     if [[ -n "$cores" && -n "$threads" ]]; then
-        detail="${cores} cores / ${threads} threads"
+        detail="${cores} $(t wf_cores) / ${threads} $(t wf_threads)"
         if [[ -n "$freq" ]]; then
-            freq=$(awk -v f="$freq" 'BEGIN{printf "%d MHz", f+0.5}')
+            freq=$(awk -v f="$freq" 'BEGIN{printf "%d " "$(t wf_freq)", f+0.5}')
             detail+=" @ $freq"
         fi
-        if [[ -n "$load" ]]; then detail+=" · load $load"; fi
+        if [[ -n "$load" ]]; then detail+=" · $(t wf_load) $load"; fi
         wf_push cpu "" "$detail"
     elif [[ -n "$load" ]]; then
-        wf_push cpu "" "load $load"
+        wf_push cpu "" "$(t wf_load) $load"
     fi
 }
 

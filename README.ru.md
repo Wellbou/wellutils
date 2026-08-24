@@ -75,7 +75,7 @@ curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh |
 
 Пропустить установку зависимостей можно флагом `--no-deps`
 (инструменты корректно деградируют: без S.M.A.R.T., без показаний
-датчиков, без имён вендоров по ID). Для бесrootной установки в свой
+датчиков, без имён вендоров по ID). Для установки без root в свой
 каталог используйте `--prefix=/path`.
 
 ### Arch Linux (пакет)
@@ -135,6 +135,7 @@ tool [options]
       --plain              обычный текст, без рамок
       --box                принудительно рамки
       --no-emoji           без иконок-эмодзи
+      --emoji               принудительно включить эмодзи
       --json               машиночитаемый JSON в stdout
       --debug              трассировка shell
 ```
@@ -200,9 +201,8 @@ wellup --self-update          # проверить и обновить wellutils
 wellup --self-update --check  # только показать разницу версий
 ```
 
-Замечание: `wellutils sensors` намеренно не является алиасом - он
-перекрыл бы бинарник `sensors` из lm_sensors. Используйте
-`wellsensors` или `wtemp`.
+`wellutils sensors` работает как алиас для `wellsensors`. Другие
+алиасы: `wsensors`, `wtemp`. Полный список см. в wellutils(1).
 
 ## Возможности
 

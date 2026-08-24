@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WellUp v1.0 -- Check for system updates and apply them automatically
+# WellUp v${_WU_VERSION} -- Check for system updates and apply them automatically
 # Supports: pacman (Arch), dnf/yum (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi),
 #           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo)
 # by wellbou_
@@ -419,14 +419,14 @@ self_main() {
 
     if [[ "$status" == "up-to-date" || "$status" == "newer-local" ]]; then
         printf '\n  %s%s%s\n' "$G" "$(t updu_up_to_date)" "$RESET"
-        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
     printf '\n  %s%s %s%s\n' "$G" "$(t updu_update)" "$RESET" "$SELF_REMOTE"
 
     if [[ "$_UP_CHECK" == "1" ]]; then
-        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
@@ -438,7 +438,7 @@ self_main() {
     if self_install_to "$src"; then
         trap - INT
         printf '\n  %s%s %s%s\n\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
-        printf '  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     else
         trap - INT
@@ -478,7 +478,7 @@ main() {
     fi
 
     if [[ "$_UP_CHECK" == "1" || $count -eq 0 ]]; then
-        printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
@@ -494,7 +494,7 @@ main() {
     fi
     trap - INT
 
-    printf '\n  %sWellUp v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

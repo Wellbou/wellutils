@@ -80,6 +80,7 @@ core_loads() {
                 fi
                 local pct=0
                 (( d_total > 0 )) && pct=$(( (d_total - d_idle) * 100 / d_total ))
+                (( pct < 0 )) && pct=0
                 (( pct > 100 )) && pct=100
                 _CPU_PCT[$idx]=$pct
                 n=$((n + 1)) ;;

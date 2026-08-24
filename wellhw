@@ -483,7 +483,7 @@ json_out() {
         chip=$(basename "$(dirname "$f")")
         idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
         [[ "$idx" =~ ^[0-9]+$ ]] || continue
-        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "fan ${idx}")
+        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "$(t hw_cooling) ${idx}")
         (( first )) && first=0 || printf ',\n'
         printf '    { "chip": "%s", "label": "%s", "rpm": %d }' \
             "$(json_esc "$chip")" "$(json_esc "$label")" "$rpm"

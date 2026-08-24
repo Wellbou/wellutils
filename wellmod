@@ -92,7 +92,7 @@ json_out() {
         used_bys+=("$used")
         total=$(( total + 1 ))
         total_size=$(( total_size + size ))
-    done < <(awk 'NR>1 {gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
+    done < <(awk '{gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "modules": [\n'
@@ -155,7 +155,7 @@ main() {
         used_bys+=("$used")
         total=$(( total + 1 ))
         total_size=$(( total_size + size ))
-    done < <(awk 'NR>1 {gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
+    done < <(awk '{gsub(/:/, "", $1); print $1, $2, $3}' /proc/modules)
 
     local total_h
     total_h=$(fmt_size "$total_size")

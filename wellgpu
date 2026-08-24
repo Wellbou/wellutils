@@ -85,6 +85,9 @@ print_nvidia() {
     local _aib_name="" _aib_hex=""
     for _aib_dir in /sys/bus/pci/devices/*/; do
         [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
+        local _class
+        _class=$(cat "${_aib_dir}class" 2>/dev/null || echo "")
+        [[ "$_class" == "0x030000" || "$_class" == "0x030200" ]] || continue
         _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
         _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir")")
         break

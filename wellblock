@@ -417,23 +417,26 @@ json_out() {
                 ' <<< "$sout")
                 local sid sname sval sworst sthr sraw sdec
                 while IFS='|' read -r sid sname sval sworst sthr sraw; do
+                    [[ "$sid" =~ ^[0-9]+$ && "$sval" =~ ^[0-9]+$ && "$sworst" =~ ^[0-9]+$ && "$sthr" =~ ^[0-9]+$ ]] || continue
+                    local _sraw_val="${sraw%% *}"
+                    [[ "$_sraw_val" =~ ^[0-9]+$ ]] || _sraw_val=0
                     # Risk check
                     case "$sid" in
                         5|187|197|198|200|201)
-                            if (( 10#${sraw%% *} > 0 )); then (( srisk < 1 )) && srisk=1; fi ;;
+                            if (( _sraw_val > 0 )); then (( srisk < 1 )) && srisk=1; fi ;;
                     esac
                     # Decode Seagate composite raw values for attrs 1, 7, 188.
                     sdec=""
                     case "$sid" in
                         1|7|188) if [[ "$_s_seagate" == "1" ]]; then
                                      local _hi _lo
-                                     _hi=$(( (10#${sraw%% *}) >> 32 ))
-                                     _lo=$(( (10#${sraw%% *}) & 0xFFFFFFFF ))
+                                     _hi=$(( _sraw_val >> 32 ))
+                                     _lo=$(( _sraw_val & 0xFFFFFFFF ))
                                      printf -v sdec '%d / %d' "$_hi" "$_lo"
                                  fi ;;
                     esac
                     (( _s_afirst )) && _s_afirst=0 || smart_attrs_json+=","
-                    smart_attrs_json+="{\"id\":$((10#$sid)),\"name\":\"$(json_esc "$sname")\",\"value\":$((10#$sval)),\"worst\":$((10#$sworst)),\"threshold\":$((10#$sthr)),\"raw\":\"$(json_esc "${sdec:-${sraw%% *}}")\"}"
+                    smart_attrs_json+="{\"id\":$sid,\"name\":\"$(json_esc "$sname")\",\"value\":$sval,\"worst\":$sworst,\"threshold\":$sthr,\"raw\":\"$(json_esc "${sdec:-${_sraw_val}}")\"}"
                 done <<< "$sattrs"
                 case "$srisk" in
                     2) smart_health="FAILED" ;;

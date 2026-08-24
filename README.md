@@ -133,6 +133,7 @@ tool [options]
       --plain              plain text, no box drawing
       --box                force box drawing
       --no-emoji           drop emoji icons
+      --emoji               force emoji icons
       --json               machine-readable JSON on stdout
       --debug              shell tracing
 ```
@@ -198,8 +199,8 @@ wellup --self-update        # check and update wellutils
 wellup --self-update --check  # only report the version difference
 ```
 
-Note: `wellutils sensors` is intentionally not an alias - it would
-shadow the `sensors` binary from lm_sensors. Use `wellsensors`.
+Note: `wellutils sensors` works as an alias for `wellsensors`. Other
+aliases: `wsensors`, `wtemp`. See wellutils(1) for the full list.
 
 ## Features
 
