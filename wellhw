@@ -212,7 +212,7 @@ print_ram() {
     fi
 
     pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
-    [[ -n "$ram_sub" ]] && pline_sub "$ram_sub"
+    [[ -n "$ram_sub" ]] && pline_sub "$ram_sub" || true
 }
 
 print_storage() {

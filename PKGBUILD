@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=32
+pkgrel=33
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
