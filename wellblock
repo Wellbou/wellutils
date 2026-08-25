@@ -6,7 +6,7 @@ set -euo pipefail
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellblock" _WU_NAME="WellBlock" _WU_VERSION="1.1" _WU_MANUAL=1
 _WU_TAGLINE="Block device listing (use 'wellblock [N|device]' for disk detail + S.M.A.R.T.)"
-_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 _WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, /dev/sda)"
 _WU_EXTRA_PARSE="_wblock_arg"

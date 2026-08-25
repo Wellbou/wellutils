@@ -6,7 +6,7 @@ set -euo pipefail
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellpci" _WU_NAME="WellPCI" _WU_VERSION="2.1" _WU_MANUAL=1
 _WU_TAGLINE="PCI device listing with IDS database lookup"
-_WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang cli
 _PCI_ALL=0
 
