@@ -7,6 +7,7 @@ set -euo pipefail
 _WU_TOOLNAME="wellusb" _WU_NAME="WellUSB" _WU_VERSION="2.0" _WU_MANUAL=1
 _WU_TAGLINE="USB device listing with IDS database lookup"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang cli
 
 

@@ -34,11 +34,15 @@ source=(
     'wellutils'
     'wellfetch'
     'wellup'
+    'wellnet'
+    'wellpower'
+    'welldoctor'
     'lang.sh'
     'box.sh'
     'cli.sh'
     'bootstrap.sh'
     'jedec.sh'
+    'distro_art.sh'
     'wfetch_art.py'
     'logo.png'
     'VERSION'
@@ -55,6 +59,9 @@ source=(
     'wellmod.1'
     'wellsensors.1'
     'wellup.1'
+    'wellnet.1'
+    'wellpower.1'
+    'welldoctor.1'
     'wellhw.bash'
     'wellmem.bash'
     'wellusb.bash'
@@ -68,29 +75,36 @@ source=(
     'wellper.bash'
     'wellutils.bash'
     'wellup.bash'
+    'wellnet.bash'
+    'wellpower.bash'
+    'welldoctor.bash'
     'LICENSE'
 )
-sha256sums=('29eaca19ad30d0ca5e4d2f5daeb59fbdaf95cd811da430083148416f443e4b66'
-            '288db8559e43b2cf3ce95bc2a7f49dbbb5dcd6ab2b9ffafe80975b7f8c10b1da'
-            'e453c8f9051e1aad5075307cd5d8eb695b9c140c95def170b9de23cac37e8a53'
-            'a3ee2cb0041cb3189e0e7d9d85347c6478df491804e8a7b5b2ef522b341e51ed'
-            '27c7ee9bda05ea224fb50915593fbe7f06deca5a2c81f83bb1ed8b3f24c752ec'
-            '7dcb73df53a9524517e267193a9cacc0c9430ae3b879f1dca8a1db9dd0943dce'
-            '84f71ff131bf75b6a530e7b696442686ce861d350a47fc9bcbc9a3628d675552'
-            '4be518869c35ae3df6485221f159cca7d9fb39f91640ed5463f7d5f02360778a'
-            'b071a5b316433c189a5d1ea8ef651433e8de9892b0fdd084ea840f00e1653a6c'
-            'f4f97b8d4a64d52da159d391e89eb49ee23512865d141251dfc305ca10e79010'
-            '7ad05307b38b5beccd3fc1ca90da31944124dcd0d0306b5eaaf0d2c877cfefc2'
-            'd1951b00bb8c28c361692bc2bdc897d5046884578f7ab1606384afc3cfa4be9f'
-            'ebcdf543a4c9ecd974f63353fb5806f6cc4dcc5f5b8ab6d964770d264677e988'
-            '848e4df0772709a91ec3205efc0beaec6b5d4b2ef153b3b213706dcbc49af782'
-            'b802e08e46831e9d243ec224b7f77faf752d0b695769bbb4ab288ec17e4da601'
-            '022aba70374558791b86c7b7be86500c41f0e0df08495a029094170f22f5bc21'
+sha256sums=('09af0acb00048d36c53a6a970fd257b52a5aedf4f900be32a970191b6fdf554e'
+            '5ca150ac06dd89f04074541e526efd74804b5a71b9ea9f41effb301e3222e1fe'
+            '1f68c19b6bdcb29285207c2cac169328ba7467b3dd2ac309955cbda12b0262d4'
+            '6726fe109010b9a15aae94b27a9a0721fdf58690c3aeabf3aef31200c25b742b'
+            '5de825953f6529808af488724aab18f2a3befbc019e467fee1ed45ec0d802aba'
+            '5b439e8a05efa0467ff93743b942c9e38e015e614431a4770a4e06d363b95db0'
+            '9bdc9f13da9787cee00ec89b641b1355fe9ccb13fa6a9efb407a8a60aab334a1'
+            '5322a61960cfe371fbeec5ba779ddda85f802e991308dfd362be5b589b621885'
+            '1839bab6e5546ca21e101f02097e5510e9bb8e3880fa49f44f8d7a34f503d135'
+            '7fe5b66c37986b3c59e5efa231a37b68a6a9d8892bca5ba6fd9e7edbfed51fc1'
+            '80382340cdb495d235f07968c7e6b3684b47817a25783be7089c5ef5c0a4ffc3'
+            'b83ce0b1945fc324c7b4c26c9f48380b040681c40b234725a88e65d68fb020c5'
+            '48d1ca902c51c489571fa8c83877f14b34455e1a8505c49ec33fb2e5b34778f8'
+            '99a170d3613b858396e8c3e4384e35e792090789c9c180a85dc74d58ee02cdbf'
+            '1e60c81c08ec6c3964e02796b9035f3adc6f988ce62260fd0658cf824f49a6de'
+            'bc8dfdb399ddee8601d838b6bfe679393e37f9a8655984c80bddf9874f343fe7'
+            'd611a822862af35da19dc21c45592bffa9c372559814d498770037b0e5308035'
+            'a5cf0f7cb24ed1492db04818fb91e42cc2f168d18fc506f3eaa7f048fcc28fe1'
+            '13eeb961d8f469e78bbe3412f948faf8a2e27c60c2b19c213c8a086495cdf2e9'
             '4dbe77cd7af164d5628fddd03197328f503ece8e9f10f92e167df6ff49ab5f75'
             'd4d5cc0a866b6e733bd94bad0bef09206a11c00a30d8c14b8de7ce87a9375632'
-            '408bca678af56ddb9f56aed9c9cb213f82608a781c27eb5adb91aca7cb731c35'
+            '89eab1f9c247469d3194864e2eb90b28c6969714f8588e6a1c251b365ecfc0e8'
+            '4cb6e71ce5e063efceb3a5ff8c41dd35768804628a7a044c46580207f5cdd1bb'
             'ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4'
-            '198da766cc327958ac59d9ed46883c80ecb066186d4a9e22851b8dc60d719502'
+            '609a18b03b0830c31c4f2e9b3faa0b1434cda6ce83935a9413f814427da38166'
             '257e2402b4c68c31f18512845f8e030beaf715e1047d2477fc0abe241e5a605b'
             'f82235c4333a2a881b8151ef82180f2c8ba6001cbdcfd7bd812fa28db1df878e'
             '22726538a1aff9e16c89e397d7f3d2d1c01de4c0f189d7ad78286d2720e46d5c'
@@ -103,20 +117,26 @@ sha256sums=('29eaca19ad30d0ca5e4d2f5daeb59fbdaf95cd811da430083148416f443e4b66'
             '0dc8a89375fae2e1b498c918c69845c9e411d1dfc13959a23755c185ed7f42b1'
             '2611aa9507fb9219f543c23b6ba9cff8d970caedf1c4c87ff32a62086a9f63cc'
             'f8477c0e1a173a342e478e16acfe3fab0763dad675dbc9ddcf9a30b98f553e33'
-            '689d672bd03f8e9ee3d3684903dbf9f1ace6e1207db01e297894964a7e6228b0'
-            '4ca34440a3b3dfc793c95365c4146003f7ef7999ff793f353cb97d6630bfc69d'
-            'b13837121b33361384d513383bc7db251de2850dc0ce870e8c4fec0656fd58e8'
-            '569d43611edc057916cc5b40a6be15dfdd734c3a4ace1c09c090063a50c57875'
-            '91e95e8dd7018494fb3fdd41a8e50da074d5ddff29bd391abea0dc26305d2022'
-            '746d98adcb2a9310181133b77949b2aba6ec17e90ddb13a17c539488b351bbb9'
-            '33529c31b6efcad7a7e1af1248d70700d652759b8b54c6ed3e8f7eaca10e9c28'
-            '87b8c600e61bfb12f293ea20b84a2cf747d78b716409a23b4099cec475100c38'
-            '746d38c18e8b1a9f406ee89a3c5d62809c681e1273ee908d17952377a308ea2e'
-            '798b5b272270d4f81525da77d361780898404487a28cdd74d204518000907011'
-            '3393fca3d9e8780042c6e6fd6990a147f25d23d52243441a90b43fe88a7e7162'
-            '3a1fe25939dfeee0417b75b3d83daf9d7004ac534a5a68185372b9ebe57e9682'
-            '5432cbfe44efd22bcc16a6979c8b7c189de2c55fe8f044e132c1d33e770ee30b'
-            'dc4197f41197b1dfc16ab51d92ba23a3187c7af2b275d91e326af3f6d5e9a07f'
+            'af28cb8f0f4e150bac69d3acdb7ac49cff80771b80f55a093143db5480e00ac6'
+            'f02817f6dfc2a4fff06e60d889a852890062b90a74a5a107abc293c45d048efb'
+            '36bf4d6cc3b3a9529d457bf0ad37525349b768a9ee967830443cde67fdb182c2'
+            '70788a2cb82cb06c8e486db22477f898722b71f04b85cc43bb7364569c8b6a5b'
+            '92a5a7028f16e14cfef073d1e9c9a51288dccd75866ad812dfe62f9f3d3352ba'
+            '580c8dc6b421c0155495140949789ad7c75e81386cde0fe24bb119caabcb84f1'
+            '78b26b9f2a536ba47bda892cf4a275752afdf3ad52d9c80a57278e02b93a5825'
+            '7ab23851e1efccd611863bceb2d72c949332eadab5ccfbca1bbbd5608cee34d1'
+            '9894753603b9e7b281765d884da93cb88b444360d86ff75795a8e19ad92b6234'
+            '7ad9765b0ed85cc1bf3f9b3f03fc923916dfb98073c941ab0177825a658bf553'
+            '9f3a8fb6a4a3b13c22bbec320ec071e1d7f7c4f29fa62192690cd92a001715c8'
+            '92c157099a704716146682c50d454d8a9bddc2d807ca5fd9c0e7cc389c6a1b2c'
+            '018a0990743e0711adc4cf82849e2fe7d92baf5f6204ac1b456a14633482af4e'
+            '3ceb68d2790c4fa70e07fd86c1fe69b99c2dae238a3a94b38c6f63f9ec0dc4e4'
+            '0cff155695e7c4aa467e7dfdd701e91931260dc43cd238d11be25577edb22719'
+            '2d853f85ccb49948ba586aa306800b9def4780379b9b897b96a08693fa09eb40'
+            'eba459a638ab9fa6216d39c26a51e1a6580a833e6577da014b4a9b787bd41119'
+            '74541555b9a5dcd0470218dca3feda8ccbdc7c51a76e1ddbb3bc4ac1f0397806'
+            'e1352fa132b1781ae67453796fe40577e149bd6a23884444e398d6ed3b28eac7'
+            '258886d8c95f19c5aa462cc93b5d5b7b4884db692bb752262c671220f4261456'
             'cfc7e44e8406cf1d56916796d36832d4b8de8e1898f67be4158f0f6f0984fc70')
 package() {
     cd "${srcdir}"
@@ -167,6 +187,7 @@ package() {
         lang.sh \
         box.sh \
         cli.sh \
+        bootstrap.sh \
         jedec.sh \
         distro_art.sh \
         wfetch_art.py \
@@ -230,13 +251,14 @@ package() {
     install -m644 \
         wellup.bash \
         "${pkgdir}/usr/share/bash-completion/completions/wellup"
-    install -m644 \
-        wellnet.bash wellpower.bash welldoctor.bash \
-        "${pkgdir}/usr/share/bash-completion/completions/"
+    for _bc in wellnet wellpower welldoctor; do
+        install -m644 "${startdir}/$_bc.bash" \
+            "${pkgdir}/usr/share/bash-completion/completions/$_bc"
+    done
     install -d "${pkgdir}/usr/share/zsh/site-functions" \
                "${pkgdir}/usr/share/fish/vendor_completions.d"
-    install -m644 completions/zsh/_* "${pkgdir}/usr/share/zsh/site-functions/"
-    install -m644 completions/fish/* "${pkgdir}/usr/share/fish/vendor_completions.d/"
+    for _zc in "${startdir}"/completions/zsh/_*; do install -m644 "$_zc" "${pkgdir}/usr/share/zsh/site-functions/"; done
+    for _fc in "${startdir}"/completions/fish/*.fish; do install -m644 "$_fc" "${pkgdir}/usr/share/fish/vendor_completions.d/"; done
     install -m644 \
         LICENSE \
         "${pkgdir}/usr/share/licenses/wellutils/LICENSE"

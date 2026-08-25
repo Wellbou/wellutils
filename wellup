@@ -9,6 +9,7 @@ set -euo pipefail
 _WU_TOOLNAME="wellup" _WU_NAME="WellUp" _WU_VERSION="1.0"
 _WU_TAGLINE="Check for system updates and apply them automatically"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 
 # ─── Flags ─────────────────────────────────────────────────────
