@@ -739,6 +739,7 @@ json_out() {
         while IFS=',' read -r gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
             gname=$(echo "$gname" | xargs)
             gtemp=$(echo "$gtemp" | xargs)
+            [[ "$gtemp" =~ ^[0-9]+$ ]] || continue
             fan=$(echo "$fan" | xargs)
             power=$(echo "$power" | xargs)
             [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"

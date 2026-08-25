@@ -164,9 +164,10 @@ wu_run() {
     fi
 
     if [[ "$_WU_MANUAL" == "1" && "$_WU_PLAIN" == "1" && "$_WU_JSON" != "1" ]]; then
-        local out
-        out=$("$fn")
+        local out _fn_rc=0
+        out=$("$fn") || _fn_rc=$?
         _wu_plainify "$out"
+        return "$_fn_rc"
     else
         "$fn"
     fi
