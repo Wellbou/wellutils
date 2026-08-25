@@ -39,11 +39,27 @@ print_cpu() {
     pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${model}  ${DIM}($(t hw_cores): ${cores}, $(t hw_threads): ${threads})${RESET}"
 }
 
+hw_gpu_name() {
+    local line bus vendor device aib
+    line=$(lspci -mmnn 2>/dev/null | grep -iE '"VGA compatible controller|"3D controller' | head -1)
+    [[ -n "$line" ]] || return 0
+    set -- $line
+    bus=$1
+    vendor=$(printf '%s' "$line" | awk -F'"' '{print $4}')
+    device=$(printf '%s' "$line" | awk -F'"' '{print $6}')
+    [[ -z "$device" ]] && device="$vendor" && vendor=""
+    aib=$(gpu_aib_vendor "$bus")
+    printf '%s%s%s' "${aib:+$aib }" "$device" "${vendor:+|$vendor}"
+}
+
 print_gpu() {
-    local gpu
-    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1) || gpu=""
+    local gpu vendor
+    gpu=$(hw_gpu_name)
+    vendor="${gpu##*|}"
+    [[ "$vendor" == "$gpu" ]] && vendor=""
+    gpu="${gpu%|*}"
     if [[ -n "$gpu" ]]; then
-        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "$gpu"
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${gpu}${vendor:+  ${DIM}(${vendor})${RESET}}"
     else
         pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${DIM}$(t hw_unknown)${RESET}"
     fi
@@ -319,7 +335,8 @@ json_out() {
     threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
 
     local gpu=""
-    gpu=$(lspci 2>/dev/null | grep -iE 'vga compatible|3d controller' | sed -E 's/^[0-9a-f:.]+ [^:]+: //' | head -1) || gpu=""
+    gpu=$(hw_gpu_name)
+    [[ "$gpu" == *"|"* ]] && gpu="${gpu%|*}"
 
     local b_vendor="" b_name="" b_version="" bv="" bver="" bdate=""
     b_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null || true)
