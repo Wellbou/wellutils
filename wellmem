@@ -38,11 +38,11 @@ fmt_kb() {
     local kb=$1
     [[ "$kb" =~ ^[0-9]+$ ]] || kb=0
     if (( kb >= 1048576 )); then
-        printf '%s GB' "$(awk "BEGIN {printf \"%.1f\", $kb/1048576}")"
+        printf '%s GiB' "$(awk "BEGIN {printf \"%.1f\", $kb/1048576}")"
     elif (( kb >= 1024 )); then
-        printf '%s MB' "$(awk "BEGIN {printf \"%.1f\", $kb/1024}")"
+        printf '%s MiB' "$(awk "BEGIN {printf \"%.1f\", $kb/1024}")"
     else
-        printf '%d KB' "$kb"
+        printf '%d KiB' "$kb"
     fi
 }
 

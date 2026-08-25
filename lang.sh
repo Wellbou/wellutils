@@ -11,11 +11,30 @@ if [[ -f "$_WELLUTILS_LANG_FILE" ]]; then
     _WELLUTILS_LANG=$( { sed -n '/^[A-Za-z]/{p;q}' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
 fi
 
-# Env var overrides file
+# Detect language from session/system locale
+_wu_detect_lang() {
+    case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+        ru*) WELLUTILS_LANG="RU"; return 0 ;;
+    esac
+    local _sys_lang=""
+    if [[ -r /etc/locale.conf ]]; then
+        _sys_lang=$(sed -n 's/^LANG=//p' /etc/locale.conf | head -1 | tr -d '"')
+    elif [[ -r /etc/default/locale ]]; then
+        _sys_lang=$(sed -n 's/^LANG=//p' /etc/default/locale | head -1 | tr -d '"')
+    fi
+    case "$(printf '%s' "$_sys_lang" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+        ru*) WELLUTILS_LANG="RU" ;;
+    esac
+}
+
+# Priority: env var > config file > locale autodetect > EN fallback
+if [[ -z "${WELLUTILS_LANG:-}" && -z "${_WELLUTILS_LANG:-}" ]]; then
+    _wu_detect_lang
+fi
 WELLUTILS_LANG="${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}"
 
 # Validate (uppercase via tr -- bash 3.2-compatible, no ${^^})
-WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
+WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-EN}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
 case "$WELLUTILS_LANG" in
     RU) WELLUTILS_LANG="RU" ;;
     *)  WELLUTILS_LANG="EN" ;;
@@ -117,6 +136,7 @@ _T_EN[blk_serial]="Serial"
 _T_EN[blk_removable]="Removable"
 _T_EN[blk_ssd]="SSD"
 _T_EN[blk_hdd]="HDD"
+_T_EN[blk_unknown]="?"
 _T_EN[blk_total]="Total"
 _T_EN[blk_disks]="disks"
 _T_EN[blk_partitions]="partitions"
@@ -322,7 +342,8 @@ _T_EN[upd_os]="OS"
 _T_EN[upd_mode]="Mode"
 _T_EN[upd_mode_check]="check only"
 _T_EN[upd_mode_update]="check + update"
-_T_EN[upd_cancel_hint]="Applying updates in"
+_T_EN[upd_confirm]="Apply these updates?"
+_T_EN[upd_no_tty]="Non-interactive shell: pass --yes to apply updates"
 _T_EN[upd_aborted]="Cancelled."
 _T_EN[upd_applying]="Updating system, please wait..."
 _T_EN[upd_done]="System updated."
@@ -367,8 +388,15 @@ _T_EN[wf_locale]="Locale"
 _T_EN[wf_date]="Date"
 _T_EN[wf_battery]="Battery"
 _T_EN[wf_boot]="boot"
-_T_EN[wf_cores]="cores"
-_T_EN[wf_threads]="threads"
+_T_EN[core_one]="core"
+_T_EN[core_few]="cores"
+_T_EN[core_many]="cores"
+_T_EN[thread_one]="thread"
+_T_EN[thread_few]="threads"
+_T_EN[thread_many]="threads"
+_T_EN[instance_one]="instance"
+_T_EN[instance_few]="instances"
+_T_EN[instance_many]="instances"
 _T_EN[wf_load]="load"
 _T_EN[wf_freq]="MHz"
 _T_EN[p_kbd]="Keyboard"
@@ -480,6 +508,7 @@ _T_RU[blk_serial]="Серийный №"
 _T_RU[blk_removable]="Съёмный"
 _T_RU[blk_ssd]="SSD"
 _T_RU[blk_hdd]="HDD"
+_T_RU[blk_unknown]="?"
 _T_RU[blk_total]="Итого"
 _T_RU[blk_disks]="дисков"
 _T_RU[blk_partitions]="разделов"
@@ -685,7 +714,9 @@ _T_RU[upd_os]="ОС"
 _T_RU[upd_mode]="Режим"
 _T_RU[upd_mode_check]="только проверка"
 _T_RU[upd_mode_update]="проверка + обновление"
-_T_RU[upd_cancel_hint]="Обновление через"
+_T_RU[upd_confirm]="Применить эти обновления?"
+_T_RU[upd_no_tty]="Неинтерактивный режим: передайте --yes для применения обновлений"
+_T_RU[upd_aborted]="Отменено."
 _T_RU[upd_aborted]="Отменено."
 _T_RU[upd_applying]="Обновляю систему, подождите..."
 _T_RU[upd_done]="Система обновлена."
@@ -730,8 +761,15 @@ _T_RU[wf_locale]="Локаль"
 _T_RU[wf_date]="Дата"
 _T_RU[wf_battery]="Аккумулятор"
 _T_RU[wf_boot]="загрузка"
-_T_RU[wf_cores]="ядра"
-_T_RU[wf_threads]="потоки"
+_T_RU[core_one]="ядро"
+_T_RU[core_few]="ядра"
+_T_RU[core_many]="ядер"
+_T_RU[thread_one]="поток"
+_T_RU[thread_few]="потока"
+_T_RU[thread_many]="потоков"
+_T_RU[instance_one]="экземпляр"
+_T_RU[instance_few]="экземпляра"
+_T_RU[instance_many]="экземпляров"
 _T_RU[wf_load]="нагрузка"
 _T_RU[wf_freq]="МГц"
 _T_RU[p_kbd]="Клавиатура"
@@ -763,6 +801,20 @@ _t_param_RU() {
         launcher_error_lang) printf 'неизвестный язык "%s". Используйте RU или EN.' "$2" ;;
         *) return 1 ;;
     esac
+}
+
+# Plural forms: t_plural <n> <base> -- keys ${base}_one / ${base}_few / ${base}_many
+t_plural() {
+    local n="$1" base="$2" form
+    if [[ "$WELLUTILS_LANG" == "RU" ]]; then
+        local d10=$(( n % 10 )) d100=$(( n % 100 ))
+        if (( d10 == 1 && d100 != 11 )); then form="one"
+        elif (( d10 >= 2 && d10 <= 4 && ( d100 < 12 || d100 > 14 ) )); then form="few"
+        else form="many"; fi
+    else
+        if (( n == 1 )); then form="one"; else form="many"; fi
+    fi
+    t "${base}_${form}"
 }
 
 t() {

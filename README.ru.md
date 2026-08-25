@@ -194,9 +194,14 @@ wblock /dev/sdb
 `wsensors`/`wtemp`, `whw`, `wper`, `wfetch`, `wup`. Лаунчер принимает и их:
 `wellutils wram --plain`.
 
-`wellup` умеет и обновлять сам wellutils с GitHub:
+`wellup` спрашивает подтверждение перед применением обновлений;
+флаг `--yes` пропускает вопрос (для скриптов и cron). Умеет он и
+обновлять сам wellutils с GitHub:
 
 ```sh
+wellup --check                # только показать доступные обновления
+wellup                        # показать и спросить перед применением
+wellup --yes                  # применить без подтверждения
 wellup --self-update          # проверить и обновить wellutils
 wellup --self-update --check  # только показать разницу версий
 ```

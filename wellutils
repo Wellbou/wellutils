@@ -134,4 +134,12 @@ if [[ -z "$CMD" ]]; then
     exit 0
 fi
 
-exec "$CMD" "$@"
+# Prefer PATH; fall back to the repo checkout next to this launcher.
+if command -v "$CMD" >/dev/null 2>&1; then
+    exec "$CMD" "$@"
+elif [[ -x "$_WU_DIR/$CMD" ]]; then
+    exec "$_WU_DIR/$CMD" "$@"
+else
+    printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$CMD"
+    exit 127
+fi

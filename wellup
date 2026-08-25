@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WellUp v${_WU_VERSION} -- Check for system updates and apply them automatically
+# WellUp -- Check for system updates and apply them automatically
 # Supports: pacman (Arch), dnf/yum (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi),
 #           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo)
 # by wellbou_
@@ -14,6 +14,7 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 # ─── Flags ─────────────────────────────────────────────────────
 _UP_CHECK=0
 _UP_SELF=0
+_UP_YES=0
 
 up_extra_parse() {
     case "$1" in
@@ -25,11 +26,16 @@ up_extra_parse() {
             _UP_SELF=1
             _WU_EXTRA_CONSUMED=1
             return 0 ;;
+        --yes|-y)
+            _UP_YES=1
+            _WU_EXTRA_CONSUMED=1
+            return 0 ;;
     esac
     return 1
 }
 _WU_EXTRA_PARSE=up_extra_parse
 _WU_EXTRA_HELP="      --check, --list         only list available updates, do not install
+      --yes, -y               apply updates without confirmation
       --self-update           update wellutils itself from GitHub
       --self                  alias of --self-update"
 
@@ -103,14 +109,19 @@ pm_check() {
                 UP_LINES+=("${arr[0]}||${arr[1]}")
             done < <(dnf check-update 2>/dev/null || true) ;;
         apt-get|apt)
-            local arr nm
+            local nm old rest
             while IFS= read -r line; do
                 [[ "$line" == *"/"* ]] || continue
-                read -r -a arr <<< "$line"
-                [[ ${#arr[@]} -ge 3 ]] || continue
-                nm="${arr[0]%%/*}"
-                UP_LINES+=("$nm|${arr[1]}|${arr[2]}")
-            done < <(apt list --upgradable 2>/dev/null) ;;
+                nm="${line%%/*}"
+                rest="${line#* }"
+                read -r -a arr <<< "$rest"
+                [[ ${#arr[@]} -ge 2 ]] || continue
+                old=""
+                if [[ "$rest" =~ upgradable\ from:\ ([^][]+)\] ]]; then
+                    old="${BASH_REMATCH[1]}"
+                fi
+                UP_LINES+=("$nm|$old|${arr[0]}")
+            done < <(LC_ALL=C apt list --upgradable 2>/dev/null) ;;
         zypper)
             local cols=() idx hdr_name=2 hdr_new=-1 in_hdr=0 nm nw
             while IFS= read -r line; do
@@ -238,13 +249,18 @@ up_list_box() {
 }
 
 confirm_update() {
-    local i
-    printf '  %s' "$(t upd_cancel_hint)"
-    for (( i=3; i>0; i-- )); do
-        printf ' %d' "$i"
-        sleep 1
-    done
-    printf '\n'
+    (( _UP_YES )) && return 0
+    if [[ ! -t 0 ]]; then
+        printf '  %s\n' "$(t upd_no_tty)" >&2
+        return 1
+    fi
+    local ans
+    printf '  %s [y/N] ' "$(t upd_confirm)"
+    read -r ans || return 1
+    case "$ans" in
+        y|Y|yes|Yes|YES|д|Д|да|Да|ДА) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # ─── Self-update: wellutils itself, from GitHub ────────────────
@@ -419,18 +435,22 @@ self_main() {
 
     if [[ "$status" == "up-to-date" || "$status" == "newer-local" ]]; then
         printf '\n  %s%s%s\n' "$G" "$(t updu_up_to_date)" "$RESET"
-        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
     printf '\n  %s%s %s%s\n' "$G" "$(t updu_update)" "$RESET" "$SELF_REMOTE"
 
     if [[ "$_UP_CHECK" == "1" ]]; then
-        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
-    confirm_update
+    if ! confirm_update; then
+        printf '\n  %s\n\n' "$(t upd_aborted)"
+        return 0
+    fi
+
     trap 'printf "\n  %s\n\n" "$(t upd_aborted)"; exit 130' INT
     printf '  %s\n\n' "$(t updu_applying)"
     local src
@@ -438,7 +458,7 @@ self_main() {
     if self_install_to "$src"; then
         trap - INT
         printf '\n  %s%s %s%s\n\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
-        printf '  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     else
         trap - INT
@@ -478,11 +498,14 @@ main() {
     fi
 
     if [[ "$_UP_CHECK" == "1" || $count -eq 0 ]]; then
-        printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
         return 0
     fi
 
-    confirm_update
+    if ! confirm_update; then
+        printf '\n  %s\n\n' "$(t upd_aborted)"
+        return 0
+    fi
 
     trap 'printf "\n  %s\n\n" "$(t upd_aborted)"; exit 130' INT
     printf '  %s\n\n' "$(t upd_applying)"
@@ -494,7 +517,7 @@ main() {
     fi
     trap - INT
 
-    printf '\n  %sWellUp v${_WU_VERSION} | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

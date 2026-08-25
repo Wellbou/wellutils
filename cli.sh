@@ -50,20 +50,7 @@ EOF
 
 # Locale-based language auto-detect (with system locale file fallback for
 # sudo/root where LANG is usually empty or C).
-_wu_detect_lang() {
-    case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
-        ru*) WELLUTILS_LANG=RU; return 0 ;;
-    esac
-    local _sys_lang=""
-    if [[ -r /etc/locale.conf ]]; then
-        _sys_lang=$(sed -n 's/^LANG=//p' /etc/locale.conf | head -1 | tr -d '"')
-    elif [[ -r /etc/default/locale ]]; then
-        _sys_lang=$(sed -n 's/^LANG=//p' /etc/default/locale | head -1 | tr -d '"')
-    fi
-    case "$(printf '%s' "$_sys_lang" | tr '[:upper:]' '[:lower:]')" in
-        ru*) WELLUTILS_LANG=RU ;;
-    esac
-}
+# _wu_detect_lang is provided by lang.sh (sourced before cli.sh)
 
 wu_parse() {
     while (( $# > 0 )); do
@@ -110,7 +97,7 @@ wu_parse() {
         ru) WELLUTILS_LANG=RU ;;
         en) WELLUTILS_LANG=EN ;;
         auto) _wu_detect_lang ;;
-        "") [[ -z "${WELLUTILS_LANG:-}" ]] && _wu_detect_lang ;;
+        "") : ;;
     esac
 
     [[ "$_WU_DEBUG" == "1" ]] && set -x

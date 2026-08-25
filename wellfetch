@@ -191,9 +191,9 @@ wfv_cpu() {
     wf_push cpu "$(t wf_cpu)" "${m:--}"
     local detail=""
     if [[ -n "$cores" && -n "$threads" ]]; then
-        detail="${cores} $(t wf_cores) / ${threads} $(t wf_threads)"
+        detail="${cores} $(t_plural "$cores" core) / ${threads} $(t_plural "$threads" thread)"
         if [[ -n "$freq" ]]; then
-            freq=$(awk -v f="$freq" 'BEGIN{printf "%d " "$(t wf_freq)", f+0.5}')
+            freq=$(awk -v f="$freq" -v u="$(t wf_freq)" 'BEGIN{printf "%d %s", f+0.5, u}')
             detail+=" @ $freq"
         fi
         if [[ -n "$load" ]]; then detail+=" · $(t wf_load) $load"; fi
@@ -227,26 +227,28 @@ wfv_gpu() {
     (( first )) && wf_push gpu "$(t wf_gpu)" "-"
 }
 
+# Format kibibytes as GiB: one decimal below 10, integer above
+fmt_gib() {
+    [[ "$1" =~ ^[0-9]+$ ]] || { printf '0 GiB'; return; }
+    awk -v k="$1" 'BEGIN{g=k/1048576; if(g<10) printf "%.1f GiB", g; else printf "%d GiB", g+0.5}'
+}
+
 wfv_mem() {
-    local total avail used pct t
+    local total avail pct
     total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
     avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)
     [[ -n "$total" && -n "$avail" ]] || { wf_push mem "$(t wf_mem)" "-"; return; }
-    used=$(( (total - avail) / 1024 / 1024 ))
-    t=$(( total / 1024 / 1024 ))
     pct=$(( (total - avail) * 100 / total ))
-    wf_push mem "$(t wf_mem)" "$used GiB / $t GiB ($pct%)"
+    wf_push mem "$(t wf_mem)" "$(fmt_gib "$(( total - avail ))") / $(fmt_gib "$total") ($pct%)"
 }
 
 wfv_swap() {
-    local total free used pct t
+    local total free used pct
     total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo 2>/dev/null)
     [[ -n "$total" && "$total" -gt 0 ]] || return 0
     free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo 2>/dev/null)
-    used=$(( (total - free) / 1024 / 1024 ))
-    t=$(( total / 1024 / 1024 ))
     pct=$(( (total - free) * 100 / total ))
-    wf_push swap "$(t wf_swap)" "$used GiB / $t GiB ($pct%)"
+    wf_push swap "$(t wf_swap)" "$(fmt_gib "$(( total - free ))") / $(fmt_gib "$total") ($pct%)"
 }
 
 wfv_disk() {
@@ -751,6 +753,7 @@ wf_json_out() {
     local first=1 i n=${#WF_LABELS[@]} j s sfirst
     for (( i=0; i<n; i++ )); do
         [[ -n "${WF_LABELS[i]}" ]] || continue
+        local _sec="${WF_SECS[i]}" _lbl="${WF_LABELS[i]}" _val="${WF_VALUES[i]}"
         local subs=""
         for (( j=i+1; j<n; j++ )); do
             [[ -z "${WF_LABELS[j]}" ]] || break
@@ -759,7 +762,7 @@ wf_json_out() {
         i=$(( j - 1 ))
         (( first )) && first=0 || printf ',\n'
         printf '    { "section": "%s", "label": "%s", "value": "%s", "subs": [' \
-            "$(json_esc "${WF_SECS[i]}")" "$(json_esc "${WF_LABELS[i]}")" "$(json_esc "${WF_VALUES[i]}")"
+            "$(json_esc "$_sec")" "$(json_esc "$_lbl")" "$(json_esc "$_val")"
         sfirst=1
         while IFS= read -r s; do
             [[ -n "$s" ]] || continue

@@ -7,7 +7,7 @@ _wellup() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --check --list --self-update --self --json --debug --"
+    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --check --list --yes -y --self-update --self --json --debug --"
 
     case "$prev" in
         --lang|-l)

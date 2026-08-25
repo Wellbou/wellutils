@@ -148,10 +148,24 @@ print_cpu_info() {
 
     local caches=""
     local c_l1d c_l1i c_l2 c_l3
+    cache_fmt() {
+        local size="${1%%(*}" n
+        if [[ "$1" != *'('* ]]; then printf '%s' "$1"; return; fi
+        n=$(printf '%s' "${1#*(}" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')
+        if [[ -n "$n" ]]; then
+            printf '%s (%d %s)' "${size% }" "$n" "$(t_plural "$n" instance)"
+        else
+            printf '%s' "${size% }"
+        fi
+    }
     c_l1d=$(awk -F': *' '/^L1d cache/{print $2}' <<< "$lscpu_out" | head -1)
     c_l1i=$(awk -F': *' '/^L1i cache/{print $2}' <<< "$lscpu_out" | head -1)
     c_l2=$(awk -F': *' '/^L2 cache/{print $2}' <<< "$lscpu_out" | head -1)
     c_l3=$(awk -F': *' '/^L3 cache/{print $2}' <<< "$lscpu_out" | head -1)
+    [[ -n "$c_l1d" ]] && c_l1d=$(cache_fmt "$c_l1d")
+    [[ -n "$c_l1i" ]] && c_l1i=$(cache_fmt "$c_l1i")
+    [[ -n "$c_l2" ]] && c_l2=$(cache_fmt "$c_l2")
+    [[ -n "$c_l3" ]] && c_l3=$(cache_fmt "$c_l3")
     if [[ -n "$c_l1d" || -n "$c_l1i" || -n "$c_l2" || -n "$c_l3" ]]; then
         caches="L1d: ${c_l1d:-?}"
         [[ -n "$c_l1i" ]] && caches="$caches  L1i: ${c_l1i}"

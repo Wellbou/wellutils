@@ -192,11 +192,16 @@ Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `whw`, `wper`, `wfetch`, `wup`. The launcher accepts them too:
 `wellutils wram --plain`.
 
-`wellup` can also update the suite itself from GitHub:
+`wellup` asks for confirmation before applying updates; pass `--yes`
+to skip the prompt (for scripts and cron). It can also update the
+suite itself from GitHub:
 
 ```sh
-wellup --self-update        # check and update wellutils
-wellup --self-update --check  # only report the version difference
+wellup --check               # only list available updates
+wellup                       # list, then ask before applying
+wellup --yes                 # apply without confirmation
+wellup --self-update         # check and update wellutils
+wellup --self-update --check # only report the version difference
 ```
 
 Note: `wellutils sensors` works as an alias for `wellsensors`. Other

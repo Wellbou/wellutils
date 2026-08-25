@@ -278,14 +278,18 @@ detail_info() {
     size_bytes=$(( size_bytes * 512 ))
     size_human=$(fmt_size "$size_bytes")
 
-    local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
+    local rotational
+    rotational=$(cat "$dev/queue/rotational" 2>/dev/null || true)
+    [[ -z "$rotational" ]] && rotational=$(lsblk -ndo ROTA "/dev/$bn" 2>/dev/null | xargs) || true
     local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
     if [[ "$removable" == "1" ]]; then
         type_label="$(t blk_removable)"; type_color="$M"
     elif [[ "$rotational" == "0" ]]; then
         type_label="$(t blk_ssd)"; type_color="$G"
-    else
+    elif [[ "$rotational" == "1" ]]; then
         type_label="$(t blk_hdd)"; type_color="$Y"
+    else
+        type_label="$(t blk_unknown)"; type_color="$DIM"
     fi
 
     serial=""
@@ -381,14 +385,15 @@ json_out() {
         if [[ -e "$target_dev/device/serial" ]]; then
             serial=$(cat "$target_dev/device/serial" 2>/dev/null | xargs) || serial=""
         fi
-        rotational=$(cat "$target_dev/queue/rotational" 2>/dev/null || echo "1")
+        rotational=$(cat "$target_dev/queue/rotational" 2>/dev/null || true)
+        [[ -z "$rotational" ]] && rotational=$(lsblk -ndo ROTA "/dev/$bn" 2>/dev/null | xargs) || true
         removable=$(cat "$target_dev/removable" 2>/dev/null || echo "0")
 
         dtype="unknown"
         if [[ "$removable" == "1" ]]; then dtype="usb"
         elif [[ "$bn" == nvme* ]]; then dtype="nvme"
         elif [[ "$rotational" == "1" ]]; then dtype="hdd"
-        else dtype="ssd"; fi
+        elif [[ "$rotational" == "0" ]]; then dtype="ssd"; fi
 
         local smart_avail=0 smart_health=""
         local _s_seagate=0 smart_attrs_json="" _s_afirst=1
@@ -547,6 +552,7 @@ json_out() {
         [[ -d "$vdev" ]] || continue
         vbn=$(basename "$vdev")
         vsize_bytes=$(cat "$vdev/size" 2>/dev/null || echo "0")
+        [[ "$vbn" == loop* && "$vsize_bytes" == 0 ]] && continue
         vsize_bytes=$(( vsize_bytes * 512 ))
         (( first )) && first=0 || printf ',\n'
         printf '    { "name": "%s", "size_bytes": %d, "kind": "%s" }' \
@@ -707,6 +713,12 @@ main() {
     local has_special=0
     for dev in /sys/block/zram* /sys/block/loop*; do
         [[ -d "$dev" ]] || continue
+        local _bn _sz
+        _bn=$(basename "$dev")
+        if [[ "$_bn" == loop* ]]; then
+            _sz=$(cat "$dev/size" 2>/dev/null || echo "0")
+            [[ "$_sz" == 0 ]] && continue
+        fi
         has_special=1
         break
     done
@@ -721,6 +733,7 @@ main() {
             bn=$(basename "$dev")
 
             local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
+            [[ "$bn" == loop* && "$size_bytes" == 0 ]] && continue
             size_bytes=$(( size_bytes * 512 ))
             local size_human
             size_human=$(fmt_size "$size_bytes")
