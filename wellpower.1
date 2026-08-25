@@ -1,0 +1,19 @@
+.TH WELLPOWER 1 "2026" "wellutils 1.4.0" "User Commands"
+.SH NAME
+wellpower \- battery health and power management overview
+.SH SYNOPSIS
+.B wellpower
+.RI [ options ]
+.SH DESCRIPTION
+Battery charge and wear (full-charge vs design capacity), cycle count,
+AC adapter state, current draw in watts, charge thresholds and the active
+power profile (power-profiles-daemon, platform_profile or TLP).
+On machines without a battery every section degrades gracefully.
+.SH OPTIONS
+See wellutils(1) for the shared option set. \fB\-\-short\fR prints a single
+line such as \fI85%+ (wear 7%)\fR suitable for status bars.
+.SH EXIT STATUS
+0 success, 2 bad CLI usage, 3 runtime error.
+.SH SEE ALSO
+.BR tlp (8),
+.BR wellutils (1)

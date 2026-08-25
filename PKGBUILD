@@ -3,7 +3,7 @@
 
 pkgname=wellutils
 pkgver=1.4.0
-pkgrel=38
+pkgrel=39
 pkgdesc="Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)"
 url="https://github.com/Wellbou/wellutils"
 arch=('any')
@@ -17,6 +17,8 @@ optdepends=(
     'dmidecode: detailed memory info (wellhw)'
     'i2c-tools: decode-dimms SPD fallback for RAM detail (wellhw)'
     'util-linux: lscpu topology info (wellcpu)'
+    'iproute2: interfaces, routes and listening ports (wellnet)'
+    'iw: Wi-Fi SSID and signal info (wellnet)'
 )
 source=(
     'wellper'
@@ -136,6 +138,9 @@ package() {
         wellmod \
         wellfetch \
         wellup \
+        wellnet \
+        wellpower \
+        welldoctor \
         wellutils \
         "${pkgdir}/usr/bin/"
     ln -s wellusb      "${pkgdir}/usr/bin/wusb"
@@ -153,11 +158,17 @@ package() {
     ln -s wellper      "${pkgdir}/usr/bin/wper"
     ln -s wellfetch    "${pkgdir}/usr/bin/wfetch"
     ln -s wellup       "${pkgdir}/usr/bin/wup"
+    ln -s wellnet      "${pkgdir}/usr/bin/wnet"
+    ln -s wellpower    "${pkgdir}/usr/bin/wpower"
+    ln -s wellpower    "${pkgdir}/usr/bin/wbatt"
+    ln -s welldoctor   "${pkgdir}/usr/bin/wdoc"
+    ln -s welldoctor   "${pkgdir}/usr/bin/wdoctor"
     install -m644 \
         lang.sh \
         box.sh \
         cli.sh \
         jedec.sh \
+        distro_art.sh \
         wfetch_art.py \
         logo.png \
         VERSION \
@@ -176,6 +187,9 @@ package() {
         wellmod.1 \
         wellsensors.1 \
         wellup.1 \
+        wellnet.1 \
+        wellpower.1 \
+        welldoctor.1 \
         "${pkgdir}/usr/share/man/man1/"
     install -m644 \
         wellper.bash \
@@ -216,6 +230,13 @@ package() {
     install -m644 \
         wellup.bash \
         "${pkgdir}/usr/share/bash-completion/completions/wellup"
+    install -m644 \
+        wellnet.bash wellpower.bash welldoctor.bash \
+        "${pkgdir}/usr/share/bash-completion/completions/"
+    install -d "${pkgdir}/usr/share/zsh/site-functions" \
+               "${pkgdir}/usr/share/fish/vendor_completions.d"
+    install -m644 completions/zsh/_* "${pkgdir}/usr/share/zsh/site-functions/"
+    install -m644 completions/fish/* "${pkgdir}/usr/share/fish/vendor_completions.d/"
     install -m644 \
         LICENSE \
         "${pkgdir}/usr/share/licenses/wellutils/LICENSE"

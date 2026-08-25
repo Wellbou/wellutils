@@ -1,7 +1,7 @@
 pkgbase = wellutils
 	pkgdesc = Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup)
 	pkgver = 1.4.0
-	pkgrel = 38
+	pkgrel = 39
 	url = https://github.com/Wellbou/wellutils
 	arch = any
 	license = MIT
@@ -17,6 +17,8 @@ pkgbase = wellutils
 	optdepends = dmidecode: detailed memory info (wellhw)
 	optdepends = i2c-tools: decode-dimms SPD fallback for RAM detail (wellhw)
 	optdepends = util-linux: lscpu topology info (wellcpu)
+	optdepends = iproute2: interfaces, routes and listening ports (wellnet)
+	optdepends = iw: Wi-Fi SSID and signal info (wellnet)
 	source = wellper
 	source = wellhw
 	source = wellmem

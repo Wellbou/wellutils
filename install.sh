@@ -31,10 +31,10 @@ DRY=0
 UNINSTALL=0
 SUDO=""
 
-TOOLS="wellper wellmem wellhw wellusb wellpci wellblock wellcpu wellgpu wellmod wellsensors wellfetch wellup wellutils"
-LIBS="lang.sh box.sh cli.sh jedec.sh wfetch_art.py logo.png VERSION"
-MANPAGES="wellper.1 wellutils.1 wellfetch.1 wellhw.1 wellmem.1 wellusb.1 wellblock.1 wellpci.1 wellcpu.1 wellgpu.1 wellmod.1 wellsensors.1 wellup.1"
-ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch wellup=wup"
+TOOLS="wellper wellmem wellhw wellusb wellpci wellblock wellcpu wellgpu wellmod wellsensors wellfetch wellup wellnet wellpower welldoctor wellutils"
+LIBS="lang.sh box.sh cli.sh jedec.sh distro_art.sh wfetch_art.py logo.png VERSION"
+MANPAGES="wellper.1 wellutils.1 wellfetch.1 wellhw.1 wellmem.1 wellusb.1 wellblock.1 wellpci.1 wellcpu.1 wellgpu.1 wellmod.1 wellsensors.1 wellup.1 wellnet.1 wellpower.1 welldoctor.1"
+ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch wellup=wup wellnet=wnet wellpower=wpower wellpower=wbatt welldoctor=wdoc welldoctor=wdoctor"
 
 usage() {
     cat <<EOF
@@ -355,6 +355,21 @@ do_install() {
         run install -m644 "$f" "$compdir/$(basename "${f%.bash}")" \
             || echo "    warning: could not write $compdir (completions optional)" >&2
     done
+    # zsh + fish completions (best effort)
+    if [[ -d /usr/share/zsh/site-functions && -d "$src/completions/zsh" ]]; then
+        for f in "$src"/completions/zsh/_*; do
+            [[ -f "$f" ]] || continue
+            run install -m644 "$f" "/usr/share/zsh/site-functions/$(basename "$f")" || true
+        done
+        echo "  zsh completions installed to /usr/share/zsh/site-functions"
+    fi
+    if [[ -d /usr/share/fish/vendor_completions.d && -d "$src/completions/fish" ]]; then
+        for f in "$src"/completions/fish/*.fish; do
+            [[ -f "$f" ]] || continue
+            run install -m644 "$f" "/usr/share/fish/vendor_completions.d/$(basename "$f")" || true
+        done
+        echo "  fish completions installed to /usr/share/fish/vendor_completions.d"
+    fi
 
     # manifest for --uninstall
     run install -m644 /dev/null "$MANIFEST" || echo "    warning: could not write $MANIFEST" >&2

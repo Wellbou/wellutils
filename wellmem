@@ -244,8 +244,17 @@ json_out() {
 }
 
 # ─── Main ────────────────────────────────────────────────────────
+short_out() {
+    local total avail
+    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null) || total=""
+    avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null) || avail=""
+    [[ "$total" =~ ^[0-9]+$ && "$avail" =~ ^[0-9]+$ ]] || { printf -- '-\n'; return 0; }
+    awk -v u="$(( total - avail ))" -v t="$total" 'BEGIN{printf "%.1f/%.1fGiB\n", u/1048576, t/1048576}'
+}
+
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
     box_header "$(_emu '🧠')" "wellmem" "$(t mem_title)"
     box "$(_emu '🧩')" "$(t mem_ram)" print_all

@@ -7,7 +7,7 @@ _wellcpu() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --json --debug --"
+    local opts="--help -h --version -V --lang --lang= --color --color= --json --short --html --plain --box --no-emoji --emoji --debug --"
 
     case "$prev" in
         --lang|-l)
@@ -31,4 +31,3 @@ _wellcpu() {
 }
 
 complete -F _wellcpu wellcpu
-complete -F _wellcpu wcpu

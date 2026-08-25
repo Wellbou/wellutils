@@ -1,0 +1,26 @@
+#compdef wellper
+# zsh completion for wellper
+# Part of wellutils by wellbou_
+
+_wellper() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --groups[] \
+        --sections[] \
+        --terse[] \
+        --strict[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellper "$@"

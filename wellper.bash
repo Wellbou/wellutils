@@ -7,7 +7,7 @@ _wellper() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --groups --sections --strict --terse --json --debug --"
+    local opts="--help -h --version -V --lang --lang= --color --color= --groups --sections --terse --strict --json --short --html --plain --box --no-emoji --emoji --debug --"
 
     case "$prev" in
         --lang|-l)
@@ -16,14 +16,6 @@ _wellper() {
             ;;
         --color)
             COMPREPLY=( $(compgen -W "always never auto" -- "$cur") )
-            return 0
-            ;;
-        --groups)
-            COMPREPLY=( $(compgen -W "in media other all" -- "$cur") )
-            return 0
-            ;;
-        --sections)
-            COMPREPLY=( $(compgen -W "usb displays audio" -- "$cur") )
             return 0
             ;;
     esac

@@ -1,0 +1,25 @@
+#compdef wellsensors
+# zsh completion for wellsensors
+# Part of wellutils by wellbou_
+
+_wellsensors() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --watch[] \
+        --interval[] \
+        --sections[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellsensors "$@"

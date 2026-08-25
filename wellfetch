@@ -27,6 +27,7 @@ else
 fi
 
 _WF_LOGO=1
+_WF_PNG=0
 _WF_LWIDTH=0
 _WF_ALL=0
 
@@ -35,6 +36,7 @@ wf_extra_parse() {
     case "$1" in
         --no-logo|--text) _WF_LOGO=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --logo)           _WF_LOGO=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --png)            _WF_PNG=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --all)            _WF_ALL=1; WF_SECTIONS="$WF_ALL_SECTIONS"; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --full)           _WF_ALL=1; WF_SECTIONS="$WF_ALL_SECTIONS"; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --logo-width)
@@ -52,6 +54,7 @@ wf_extra_parse() {
 
 _WU_EXTRA_HELP="      --no-logo, --text     text only, no logo
       --logo                show logo (default on tty)
+      --png                 force the PNG-rendered logo instead of distro art
       --all, --full         show all sections (audio, resolution, peripherals…)
       --logo-width N        logo width in cells"
 
@@ -638,6 +641,16 @@ wf_logo_lines() {
     local art="$1" lw="$2"
     WF_LOGO_LINES=""
     WF_LOGO_ROWS=0
+    # Distro ASCII art first (unless --png forced).
+    if [[ "$_WF_PNG" != "1" && -f "$_WU_BOOT_DIR/distro_art.sh" ]]; then
+        local dart=""
+        dart=$(source "$_WU_BOOT_DIR/distro_art.sh"; wf_distro_art) || dart=""
+        if [[ -n "$dart" ]]; then
+            WF_LOGO_LINES="$dart"
+            WF_LOGO_ROWS=$(printf '%s\n' "$dart" | wc -l)
+            return 0
+        fi
+    fi
     if [[ -f "$art" ]] && command -v python3 >/dev/null 2>&1 && [[ -f "$WF_LOGO" ]]; then
         local cache_dir="${WF_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/wellutils}"
         local key="$(md5sum "$WF_LOGO" "$art" 2>/dev/null | md5sum | cut -d' ' -f1)"
@@ -790,8 +803,10 @@ main() {
 
     # resolve logo + art paths
     local art=""
+    WF_LOGO="${WF_LOGO:-}"
     if [[ -n "${_WU_LIBDIR:-}" ]]; then
-        WF_LOGO="${WF_LOGO:-$_WU_LIBDIR/logo.png}"
+        WF_LOGO="${WF_LOGO:--$_WU_LIBDIR/logo.png}"
+        [[ "$WF_LOGO" == "-"* ]] && WF_LOGO="${WF_LOGO#-}"
         [[ -f "$_WU_LIBDIR/wfetch_art.py" ]] && art="$_WU_LIBDIR/wfetch_art.py"
     fi
     [[ -n "$WF_LOGO" ]] || WF_LOGO="/usr/local/share/wellutils/logo.png"

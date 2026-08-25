@@ -15,6 +15,7 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 _UP_CHECK=0
 _UP_SELF=0
 _UP_YES=0
+_UP_PACNEW=0
 
 up_extra_parse() {
     case "$1" in
@@ -30,12 +31,17 @@ up_extra_parse() {
             _UP_YES=1
             _WU_EXTRA_CONSUMED=1
             return 0 ;;
+        --pacnew)
+            _UP_PACNEW=1
+            _WU_EXTRA_CONSUMED=1
+            return 0 ;;
     esac
     return 1
 }
 _WU_EXTRA_PARSE=up_extra_parse
 _WU_EXTRA_HELP="      --check, --list         only list available updates, do not install
       --yes, -y               apply updates without confirmation
+      --pacnew                list leftover .pacnew/.pacsave files in /etc
       --self-update           update wellutils itself from GitHub
       --self                  alias of --self-update"
 
@@ -467,7 +473,33 @@ self_main() {
     fi
 }
 
+pacnew_list() {
+    local f n=0
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        n=$(( n + 1 ))
+        pline_sub "$(_emu '📄') ${BOLD}${f%.pacnew}${RESET} ${DIM}(${f##*.})${RESET}"
+    done < <(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null | sort || true)
+    if (( n == 0 )); then
+        pline "$(_emu '✔') ${G}$(t pacnew_none)${RESET}"
+    else
+        pline ""
+        pline_sub "$(_emu '🧹') $(t pacnew_count): ${BOLD}${n}${RESET} · $(t pacnew_hint) ${DIM}sudo pacdiff${RESET}"
+    fi
+}
+
+pacnew_main() {
+    box_header "$(_emu '📦')" "wellup" "$(t pacnew_title)"
+    box "$(_emu '📦')" "$(t pacnew_title)" pacnew_list
+    printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
 main() {
+    if [[ "$_UP_PACNEW" == "1" ]]; then
+        pacnew_main
+        return $?
+    fi
+
     if [[ "$_UP_SELF" == "1" ]]; then
         self_main
         return $?

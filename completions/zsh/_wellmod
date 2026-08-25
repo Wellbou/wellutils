@@ -1,0 +1,24 @@
+#compdef wellmod
+# zsh completion for wellmod
+# Part of wellutils by wellbou_
+
+_wellmod() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --deps[] \
+        --filter[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellmod "$@"

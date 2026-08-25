@@ -1,0 +1,28 @@
+#compdef wellup
+# zsh completion for wellup
+# Part of wellutils by wellbou_
+
+_wellup() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --check[] \
+        --list[] \
+        --yes[] \
+        --pacnew[] \
+        --self-update[] \
+        --self[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellup "$@"

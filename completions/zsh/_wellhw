@@ -1,0 +1,24 @@
+#compdef wellhw
+# zsh completion for wellhw
+# Part of wellutils by wellbou_
+
+_wellhw() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --snapshot[] \
+        --diff[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellhw "$@"

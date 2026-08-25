@@ -8,6 +8,117 @@ _WU_TOOLNAME="wellhw" _WU_NAME="WellHW" _WU_VERSION="1.3"
 _WU_TAGLINE="Beautiful hardware report (chat-ready)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
+
+# ─── Snapshot / diff ─────────────────────────────────────────────
+_HW_SNAPSHOT=0 _HW_DIFF=0 _HW_SNAP_FILE=""
+_HW_DEFAULT_SNAP="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/wellutils/hardware-snapshot.json"
+
+hw_extra_parse() {
+    case "$1" in
+        --snapshot)
+            _HW_SNAPSHOT=1
+            if [[ $# -ge 2 && "$2" != -* ]]; then _HW_SNAP_FILE="$2"; _WU_EXTRA_CONSUMED=2
+            else _HW_SNAP_FILE="$_HW_DEFAULT_SNAP"; _WU_EXTRA_CONSUMED=1; fi
+            return 0 ;;
+        --diff)
+            _HW_DIFF=1
+            if [[ $# -ge 2 && "$2" != -* ]]; then _HW_SNAP_FILE="$2"; _WU_EXTRA_CONSUMED=2
+            else _HW_SNAP_FILE="$_HW_DEFAULT_SNAP"; _WU_EXTRA_CONSUMED=1; fi
+            return 0 ;;
+    esac
+    return 1
+}
+_WU_EXTRA_PARSE=hw_extra_parse
+_WU_EXTRA_HELP="      --snapshot [FILE]       save stable hardware identity to FILE
+      --diff [FILE]           compare current hardware against a snapshot
+                                (FILE defaults to $_HW_DEFAULT_SNAP)"
+
+# Stable-identity projection of --json (volatile fields dropped).
+_hw_filter_py() {
+    python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+out={}
+if "cpu" in d: out["cpu"]={k:d["cpu"].get(k) for k in ("model","cores","threads")}
+if "gpu" in d and isinstance(d["gpu"],dict): out["gpu"]={"name":d["gpu"].get("name")}
+b=d.get("board",{})
+nb={}
+for k in ("vendor","name","version"):
+    if isinstance(b,dict) and b.get(k): nb[k]=b[k]
+bi=b.get("bios") if isinstance(b,dict) else None
+if isinstance(bi,dict):
+    nb["bios"]={k:bi.get(k) for k in ("vendor","version","date")}
+if nb: out["board"]=nb
+m=d.get("memory",{})
+if isinstance(m,dict):
+    out["memory"]={"modules":m.get("modules"),"size_mb":m.get("size_mb"),
+        "slots":[{"locator":s.get("locator"),"size":s.get("size"),"type":s.get("type"),
+                  "speed_mts":s.get("speed_mts")} for s in m.get("slots",[])]}
+st=d.get("storage",[])
+out["storage"]=sorted([{"name":x.get("name"),"model":x.get("model"),"size":x.get("size")} for x in st],
+                      key=lambda x:str(x.get("name")))
+nt=d.get("network",[])
+out["network"]=sorted([{"name":x.get("name"),"mac":x.get("mac")} for x in nt],
+                      key=lambda x:str(x.get("name")))
+print(json.dumps(out,ensure_ascii=False,sort_keys=True))
+'
+}
+
+_hw_diff_py() {
+    WELLUTILS_LANG="${WELLUTILS_LANG:-EN}" python3 -c '
+import json,sys,os
+ru=os.environ.get("WELLUTILS_LANG")=="RU"
+def L(ru_s,en_s): return ru_s if ru else en_s
+lines=[l for l in sys.stdin.read().splitlines() if l.strip()]
+if len(lines)<2: sys.exit(1)
+old,new=json.loads(lines[0]),json.loads(lines[1])
+def flat(o,p=""):
+    r={}
+    if isinstance(o,dict):
+        for k,v in o.items(): r.update(flat(v,f"{p}.{k}" if p else k))
+    elif isinstance(o,list):
+        for i,v in enumerate(o): r.update(flat(v,f"{p}[{i}]"))
+    else: r[p]=o
+    return r
+fo,fn_=flat(old),flat(new)
+changes=[]
+for k in sorted(set(fo)|set(fn_)):
+    a,b=fo.get(k,"\u2205"),fn_.get(k,"\u2205")
+    if a!=b:
+        changes.append(L("~ ","~ ")+f"{k}: {a} -> {b}")
+if not changes:
+    print(L("Нет изменений железа.","No hardware changes."))
+else:
+    print(L(f"Изменений: {len(changes)}",f"Changes: {len(changes)}"))
+    for c in changes: print(" "+c)
+' 
+}
+
+do_snapshot() {
+    local f="$_HW_SNAP_FILE"
+    local dir; dir=$(dirname "$f")
+    mkdir -p "$dir" 2>/dev/null || true
+    json_out | _hw_filter_py > "$f" || { printf 'wellhw: snapshot failed\n' >&2; return 3; }
+    printf '%s %s\n' "$(t hw_snap_saved):" "$f"
+}
+
+do_diff() {
+    local f="$_HW_SNAP_FILE" tmp_old tmp_new rc=0 changed=1
+    [[ -r "$f" ]] || { printf 'wellhw: %s %s\n' "$(t hw_snap_missing):" "$f" >&2; return 3; }
+    tmp_old=$(mktemp) tmp_new=$(mktemp)
+    cp "$f" "$tmp_old"
+    if ! json_out | _hw_filter_py > "$tmp_new"; then
+        rm -f "$tmp_old" "$tmp_new"; return 3
+    fi
+    if ! { cat "$tmp_old"; echo; cat "$tmp_new"; } | _hw_diff_py; then
+        rc=3
+    fi
+    diff -q "$tmp_old" "$tmp_new" >/dev/null 2>&1 && changed=0
+    rm -f "$tmp_old" "$tmp_new"
+    (( rc )) && return "$rc"
+    return "$changed"
+}
+
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
 command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
@@ -436,7 +547,7 @@ json_out() {
                 else
                     j_size[$i]="${mb} MiB"
                 fi
-                [[ -z "${j_locator[$i]}" ]] && j_locator[$i]="DIMM $(( i + 1 ))"
+                [[ -z "${j_locator[$i]:-}" ]] && j_locator[$i]="DIMM $(( i + 1 ))"
             done
         fi
     fi
@@ -449,9 +560,9 @@ json_out() {
 
     # Resolve JEDEC codes
     for (( i=0; i<modules; i++ )); do
-        if [[ "${j_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
+        if [[ "${j_manuf[$i]:-}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
             local mdec
-            mdec=$(wu_jedec_decode "${j_manuf[$i]}") || mdec=""
+            mdec=$(wu_jedec_decode "${j_manuf[$i]:-}") || mdec=""
             [[ -n "$mdec" ]] && j_manuf[$i]="$mdec"
         fi
     done
@@ -551,6 +662,9 @@ json_out() {
 # ─── Main ────────────────────────────────────────────────────────
 _WU_DMIDECODE=""
 main() {
+    if (( _HW_SNAPSHOT )); then do_snapshot; return $?; fi
+    if (( _HW_DIFF )); then do_diff; return $?; fi
+
     # Cache dmidecode once (used by both print_ram and json_out)
     _WU_DMIDECODE=$(root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi

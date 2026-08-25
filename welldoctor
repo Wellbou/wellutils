@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# welldoctor v1 -- System health aggregator.
+# Runs read-only checks (SMART, temperatures, failed units, disk space,
+# pacnew leftovers, orphan packages) and exits:
+#   0 = healthy, 1 = warnings, 2 = critical findings, 3 = runtime error.
+# Part of wellutils by wellbou_
+set -euo pipefail
+
+_WU_TOOLNAME="welldoctor" _WU_NAME="WellDoctor" _WU_VERSION="1.0"
+_WU_TAGLINE="system health check"
+_WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box
+
+_WD_WARN=0 _WD_CRIT=0
+
+wd_warn() { _WD_WARN=$(( _WD_WARN + 1 )); printf '  %s⚠%s %s\n' "$Y" "$RESET" "$*"; }
+wd_crit() { _WD_CRIT=$(( _WD_CRIT + 1 )); printf '  %s✘%s %s\n' "$R" "$RESET" "$*"; }
+wd_ok()   { printf '  %s✔%s %s\n' "$G" "$RESET" "$*"; }
+wd_info() { printf '  %s·%s %s\n' "$DIM" "$RESET" "$*"; }
+
+# ─── Checks ─────────────────────────────────────────────────────
+chk_smart() {
+    local dev out
+    local bad=0 checked=0
+    for dev in /sys/block/*; do
+        local bn
+        bn=$(basename "$dev")
+        case "$bn" in loop*|ram*|sr*|zram*) continue ;; esac
+        command -v smartctl &>/dev/null || break
+        out=$(sudo -n smartctl -H "/dev/$bn" 2>/dev/null || true)
+        [[ -z "$out" ]] && continue
+        checked=$(( checked + 1 ))
+        if grep -qiE 'FAILED|Result: (Failed|Unknown)' <<< "$out"; then
+            wd_crit "$(t doc_smart_fail): /dev/$bn"
+            bad=$(( bad + 1 ))
+        fi
+    done
+    if (( checked > 0 && bad == 0 )); then
+        wd_ok "$(t doc_smart_ok): $checked"
+    elif (( checked == 0 )); then
+        wd_info "$(t doc_smart_na)"
+    fi
+}
+
+chk_temp() {
+    local maxt=0 d f t name
+    for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
+        name=$(cat "$d" 2>/dev/null || true)
+        case "$name" in
+            coretemp|k10temp|zenpower|cpu_thermal)
+                local hd
+                hd=$(dirname "$d")
+                for f in "$hd/temp"*_input; do
+                    [[ -f "$f" ]] || continue
+                    t=$(cat "$f" 2>/dev/null || true)
+                    [[ "$t" =~ ^[0-9]+$ ]] || continue
+                    t=$(( t / 1000 ))
+                    (( t > maxt )) && maxt=$t
+                done ;;
+        esac
+    done
+    if (( maxt == 0 )); then
+        wd_info "$(t doc_temp_na)"
+    elif (( maxt >= 85 )); then
+        wd_crit "$(t doc_temp_hot): ${maxt}°C"
+    elif (( maxt >= 70 )); then
+        wd_warn "$(t doc_temp_warm): ${maxt}°C"
+    else
+        wd_ok "$(t doc_temp_ok): ${maxt}°C"
+    fi
+}
+
+chk_units() {
+    command -v systemctl &>/dev/null || { wd_info "$(t doc_units_na)"; return; }
+    local failed
+    failed=$(systemctl list-units --failed --no-legend --plain 2>/dev/null | wc -l || echo 0)
+    failed=$(printf '%s' "$failed" | tr -d '[:space:]')
+    [[ "$failed" =~ ^[0-9]+$ ]] || failed=0
+    if (( failed == 0 )); then
+        wd_ok "$(t doc_units_ok)"
+    else
+        local u
+        while IFS= read -r u; do
+            [[ -z "$u" ]] && continue
+            wd_warn "$(t doc_units_failed): $(awk '{print $1}' <<< "$u")"
+        done < <(systemctl list-units --failed --no-legend --plain 2>/dev/null || true)
+    fi
+}
+
+chk_disk() {
+    local pct use avail
+    use=$(df -P / 2>/dev/null | awk 'NR==2{print $5}') || use=""
+    [[ "$use" == *%* ]] || { wd_info "$(t doc_disk_na)"; return; }
+    pct="${use%\%}"
+    if (( pct >= 90 )); then
+        wd_crit "$(t doc_disk_full): / ${pct}%"
+    elif (( pct >= 80 )); then
+        wd_warn "$(t doc_disk_high): / ${pct}%"
+    else
+        wd_ok "$(t doc_disk_ok): / ${pct}%"
+    fi
+}
+
+chk_pacnew() {
+    local n=0 f
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        n=$(( n + 1 ))
+        (( n <= 5 )) && wd_info "$(t doc_pacnew): $f"
+    done < <(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null || true)
+    if (( n > 5 )); then
+        wd_info "$(t doc_pacnew_more): +$(( n - 5 ))"
+    fi
+    if (( n > 0 )); then
+        wd_warn "$(t doc_pacnew_count): $n ($(t doc_pacnew_hint))"
+    else
+        wd_ok "$(t doc_pacnew_ok)"
+    fi
+}
+
+chk_orphans() {
+    command -v pacman &>/dev/null || { wd_info "$(t doc_orphan_na)"; return; }
+    local n=0
+    n=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0)
+    n=$(printf '%s' "$n" | tr -d '[:space:]')
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    if (( n > 0 )); then
+        wd_warn "$(t doc_orphan_count): $n"
+    else
+        wd_ok "$(t doc_orphan_ok)"
+    fi
+}
+
+# ─── Output ─────────────────────────────────────────────────────
+print_report() {
+    printf '\n'
+    chk_smart
+    chk_temp
+    chk_disk
+    chk_units
+    chk_pacnew
+    chk_orphans
+    printf '\n'
+}
+
+summary_line() {
+    local total=$(( _WD_WARN + _WD_CRIT ))
+    if (( _WD_CRIT > 0 )); then
+        printf '  %s%s%s: %s%s%d%s %s, %s%d%s %s\n' \
+            "$BOLD" "welldoctor" "$RESET" "$R" "" "$_WD_CRIT" "$RESET" "$(t doc_crit)" \
+            "$Y" "$_WD_WARN" "$RESET" "$(t doc_warn)"
+    elif (( _WD_WARN > 0 )); then
+        printf '  %s%s: %s%d%s %s\n' "$BOLD" "welldoctor" "$Y" "$_WD_WARN" "$RESET" "$(t doc_warn)"
+    else
+        printf '  %s%s: %s✔ %s%s\n' "$BOLD" "welldoctor" "$G" "$(t doc_all_ok)" "$RESET"
+    fi
+}
+
+json_out() {
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
+    # Re-run checks silently to collect counters is overkill; report totals
+    # from a quiet pass instead of parsing colored output.
+    printf ',\n  "checks": [\n'
+    local first=1 key st val
+    while IFS='|' read -r key st val; do
+        [[ -z "$key" ]] && continue
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "check": "%s", "status": "%s", "detail": "%s" }' \
+            "$(json_esc "$key")" "$st" "$(json_esc "${val:-}")"
+    done < <(wd_checks_machine)
+    printf '\n  ],\n'
+    printf '  "summary": { "warnings": %d, "critical": %d }\n' "$_WD_WARN" "$_WD_CRIT"
+    wu_json_end
+}
+
+# Machine-readable pass: emits key|status|detail lines and updates counters.
+wd_checks_machine() {
+    local dev bn out checked=0 bad=0
+    for dev in /sys/block/*; do
+        bn=$(basename "$dev")
+        case "$bn" in loop*|ram*|sr*|zram*) continue ;; esac
+        command -v smartctl &>/dev/null || break
+        out=$(sudo -n smartctl -H "/dev/$bn" 2>/dev/null || true)
+        [[ -z "$out" ]] && continue
+        checked=$(( checked + 1 ))
+        if grep -qiE 'FAILED|Result: (Failed|Unknown)' <<< "$out"; then
+            printf 'smart_%s|critical|%s\n' "$bn" "S.M.A.R.T. FAILED"
+            _WD_CRIT=$(( _WD_CRIT + 1 ))
+            bad=$(( bad + 1 ))
+        fi
+    done
+    (( checked > 0 && bad == 0 )) && printf 'smart|ok|%d\n' "$checked"
+
+    local maxt=0 d f t name
+    for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
+        name=$(cat "$d" 2>/dev/null || true)
+        case "$name" in
+            coretemp|k10temp|zenpower|cpu_thermal)
+                local hd; hd=$(dirname "$d")
+                for f in "$hd/temp"*_input; do
+                    [[ -f "$f" ]] || continue
+                    t=$(cat "$f" 2>/dev/null || true)
+                    [[ "$t" =~ ^[0-9]+$ ]] || continue
+                    t=$(( t / 1000 ))
+                    (( t > maxt )) && maxt=$t
+                done ;;
+        esac
+    done
+    if   (( maxt >= 85 )); then printf 'temp|critical|%d°C\n' "$maxt"; _WD_CRIT=$(( _WD_CRIT + 1 ))
+    elif (( maxt >= 70 )); then printf 'temp|warning|%d°C\n' "$maxt";  _WD_WARN=$(( _WD_WARN + 1 ))
+    elif (( maxt > 0 ));   then printf 'temp|ok|%d°C\n' "$maxt"; fi
+
+    local pct use
+    use=$(df -P / 2>/dev/null | awk 'NR==2{print $5}') || use=""
+    if [[ "$use" == *%* ]]; then
+        pct="${use%\%}"
+        if   (( pct >= 90 )); then printf 'disk|critical|/ %d%%\n' "$pct"; _WD_CRIT=$(( _WD_CRIT + 1 ))
+        elif (( pct >= 80 )); then printf 'disk|warning|/ %d%%\n' "$pct";  _WD_WARN=$(( _WD_WARN + 1 ))
+        else                       printf 'disk|ok|/ %d%%\n' "$pct"; fi
+    fi
+
+    if command -v systemctl &>/dev/null; then
+        local failed u
+        failed=$(systemctl list-units --failed --no-legend --plain 2>/dev/null | wc -l || echo 0)
+        failed=$(printf '%s' "$failed" | tr -d '[:space:]')
+        if [[ "$failed" =~ ^[0-9]+$ ]]; then
+            if (( failed == 0 )); then
+                printf 'units|ok|0\n'
+            else
+                while IFS= read -r u; do
+                    [[ -z "$u" ]] && continue
+                    printf 'unit_%s|warning|failed\n' "$(awk '{print $1}' <<< "$u")"
+                    _WD_WARN=$(( _WD_WARN + 1 ))
+                done < <(systemctl list-units --failed --no-legend --plain 2>/dev/null || true)
+            fi
+        fi
+    fi
+
+    if command -v pacman &>/dev/null; then
+        local pn on
+        pn=$(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null | wc -l || echo 0)
+        pn=$(printf '%s' "$pn" | tr -d '[:space:]'); [[ "$pn" =~ ^[0-9]+$ ]] || pn=0
+        if (( pn > 0 )); then printf 'pacnew|warning|%d\n' "$pn"; _WD_WARN=$(( _WD_WARN + 1 ))
+        else printf 'pacnew|ok|0\n'; fi
+        on=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0)
+        on=$(printf '%s' "$on" | tr -d '[:space:]'); [[ "$on" =~ ^[0-9]+$ ]] || on=0
+        if (( on > 0 )); then printf 'orphans|warning|%d\n' "$on"; _WD_WARN=$(( _WD_WARN + 1 ))
+        else printf 'orphans|ok|0\n'; fi
+    fi
+}
+
+main() {
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+
+    box_header "$(_emu '🩺')" "welldoctor" "$(t doc_title)"
+    print_report
+    summary_line
+    printf '\n  %sWellDoctor v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+
+    if (( _WD_CRIT > 0 )); then return 2; fi
+    if (( _WD_WARN > 0 )); then return 1; fi
+    return 0
+}
+
+wu_run main "$@"

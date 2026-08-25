@@ -1,0 +1,35 @@
+.TH WELLDOCTOR 1 "2026" "wellutils 1.4.0" "User Commands"
+.SH NAME
+welldoctor \- system health check
+.SH SYNOPSIS
+.B welldoctor
+.RI [ options ]
+.SH DESCRIPTION
+Runs read-only checks and prints one status line per check plus a summary:
+S.M.A.R.T. health of fixed disks, CPU temperature thresholds, root
+filesystem usage, failed systemd units, leftover .pacnew/.pacsave files and
+orphan packages.
+.PP
+Designed for cron/systemd timers: the exit code reflects the worst finding.
+.SH EXIT STATUS
+.TP
+.B 0
+All checks passed.
+.TP
+.B 1
+Warnings found.
+.TP
+.B 2
+Critical findings (failing S.M.A.R.T., temperature >= 85C, root fs >= 90%).
+.TP
+.B 3
+Runtime error.
+.SH EXAMPLES
+.nf
+welldoctor && echo OK || echo "check your mail"
+welldoctor --json | jq .summary
+.fi
+.SH SEE ALSO
+.BR smartctl (8),
+.BR pacdiff (8),
+.BR wellutils (1)

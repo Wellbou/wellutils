@@ -1,0 +1,36 @@
+.TH WELLNET 1 "2026" "wellutils 1.4.0" "User Commands"
+.SH NAME
+wellnet \- network overview (offline)
+.SH SYNOPSIS
+.B wellnet
+.RI [ options ]
+.SH DESCRIPTION
+Interfaces, addresses, Wi-Fi, routes, listening ports and traffic counters
+in the unified wellutils style.
+.B Strictly offline:
+no sockets are opened and no requests are made; only /sys, /proc and local
+state are read.
+.PP
+The \fBConnection\fR section classifies the primary egress interface
+(routing-table lookup, no packets): Wi-Fi, Ethernet, USB tethering, USB NIC,
+cellular WWAN modem, VPN tunnel (with server endpoint when detectable),
+Bluetooth PAN, WiMAX, IrDA, 802.15.4 (Zigbee/Thread), Token Ring/FDDI,
+dial-up PPP and virtual bridges.
+.SH OPTIONS
+See wellutils(1) for the shared option set (\-\-lang, --color, --plain,
+--box, --json, --html, --short, --no-emoji, --debug).
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+Bad CLI usage.
+.TP
+.B 3
+Runtime error.
+.SH SEE ALSO
+.BR ip (8),
+.BR iw (8),
+.BR ss (8),
+.BR wellutils (1)

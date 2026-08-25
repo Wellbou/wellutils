@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bats:
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - archlinux:base
+          - debian:trixie
+          - fedora:latest
+    runs-on: ubuntu-latest
+    container: ${{ matrix.distro }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (arch)
+        if: matrix.distro == 'archlinux:base'
+        run: |
+          pacman -Syu --noconfirm bash python iproute2 pciutils usbutils smartmontools lm_sensors dmidecode util-linux hwdata kmod bat
+
+      - name: Install deps (debian)
+        if: matrix.distro == 'debian:trixie'
+        run: |
+          apt-get update && apt-get install -y bash python3 iproute2 pciutils usbutils smartmontools lm-sensors dmidecode procps util-linux hwdata kmod bats file
+
+      - name: Install deps (fedora)
+        if: matrix.distro == 'fedora:latest'
+        run: |
+          dnf install -y bash python3 iproute2 pciutils usbutils smartmontools lm_sensors dmidecode procps-ng util-linux hwdata kmod bats || true
+
+      - name: Syntax check
+        run: |
+          for f in *.sh well*; do bash -n "$f"; done
+
+      - name: Run bats
+        run: |
+          if command -v bats >/dev/null 2>&1; then
+            bats tests/
+          else
+            echo "bats missing on this image, running manual smoke";
+            ./wellcpu --help && ./wellmem --plain && ./wellhw --help
+          fi

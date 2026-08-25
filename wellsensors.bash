@@ -7,7 +7,7 @@ _wellsensors() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --cli --json --debug --"
+    local opts="--help -h --version -V --lang --lang= --color --color= --watch --interval --sections --json --short --html --plain --box --no-emoji --emoji --debug --"
 
     case "$prev" in
         --lang|-l)

@@ -1019,8 +1019,31 @@ print_report() {
     printf '\n  %sWellSensors v1.3 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
+short_out() {
+    local maxt=0 d name
+    for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
+        name=$(cat "$d" 2>/dev/null || true)
+        case "$name" in
+            coretemp|k10temp|cpu_thermal|zenpower)
+                local t f hdir
+                hdir=$(dirname "$d")
+                for f in "$hdir/temp"*_input; do
+                    [[ -f "$f" ]] || continue
+                    t=$(cat "$f" 2>/dev/null || true)
+                    [[ "$t" =~ ^[0-9]+$ ]] || continue
+                    t=$(( t / 1000 ))
+                    (( t > 0 && t < 125 && t > maxt )) && maxt=$t
+                done ;;
+        esac
+    done
+    (( maxt > 0 )) || { printf -- '-\n'; return 0; }
+    printf '%d°C\n' "$maxt"
+}
+
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
     if [[ "$_WS_WATCH" == "1" && -t 1 ]]; then
         trap 'exit 130' INT

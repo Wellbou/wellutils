@@ -223,8 +223,35 @@ json_out() {
 }
 
 # ─── Main ────────────────────────────────────────────────────────
+short_out() {
+    local out temp util
+    if command -v nvidia-smi &>/dev/null; then
+        out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1) || out=""
+        if [[ "$out" =~ ^[0-9]+,\ ?[0-9]+$ ]]; then
+            printf '%s°C %d%%\n' "${out%,*}" "$(( 10#$(printf '%s' "${out#*,}" | xargs) ))"
+            return 0
+        fi
+    fi
+    local d name f t maxt=0 hdir
+    for d in /sys/class/hwmon/hwmon*/name; do
+        [[ -f "$d" ]] || continue
+        name=$(cat "$d" 2>/dev/null || true)
+        [[ "$name" == amdgpu || "$name" == i915 ]] || continue
+        hdir=$(dirname "$d")
+        f="$hdir/temp1_input"
+        [[ -f "$f" ]] || continue
+        t=$(cat "$f" 2>/dev/null || true)
+        [[ "$t" =~ ^[0-9]+$ ]] || continue
+        t=$(( t / 1000 ))
+        (( t > maxt )) && maxt=$t
+    done
+    (( maxt > 0 )) && { printf '%d°C\n' "$maxt"; return 0; }
+    printf -- '-\n'
+}
+
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
     box_header "$(_emu '🎮')" "wellgpu" "$(t gpu_title)"
 

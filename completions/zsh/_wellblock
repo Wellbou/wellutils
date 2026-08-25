@@ -1,0 +1,25 @@
+#compdef wellblock
+# zsh completion for wellblock
+# Part of wellutils by wellbou_
+
+_wellblock() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --smart[] \
+        --dump[] \
+        --all[] \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellblock "$@"

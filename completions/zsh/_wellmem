@@ -1,0 +1,22 @@
+#compdef wellmem
+# zsh completion for wellmem
+# Part of wellutils by wellbou_
+
+_wellmem() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        --lang=[output language]: :(ru en auto) \
+        --color=[colorize output]: :(always auto never) \
+        --json[] \
+        --short[] \
+        --html[] \
+        --plain[] \
+        --box[] \
+        --no-emoji[] \
+        --emoji[] \
+        --debug[shell tracing] \
+        --
+}
+
+_wellmem "$@"

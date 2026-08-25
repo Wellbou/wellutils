@@ -322,8 +322,24 @@ json_out() {
 }
 
 # ─── Main ────────────────────────────────────────────────────────
+short_out() {
+    local a b
+    a=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || a=""
+    [[ -n "$a" ]] || { printf -- '-\n'; return 0; }
+    sleep 0.3
+    b=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || b=""
+    [[ -n "$b" ]] || { printf -- '-\n'; return 0; }
+    local d_all=$(( ${b%% *} - ${a%% *} )) d_busy=$(( ${b#* } - ${a#* } ))
+    (( d_all > 0 )) || { printf '0%\n'; return 0; }
+    local pct=$(( d_busy * 100 / d_all ))
+    (( pct < 0 )) && pct=0
+    (( pct > 100 )) && pct=100
+    printf '%d%%\n' "$pct"
+}
+
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
     box_header "$(_emu '🧠')" "wellcpu" "$(t cpu_title)"
 

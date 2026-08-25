@@ -120,6 +120,9 @@ while [[ $# -gt 0 ]]; do
         cpu|wellcpu|wcpu)          CMD="wellcpu";     shift ;;
         fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
         up|wellup|wup)             CMD="wellup";      shift ;;
+        net|wellnet|wnet)          CMD="wellnet";     shift ;;
+        power|wellpower|wpower|wbatt) CMD="wellpower"; shift ;;
+        doctor|welldoctor|wdoc|wdoctor) CMD="welldoctor"; shift ;;
         self-update|selfupdate)    CMD="wellup";      set -- --self-update "${@:2}" ;;
         *)
             printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"

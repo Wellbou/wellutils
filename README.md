@@ -204,6 +204,36 @@ wellup --self-update         # check and update wellutils
 wellup --self-update --check # only report the version difference
 ```
 
+## Status-bar mode
+
+Every live tool prints a one-line status with `--short`, made for i3blocks,
+waybar, polybar and tmux:
+
+```sh
+wellcpu --short      # 17%
+wellmem --short      # 1.9/3.8GiB
+wellsensors --short  # 52°C
+wellgpu --short      # 53°C 36%
+wellpower --short    # 85%+ (wear 7%)
+```
+
+Example waybar snippet: `custom-cpu = { exec: "wellcpu --short"; interval: 3; }`
+
+## New in 1.4.0-39
+
+- `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi
+  SSID/signal, routes, listening ports, traffic counters and connection-type
+  detection (VPN + endpoint, USB tethering, WWAN modem, WiMAX, Token Ring,
+  FDDI, IrDA, Zigbee/Thread...).
+- `wellpower` - battery wear, cycle count, charge thresholds, power profiles.
+- `welldoctor` - health aggregator for cron (SMART, temperatures, failed
+  units, disk usage, pacnew leftovers, orphans); exit code 0/1/2.
+- `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
+- `wellup --pacnew` - list leftover config files.
+- `--html` on every report tool - standalone HTML page of the report.
+- Distro ASCII logos in wellfetch (`--png` restores the pixel logo).
+- zsh and fish completions alongside bash.
+
 Note: `wellutils sensors` works as an alias for `wellsensors`. Other
 aliases: `wsensors`, `wtemp`. See wellutils(1) for the full list.
 

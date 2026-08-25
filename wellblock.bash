@@ -7,7 +7,7 @@ _wellblock() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --json --debug --"
+    local opts="--help -h --version -V --lang --lang= --color --color= --smart --dump --all --json --short --html --plain --box --no-emoji --emoji --debug --"
 
     case "$prev" in
         --lang|-l)
@@ -27,9 +27,7 @@ _wellblock() {
             ;;
     esac
 
-    COMPREPLY=( $(compgen -W "$(ls /sys/block/ 2>/dev/null)" -- "$cur") )
     return 0
 }
 
 complete -F _wellblock wellblock
-complete -F _wellblock wblock

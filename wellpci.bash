@@ -7,7 +7,7 @@ _wellpci() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang --color --plain --box --no-emoji --json --all --debug --"
+    local opts="--help -h --version -V --lang --lang= --color --color= --all --json --short --html --plain --box --no-emoji --emoji --debug --"
 
     case "$prev" in
         --lang|-l)

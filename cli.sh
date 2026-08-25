@@ -20,6 +20,8 @@ _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 _WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_DEBUG="" _WU_LANG_ARG=""
 _WU_JSON=0
+_WU_SHORT=0
+_WU_HTML=0
 _WU_MANUAL=${_WU_MANUAL:-0}
 _WU_TOOLNAME=${_WU_TOOLNAME:-${_WU_NAME:-tool}}
 _WU_EXTRA_HELP=${_WU_EXTRA_HELP:-}
@@ -42,6 +44,8 @@ Options:
       --no-emoji             drop emoji icons
       --emoji                force emoji icons
       --json                 machine-readable JSON
+      --short                one-line compact status (status bars)
+      --html                 standalone HTML report page
       --debug                shell tracing
 ${_WU_EXTRA_HELP}
 Exit codes: 0 ok, 2 bad CLI, 3 runtime error.
@@ -70,6 +74,8 @@ wu_parse() {
             --no-emoji) _WU_EMOJI="no"; shift ;;
             --emoji)    _WU_EMOJI="yes"; shift ;;
             --json)   _WU_JSON=1; shift ;;
+            --short)  _WU_SHORT=1; shift ;;
+            --html)   _WU_HTML=1; shift ;;
             --debug)  _WU_DEBUG=1; shift ;;
             -*) if [[ -n "$_WU_EXTRA_PARSE" ]] && $_WU_EXTRA_PARSE "$@"; then
                     shift "${_WU_EXTRA_CONSUMED:-0}"
@@ -92,6 +98,12 @@ wu_parse() {
         ""|ru|en|auto) : ;;
         *) printf '%s: --lang must be ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
+
+    local _out_modes=0
+    (( _WU_JSON )) && _out_modes=$(( _out_modes + 1 ))
+    (( _WU_SHORT )) && _out_modes=$(( _out_modes + 1 ))
+    (( _WU_HTML )) && _out_modes=$(( _out_modes + 1 ))
+    (( _out_modes > 1 )) && { printf '%s: --json, --short and --html are mutually exclusive\n' "$_WU_TOOLNAME" >&2; exit 2; }
 
     case "$(_wlc "$_WU_LANG_ARG")" in
         ru) WELLUTILS_LANG=RU ;;
@@ -145,6 +157,18 @@ wu_run() {
         _WU_MODE="plain"
     fi
 
+    if [[ "$_WU_HTML" == "1" ]]; then
+        # HTML report: force box rendering + colors, capture, convert ANSI.
+        _WU_PLAIN=0 _WU_MODE="box" _WU_COLOR_ON=1 _WU_EMOJI="yes"
+        R=$'\033[1;31m' G=$'\033[1;32m' Y=$'\033[1;33m' B=$'\033[1;34m'
+        M=$'\033[1;35m' C=$'\033[1;36m' W=$'\033[1;37m' DIM=$'\033[2m'
+        BOLD=$'\033[1m' RESET=$'\033[0m' ORANGE=$'\033[1;38;5;208m' RED_BG=""
+        local out _fn_rc=0
+        out=$("$fn") || _fn_rc=$?
+        wu_html_page "$out"
+        return "$_fn_rc"
+    fi
+
     if [[ $_WU_COLOR_ON -eq 0 ]]; then
         R= G= Y= B= M= C= W= DIM= BOLD= RESET=
         ORANGE= RED_BG=
@@ -158,6 +182,77 @@ wu_run() {
     else
         "$fn"
     fi
+}
+
+# ─── HTML export (deterministic ANSI -> span conversion) ──────────
+_wu_html_esc() {
+    local s="$1"
+    s=${s//&/\&amp;}
+    s=${s//</\&lt;}
+    s=${s//>/\&gt;}
+    printf '%s' "$s"
+}
+
+# Convert wellutils ANSI output to an HTML fragment. Only the SGR codes the
+# suite emits are mapped (fixed palette), everything else passes through.
+wu_ansi_to_html() {
+    local esc
+    esc=$(printf '\033')
+    LC_ALL=C awk -v esc="$esc" '
+    function hesc(s) {
+        gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s)
+        return s
+    }
+    function css_of(p,   c) {
+        c = ""
+        if (p ~ /(^|,)1(,|$)/) c = c "font-weight:700;"
+        if (p ~ /(^|,)2(,|$)/) c = c "opacity:.65;"
+        if (p ~ /31/) c = c "color:#f14c4c;"
+        else if (p ~ /32/) c = c "color:#23d18b;"
+        else if (p ~ /33/) c = c "color:#e5c07b;"
+        else if (p ~ /34/) c = c "color:#3b8eea;"
+        else if (p ~ /35/) c = c "color:#d670d6;"
+        else if (p ~ /36/) c = c "color:#29b8db;"
+        else if (p ~ /37/) c = c "color:#e6e6e6;"
+        else if (p ~ /38;5;208|38,5,208/) c = c "color:#ff8c00;"
+        return c
+    }
+    BEGIN {
+        open = 0
+    }
+    {
+        line = $0 "\n"
+        while ((i = index(line, esc "[")) > 0) {
+            printf "%s", hesc(substr(line, 1, i - 1))
+            rest = substr(line, i + 2)
+            m = index(rest, "m")
+            if (m == 0) { line = rest; break }
+            params = substr(rest, 1, m - 1)
+            line = substr(rest, m + 1)
+            gsub(/;/, ",", params)
+            if (params == "" || params == "0" || params == "00,") {
+                if (open) { printf "</span>"; open = 0 }
+                continue
+            }
+            c = css_of(params)
+            if (c == "") continue
+            if (open) printf "</span>"
+            printf "<span style=\"%s\">", c
+            open = 1
+        }
+        printf "%s", hesc(line)
+        if (open) { printf "</span>"; open = 0 }
+    }
+    '
+}
+
+wu_html_page() {
+    local body title
+    title="${_WU_NAME:-${_WU_TOOLNAME}} v${_WU_VERSION}"
+    body=$(printf '%s' "$1" | wu_ansi_to_html)
+    printf '<!DOCTYPE html>\n<html lang="%s">\n<head>\n<meta charset="utf-8">\n<title>%s</title>\n<style>\nbody{background:#14161a;color:#e6e6e6;margin:24px;}\npre{font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#1b1e24;padding:18px 22px;border-radius:10px;display:inline-block;}\nspan{white-space:pre-wrap;}\nfooter{opacity:.5;font:12px sans-serif;margin-top:10px;}\n</style>\n</head>\n<body>\n<pre>%s</pre>\n<footer>%s | %s</footer>\n</body>\n</html>\n' \
+        "${WELLUTILS_LANG,,}" "$(_wu_html_esc "$title")" "$body" \
+        "$(_wu_html_esc "$title")" "$(date -u '+%Y-%m-%d %H:%M UTC')"
 }
 
 # ─── JSON output helpers ──────────────────────────────────────────

@@ -206,6 +206,36 @@ wellup --self-update          # проверить и обновить wellutils
 wellup --self-update --check  # только показать разницу версий
 ```
 
+## Режим для статус-баров
+
+Каждый «живой» тул с `--short` печатает одну строку - для i3blocks,
+waybar, polybar и tmux:
+
+```sh
+wellcpu --short      # 17%
+wellmem --short      # 1.9/3.8GiB
+wellsensors --short  # 52°C
+wellgpu --short      # 53°C 36%
+wellpower --short    # 85%+ (износ 7%)
+```
+
+Пример для waybar: `custom-cpu = { exec: "wellcpu --short"; interval: 3; }`
+
+## Новое в 1.4.0-39
+
+- `wellnet` - полностью офлайн-обзор сети: интерфейсы, адреса, Wi-Fi,
+  маршруты, порты, счётчики трафика и определение типа подключения
+  (VPN + сервер, USB-раздача, WWAN-модем, WiMAX, Token Ring, FDDI,
+  IrDA, Zigbee/Thread...).
+- `wellpower` - износ батареи, циклы, пороги заряда, профили питания.
+- `welldoctor` - агрегатор здоровья для cron (SMART, температуры,
+  сбойные юниты, место на диске, pacnew-хвосты, сироты); код выхода 0/1/2.
+- `wellhw --snapshot [файл]` / `--diff [файл]` - «что изменилось с той недели».
+- `wellup --pacnew` - список остаточных конфигов.
+- `--html` у всех отчётных тулов - готовая HTML-страница отчёта.
+- ASCII-логотипы дистрибутивов в wellfetch (`--png` вернёт пиксельный).
+- Комплеты zsh и fish рядом с bash.
+
 `wellutils sensors` работает как алиас для `wellsensors`. Другие
 алиасы: `wsensors`, `wtemp`. Полный список см. в wellutils(1).
 
