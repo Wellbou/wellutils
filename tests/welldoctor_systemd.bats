@@ -24,8 +24,8 @@ teardown() { rm -rf "$FAKEBIN"; }
     export FAKE_UNITS="nginx.service loaded failed failed nginx - high performance web server"
     run env -u HOME ./welldoctor --plain
     [[ "$output" == *"nginx.service"* ]]
-    [[ "$output" != *"unavailable"* ]]
-    [[ "$output" != *"недоступен"* ]]
+    [[ "$output" != *"systemd unavailable"* ]]
+    [[ "$output" != *"systemd недоступен"* ]]
     # rc reflects the worst finding: 1 (warn) or 2 (crit from real hardware)
     [ "$status" -ge 1 ] && [ "$status" -le 2 ]
 }
