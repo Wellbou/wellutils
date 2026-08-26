@@ -79,7 +79,6 @@ wd_units_list() {
     # unavailable: no systemctl, not booted with systemd (no /run/systemd),
     # or client cannot reach the manager ("offline"/"unknown").
     command -v systemctl >/dev/null 2>&1 || return 1
-    [[ -d /run/systemd/system ]] || return 1
     local state
     state=$(systemctl is-system-running 2>/dev/null || true)
     case "$state" in
