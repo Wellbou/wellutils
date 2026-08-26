@@ -71,7 +71,7 @@ import json,sys,os
 ru=os.environ.get("WELLUTILS_LANG")=="RU"
 def L(ru_s,en_s): return ru_s if ru else en_s
 lines=[l for l in sys.stdin.read().splitlines() if l.strip()]
-if len(lines)<2: sys.exit(1)
+if len(lines)<2: sys.exit(3)
 old,new=json.loads(lines[0]),json.loads(lines[1])
 def flat(o,p=""):
     r={}
@@ -92,7 +92,8 @@ if not changes:
 else:
     print(L(f"Изменений: {len(changes)}",f"Changes: {len(changes)}"))
     for c in changes: print(" "+c)
-' 
+    sys.exit(2)
+'
 }
 
 do_snapshot() {
@@ -111,10 +112,12 @@ do_diff() {
     if ! json_out | _hw_filter_py > "$tmp_new"; then
         rm -f "$tmp_old" "$tmp_new"; return 3
     fi
-    if ! { cat "$tmp_old"; echo; cat "$tmp_new"; } | _hw_diff_py; then
-        rc=3
-    fi
-    diff -q "$tmp_old" "$tmp_new" >/dev/null 2>&1 && changed=0
+    # The semantic differ decides: exit 2 = changes found, 0 = identical.
+    local drc=0
+    { cat "$tmp_old"; echo; cat "$tmp_new"; } | _hw_diff_py || drc=$?
+    if (( drc == 2 )); then changed=1
+    elif (( drc == 0 )); then changed=0
+    else rc=3; fi
     rm -f "$tmp_old" "$tmp_new"
     (( rc )) && return "$rc"
     return "$changed"

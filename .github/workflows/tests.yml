@@ -33,7 +33,7 @@ jobs:
       - name: Install deps (fedora)
         if: matrix.distro == 'fedora:latest'
         run: |
-          dnf install -y bash python3 iproute2 pciutils usbutils smartmontools lm_sensors dmidecode procps-ng util-linux hwdata kmod git findutils
+          dnf install -y bash python3 iproute pciutils usbutils smartmontools lm_sensors dmidecode procps-ng util-linux hwdata kmod git findutils
 
       - name: Install bats-core (from source, all distros)
         run: |
