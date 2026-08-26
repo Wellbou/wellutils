@@ -53,10 +53,16 @@ show_help() {
     printf '    %scpu%s        -- %s\n' "$G" "$RESET" "$(t cmd_cpu)"
     printf '    %sfetch%s      -- %s\n' "$G" "$RESET" "$(t cmd_fetch)"
     printf '    %sup%s         -- %s\n' "$G" "$RESET" "$(t cmd_up)"
+    printf '    %snet%s        -- %s\n' "$G" "$RESET" "$(t cmd_net)"
+    printf '    %spower%s      -- %s\n' "$G" "$RESET" "$(t cmd_power)"
+    printf '    %sdoctor%s     -- %s\n' "$G" "$RESET" "$(t cmd_doctor)"
     printf '    %sself-update%s  -- %s\n' "$G" "$RESET" "$(t cmd_selfupdate)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
     printf '    %s--plain%s / %s--color auto|always|never%s  %s\n' "$G" "$RESET" "$G" "$RESET" "$(t opt_plain_color)"
+    printf '    %s--short%s  %s\n' "$G" "$RESET" "$(t opt_short)"
+    printf '    %s--html%s   %s\n' "$G" "$RESET" "$(t opt_html)"
+    printf '    %s--json%s   %s\n' "$G" "$RESET" "$(t opt_json)"
     printf '    %s--all%s / %s--full%s / %s--no-logo%s        %s\n' "$G" "$RESET" "$G" "$RESET" "$G" "$RESET" "$(t opt_more)"
     printf '    %s--help%s                   %s\n' "$G" "$RESET" "$(t launcher_help)"
     printf '\n'
@@ -66,7 +72,9 @@ show_help() {
     printf '                wsensors=wellsensors  wtemp=wellsensors  hw=wellhw\n'
     printf '                whw=wellhw  per=wellper  wper=wellper  gpu=wellgpu\n'
     printf '                wgpu=wellgpu  cpu=wellcpu  wcpu=wellcpu  fetch=wellfetch\n'
-    printf '                up=wellup  wup=wellup\n'
+    printf '                up=wellup  wup=wellup  net=wellnet  wnet=wellnet\n'
+    printf '                power=wellpower  wpower=wellpower  wbatt=wellpower\n'
+    printf '                doctor=welldoctor  wdoc=welldoctor  wdoctor=welldoctor\n'
     printf '\n'
     printf '  %s%s:%s %s%s%s\n\n' "$DIM" "$(t launcher_current_lang)" "$RESET" "$BOLD" "$WELLUTILS_LANG" "$RESET"
 }
