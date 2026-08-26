@@ -55,20 +55,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Default bash 3.2 must fail with a clear message
-        shell: '/bin/bash -o pipefail {0}'
+      - name: System bash 3.2 fails with a clear message
         run: |
-          out=$(./wellcpu --plain 2>&1 || true)
+          out=$(/bin/bash ./wellcpu --plain 2>&1) || true
+          echo "$out"
           echo "$out" | grep -q "bash >= 4.0 required"
 
-      - name: Install modern bash + run suite
-        shell: bash
+      - name: Modern bash - syntax sweep + smoke
         run: |
           brew install bash coreutils gawk grep gnu-sed python > /dev/null 2>&1 || true
           export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
+          B=/opt/homebrew/bin/bash
+          [ -x "$B" ] || B=/usr/local/bin/bash
           for f in bootstrap.sh lang.sh box.sh cli.sh wellcpu wellmem wellnet wellpower welldoctor wellutils; do
-            /opt/homebrew/bin/bash -n "$f"
+            "$B" -n "$f"
           done
-          /opt/homebrew/bin/bash ./wellcpu --help > /dev/null
-          /opt/homebrew/bin/bash ./wellmem --short
-          /opt/homebrew/bin/bash ./wellcpu --json | python3 -m json.tool > /dev/null
+          "$B" ./wellcpu --help > /dev/null
+          "$B" ./wellmem --short
+          "$B" ./wellnet --short

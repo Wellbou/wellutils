@@ -20,7 +20,8 @@
 }
 
 @test "wellnet --json has connection object" {
-    run bash -c './wellnet --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); assert \"connection\" in d"'
+    if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+    run bash -c "./wellnet --json 2>/dev/null | $PY -c \"import json,sys; d=json.load(sys.stdin); assert 'connection' in d\""
     [ "$status" -eq 0 ]
 }
 

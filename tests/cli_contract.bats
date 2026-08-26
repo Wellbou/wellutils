@@ -3,6 +3,11 @@
 
 TOOLS=(wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor)
 
+setup() {
+    # Arch ships `python`, Debian/Fedora ship `python3`.
+    if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+}
+
 @test "every tool: --help exits 0" {
     for t in "${TOOLS[@]}"; do
         run "./$t" --help
@@ -20,7 +25,7 @@ TOOLS=(wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsens
 @test "every tool: --json emits valid JSON (where supported)" {
     for t in wellcpu wellmem wellgpu wellblock wellhw wellsensors wellfetch wellup wellnet wellpower; do
         if ! ./"$t" --json >/dev/null 2>&1; then continue; fi
-        "./$t" --json 2>/dev/null | python3 -m json.tool >/dev/null
+        "./$t" --json 2>/dev/null | "$PY" -m json.tool >/dev/null
     done
 }
 
