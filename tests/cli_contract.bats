@@ -33,6 +33,14 @@ setup() {
     for t in "${TOOLS[@]}"; do
         if [[ "$t" == "wellup" ]]; then
             run "./$t" --check --plain
+        elif [[ "$t" == "welldoctor" ]]; then
+            # Documented contract: exit reflects findings (0 ok / 1 warn / 2 crit).
+            run ./welldoctor --plain
+            if [ "$status" -gt 2 ]; then
+                echo "welldoctor rc=$status (must be 0,1 or 2)"
+                false
+            fi
+            continue
         else
             run "./$t" --plain
         fi
