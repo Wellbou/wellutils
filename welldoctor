@@ -74,8 +74,18 @@ chk_temp() {
 }
 
 wd_units_list() {
-    # In containers systemd may exist but not be PID1: treat as unavailable.
-    systemctl is-system-running >/dev/null 2>&1 || return 1
+    # Can systemctl TALK about units?  "degraded" means systemd works fine
+    # and reports failures - exactly what we must NOT skip.  Only treat as
+    # unavailable: no systemctl, not booted with systemd (no /run/systemd),
+    # or client cannot reach the manager ("offline"/"unknown").
+    command -v systemctl >/dev/null 2>&1 || return 1
+    [[ -d /run/systemd/system ]] || return 1
+    local state
+    state=$(systemctl is-system-running 2>/dev/null || true)
+    case "$state" in
+        running|degraded) ;;
+        *) return 1 ;;
+    esac
     systemctl list-units --failed --no-legend --plain 2>/dev/null
 }
 
