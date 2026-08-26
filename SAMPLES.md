@@ -1,8 +1,8 @@
 # Live output samples / Живые примеры вывода
 
-Реальный вывод с машины автора (Arch Linux, Xeon E3-1230 V2,
+Реальный вывод с моей (wellbou) машины (Arch Linux, Xeon E3-1230 V2,
 GTX 1050 Ti, два монитора 20" 1600x900) - чтобы до установки было
-видно, как выглядит каждый инструмент.
+видно, как выглядит каждый инструмент. 
 
 Real output from the author's machine so you can see exactly what each
 tool looks like before installing.
@@ -10,7 +10,7 @@ tool looks like before installing.
 ## wellcpu
 
 ```sh
-$ wellcpu
+$ wellcpu --plain
 ```
 
 ```
@@ -46,7 +46,7 @@ $ wellcpu
 ## wellmem
 
 ```sh
-$ wellmem
+$ wellmem --plain
 ```
 
 ```
@@ -80,7 +80,7 @@ $ wellmem
 ## wellgpu
 
 ```sh
-$ wellgpu
+$ wellgpu --plain
 ```
 
 ```
@@ -107,7 +107,7 @@ $ wellgpu
 ## wellsensors
 
 ```sh
-$ wellsensors
+$ wellsensors --plain
 ```
 
 ```
@@ -158,7 +158,7 @@ $ wellsensors
 ## wellhw
 
 ```sh
-$ wellhw
+$ wellhw --plain
 ```
 
 ```
@@ -197,7 +197,7 @@ $ wellhw
 ## wellusb
 
 ```sh
-$ wellusb
+$ wellusb --plain
 ```
 
 ```
@@ -297,7 +297,7 @@ $ wellusb
 ## wellpci
 
 ```sh
-$ wellpci
+$ wellpci --plain
 ```
 
 ```
@@ -320,7 +320,7 @@ $ wellpci
 ## wellblock
 
 ```sh
-$ wellblock
+$ wellblock --plain
 ```
 
 ```
@@ -364,7 +364,7 @@ $ wellblock
 ## wellmod
 
 ```sh
-$ wellmod
+$ wellmod --plain
 ```
 
 ```
@@ -554,7 +554,7 @@ $ wellmod
 ## wellper
 
 ```sh
-$ wellper
+$ wellper --plain
 ```
 
 ```
@@ -601,7 +601,7 @@ $ wellper
 ## wellnet
 
 ```sh
-$ wellnet
+$ wellnet --plain
 ```
 
 ```
@@ -646,7 +646,7 @@ $ wellnet
 ## wellpower
 
 ```sh
-$ wellpower
+$ wellpower --plain
 ```
 
 ```
@@ -671,7 +671,7 @@ $ wellpower
 ## welldoctor
 
 ```sh
-$ welldoctor
+$ welldoctor --plain
 ```
 
 ```
@@ -701,7 +701,7 @@ $ welldoctor
 ## wellup
 
 ```sh
-$ wellup --check
+$ wellup --check  --plain
 ```
 
 ```
