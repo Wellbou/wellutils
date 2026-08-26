@@ -26,12 +26,13 @@
 
 ## What it is
 
-Twelve single-file tools that report on what your machine is doing:
+Fifteen single-file tools that report on what your machine is doing:
 USB and PCI devices, block storage, memory, CPU topology, graphics,
-kernel modules, temperatures, and peripherals. Every tool shares the
-same CLI - same flags, same exit codes, same box-drawing output. A
-launcher (`wellutils`) ties them together, and short aliases
-(`wusb`, `wpci`, `wmem`, ...) are installed alongside.
+kernel modules, temperatures, peripherals, network, power and a health
+aggregator. Every tool shares the same CLI - same flags, same exit
+codes, same box-drawing output. A launcher (`wellutils`) ties them
+together, and short aliases (`wusb`, `wpci`, `wmem`, ...) are
+installed alongside.
 
 The same interface ships as a single PowerShell file for Windows.
 No WSL, no admin rights, no installers - data comes from CIM/WMI.
@@ -186,10 +187,14 @@ Every tool has a man page (`man wellper`) and bash completion.
 | `wellsensors` | Temperatures and fans: hwmon, lm_sensors, nvidia-smi          |
 | `wellfetch`   | System fetch with ASCII or PNG logo                           |
 | `wellup`      | Check for system updates and apply them automatically         |
+| `wellnet`     | Offline network overview: interfaces, Wi-Fi, routes, ports    |
+| `wellpower`   | Battery wear, cycles, charge thresholds, power profiles       |
+| `welldoctor`  | Health aggregator for cron: SMART, temps, units, disk, pacnew |
 
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
-`whw`, `wper`, `wfetch`, `wup`. The launcher accepts them too:
+`whw`, `wper`, `wfetch`, `wup`, `wnet`, `wpower`/`wbatt`,
+`wdoc`/`wdoctor`. The launcher accepts them too:
 `wellutils wram --plain`.
 
 `wellup` asks for confirmation before applying updates; pass `--yes`

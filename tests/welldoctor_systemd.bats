@@ -56,3 +56,26 @@ teardown() { rm -rf "$FAKEBIN"; }
     [[ "$output" != *"nginx.service"* ]]
     [[ "$output" != *"Сбойный юнит"* ]]
 }
+
+@test "--json: summary matches checks and exit reflects findings (D2)" {
+    if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+    export PATH="$FAKEBIN:$PATH"
+    export FAKE_STATE=degraded
+    export FAKE_UNITS="nginx.service loaded failed failed nginx"
+    out="$(mktemp)"
+    run bash -c "./welldoctor --json > '$out'; echo \$?"
+    [ "$status" -eq 0 ]
+    # Contract: rc 1 (warn) or 2 (crit from real hardware) - never 0 with W>=1.
+    [ "$output" -ge 1 ] && [ "$output" -le 2 ]
+    "$PY" - "$out" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+warn = sum(1 for c in d["checks"] if c["status"] == "warning")
+crit = sum(1 for c in d["checks"] if c["status"] == "critical")
+assert d["summary"]["warnings"] == warn, (d["summary"], warn)
+assert d["summary"]["critical"] == crit, (d["summary"], crit)
+assert warn >= 1, d["checks"]          # the stubbed failed unit is counted
+assert (crit > 0) == (d["summary"]["critical"] > 0)
+PYEOF
+    rm -f "$out"
+}

@@ -14,7 +14,7 @@ $ wellcpu
 ```
 
 ```ansi
-]3008;start=d5e98a8c025540d1a18835669549b09c;user=wellbou_;hostname=lor;machineid=9f3c108ca0aa46a18cbdb1ae553f7e09;bootid=c7bb8911f8a5477388b09f8ef72c3b4c;pid=71583;pidfdid=74643;comm=sudo;targetuser=root;type=session\^@
+^@
   [1;36m╔═══════════════════════════╗[0m
   [1;36m║[0m[1m[1;37m  🧠  wellcpu -- Обзор CPU  [0m[1;36m║[0m
   [1;36m╚═══════════════════════════╝[0m
@@ -44,7 +44,7 @@ $ wellcpu
 
   [2mWellCPU v1.0 | 2026-08-26 12:58:34[0m
 
-]3008;end=d5e98a8c025540d1a18835669549b09c\```
+```
 
 ## wellmem
 
@@ -119,7 +119,7 @@ $ wellsensors
 ```
 
 ```ansi
-]3008;start=007f11110df4410b8c4a0f8cedba3e7a;user=wellbou_;hostname=lor;machineid=9f3c108ca0aa46a18cbdb1ae553f7e09;bootid=c7bb8911f8a5477388b09f8ef72c3b4c;pid=72342;pidfdid=82696;comm=sudo;targetuser=root;type=session\^@
+^@
   [1;36m╔═══════════════════════════════════════════╗[0m
   [1;36m║[0m[1m[1;37m  ⚡  wellsensors -- Мониторинг температуры  [0m[1;36m║[0m
   [1;36m╚═══════════════════════════════════════════╝[0m
@@ -173,7 +173,7 @@ $ wellsensors
 
   [2mWellSensors v1.3 | 2026-08-26 12:58:36[0m
 
-]3008;end=007f11110df4410b8c4a0f8cedba3e7a\```
+```
 
 ## wellhw
 
@@ -182,7 +182,7 @@ $ wellhw
 ```
 
 ```ansi
-]3008;start=38b73c71841949059c8a27362c4d0c8d;user=wellbou_;hostname=lor;machineid=9f3c108ca0aa46a18cbdb1ae553f7e09;bootid=c7bb8911f8a5477388b09f8ef72c3b4c;pid=73126;pidfdid=86827;comm=sudo;targetuser=root;type=session\^@
+^@
   [1;36m╔═══════════════════════════════╗[0m
   [1;36m║[0m[1m[1;37m  🖥  wellhw -- Отчёт о железе  [0m[1;36m║[0m
   [1;36m╚═══════════════════════════════╝[0m
@@ -221,7 +221,7 @@ $ wellhw
 
   [2mWellHW v1.3 | 2026-08-26 12:58:37[0m
 
-]3008;end=38b73c71841949059c8a27362c4d0c8d\```
+```
 
 ## wellusb
 
@@ -538,7 +538,7 @@ $ welldoctor
 ```
 
 ```ansi
-]3008;start=04a000f0b77a44ffaea2b5f0eac4d1ad;user=wellbou_;hostname=lor;machineid=9f3c108ca0aa46a18cbdb1ae553f7e09;bootid=c7bb8911f8a5477388b09f8ef72c3b4c;pid=76754;pidfdid=67430;comm=sudo;targetuser=root;type=session\^@
+^@
   [1;36m╔══════════════════════════════════════════════╗[0m
   [1;36m║[0m[1m[1;37m  🩺  welldoctor -- Проверка здоровья системы  [0m[1;36m║[0m
   [1;36m╚══════════════════════════════════════════════╝[0m
@@ -560,7 +560,7 @@ $ welldoctor
 
   [2mWellDoctor v1.0 | 2026-08-26 12:58:43[0m
 
-]3008;end=04a000f0b77a44ffaea2b5f0eac4d1ad\```
+```
 
 ## wellup
 

@@ -173,8 +173,10 @@ summary_line() {
 
 json_out() {
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
-    # Re-run checks silently to collect counters is overkill; report totals
-    # from a quiet pass instead of parsing colored output.
+    # Run checks in THIS shell (not a process substitution): the summary
+    # counters and the exit contract depend on _WD_WARN/_WD_CRIT living here.
+    local _ck; _ck=$(mktemp)
+    wd_checks_machine > "$_ck"
     printf ',\n  "checks": [\n'
     local first=1 key st val
     while IFS='|' read -r key st val; do
@@ -182,10 +184,15 @@ json_out() {
         (( first )) && first=0 || printf ',\n'
         printf '    { "check": "%s", "status": "%s", "detail": "%s" }' \
             "$(json_esc "$key")" "$st" "$(json_esc "${val:-}")"
-    done < <(wd_checks_machine)
+    done < "$_ck"
+    rm -f "$_ck"
     printf '\n  ],\n'
     printf '  "summary": { "warnings": %d, "critical": %d }\n' "$_WD_WARN" "$_WD_CRIT"
     wu_json_end
+    # Same contract as --plain/--short: exit reflects findings.
+    if (( _WD_CRIT > 0 )); then return 2; fi
+    if (( _WD_WARN > 0 )); then return 1; fi
+    return 0
 }
 
 # Machine-readable pass: emits key|status|detail lines and updates counters.
@@ -293,7 +300,7 @@ short_out() {
 
 main() {
     if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
-    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return $?; fi
 
     box_header "$(_emu '🩺')" "welldoctor" "$(t doc_title)"
     print_report
