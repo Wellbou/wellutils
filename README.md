@@ -223,6 +223,33 @@ wellpower --short    # 85%+ (wear 7%)
 
 Example waybar snippet: `custom-cpu = { exec: "wellcpu --short"; interval: 3; }`
 
+## Scripting with --json
+
+Every report tool can emit one machine-readable JSON document
+(`--json`), which makes the suite trivial to integrate:
+
+```sh
+# per-core load with jq
+wellcpu --json | jq -r '.load[] | "CPU\(.cpu)\t\(.usage_percent)%\t\(.freq_khz/1000) MHz"'
+
+# hottest GPU temperature, no jq required
+wellsensors --json | python3 -c \
+  'import json,sys; d=json.load(sys.stdin); print(max(g["temp_c"] for g in d["gpu"] or []))'
+
+# cron watchdog: page me when welldoctor sees something critical
+welldoctor --json | jq -e '.summary.critical == 0' >/dev/null \
+  || echo "$(hostname): welldoctor reports trouble" | mail -s "health" you@example.org
+
+# what kind of uplink am I on right now?
+wellnet --json | jq -r '.connection.kind'        # vpn / wifi / usb_tether / ethernet
+
+# hardware inventory diff for config management
+wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
+```
+
+All tools share the envelope `{ "tool", "version", "date", ... }`; tool-specific
+keys are documented by example in [SAMPLES.md](SAMPLES.md).
+
 ## New in 1.4.0-39
 
 - `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi

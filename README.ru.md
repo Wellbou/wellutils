@@ -225,6 +225,33 @@ wellpower --short    # 85%+ (износ 7%)
 
 Пример для waybar: `custom-cpu = { exec: "wellcpu --short"; interval: 3; }`
 
+## Скрипты и --json
+
+Каждый отчётный тул умеет отдавать единый машинно-читаемый JSON (`--json`) -
+это делает набор тривиальным для интеграции:
+
+```sh
+# загрузка по ядрам через jq
+wellcpu --json | jq -r '.load[] | "CPU\(.cpu)\t\(.usage_percent)%\t\(.freq_khz/1000) MHz"'
+
+# температура самой горячей GPU без jq
+wellsensors --json | python3 -c \
+  'import json,sys; d=json.load(sys.stdin); print(max(g["temp_c"] for g in d["gpu"] or []))'
+
+# cron-сторож: пишу мне, когда welldoctor видит критичное
+welldoctor --json | jq -e '.summary.critical == 0' >/dev/null \
+  || echo "$(hostname): welldoctor ругается" | mail -s "health" you@example.org
+
+# какой сейчас аплинк?
+wellnet --json | jq -r '.connection.kind'        # vpn / wifi / usb_tether / ethernet
+
+# инвентарь железа для конфиг-менеджмента
+wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
+```
+
+Все тула используют общий конверт `{ "tool", "version", "date", ... }`;
+ключи каждого инструмента показаны на примерах в [SAMPLES.md](SAMPLES.md).
+
 ## Новое в 1.4.0-39
 
 - `wellnet` - полностью офлайн-обзор сети: интерфейсы, адреса, Wi-Fi,

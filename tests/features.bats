@@ -34,7 +34,10 @@
     local f="$(mktemp)"
     ./wellhw --snapshot "$f"
     run ./wellhw --diff "$f"
-    [ "$status" -eq 0 ]
+    if [ "$status" -ne 0 ]; then
+        echo "diff said: $output"
+        false
+    fi
     rm -f "$f"
 }
 
