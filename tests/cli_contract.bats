@@ -36,7 +36,11 @@ setup() {
         else
             run "./$t" --plain
         fi
-        [ "$status" -eq 0 ]
+        if [ "$status" -ne 0 ]; then
+            echo "--plain FAILED for $t (rc=$status)"
+            echo "$output"
+            false
+        fi
     done
 }
 

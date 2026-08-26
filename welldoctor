@@ -73,20 +73,23 @@ chk_temp() {
     fi
 }
 
+wd_units_list() {
+    # In containers systemd may exist but not be PID1: treat as unavailable.
+    systemctl is-system-running >/dev/null 2>&1 || return 1
+    systemctl list-units --failed --no-legend --plain 2>/dev/null
+}
+
 chk_units() {
-    command -v systemctl &>/dev/null || { wd_info "$(t doc_units_na)"; return; }
-    local failed
-    failed=$(systemctl list-units --failed --no-legend --plain 2>/dev/null | wc -l || echo 0)
-    failed=$(printf '%s' "$failed" | tr -d '[:space:]')
-    [[ "$failed" =~ ^[0-9]+$ ]] || failed=0
-    if (( failed == 0 )); then
+    local failed_list
+    failed_list=$(wd_units_list) || { wd_info "$(t doc_units_na)"; return; }
+    if [[ -z "$failed_list" ]]; then
         wd_ok "$(t doc_units_ok)"
     else
         local u
         while IFS= read -r u; do
             [[ -z "$u" ]] && continue
             wd_warn "$(t doc_units_failed): $(awk '{print $1}' <<< "$u")"
-        done < <(systemctl list-units --failed --no-legend --plain 2>/dev/null || true)
+        done <<< "$failed_list"
     fi
 }
 
@@ -224,19 +227,16 @@ wd_checks_machine() {
     fi
 
     if command -v systemctl &>/dev/null; then
-        local failed u
-        failed=$(systemctl list-units --failed --no-legend --plain 2>/dev/null | wc -l || echo 0)
-        failed=$(printf '%s' "$failed" | tr -d '[:space:]')
-        if [[ "$failed" =~ ^[0-9]+$ ]]; then
-            if (( failed == 0 )); then
-                printf 'units|ok|0\n'
-            else
-                while IFS= read -r u; do
-                    [[ -z "$u" ]] && continue
-                    printf 'unit_%s|warning|failed\n' "$(awk '{print $1}' <<< "$u")"
-                    _WD_WARN=$(( _WD_WARN + 1 ))
-                done < <(systemctl list-units --failed --no-legend --plain 2>/dev/null || true)
-            fi
+        local failed_list u
+        failed_list=$(wd_units_list) || failed_list=""
+        if [[ -n "$failed_list" ]]; then
+            while IFS= read -r u; do
+                [[ -z "$u" ]] && continue
+                printf 'unit_%s|warning|failed\n' "$(awk '{print $1}' <<< "$u")"
+                _WD_WARN=$(( _WD_WARN + 1 ))
+            done <<< "$failed_list"
+        else
+            printf 'units|ok|0\n'
         fi
     fi
 
