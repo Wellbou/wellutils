@@ -7,6 +7,8 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellnet" _WU_NAME="WellNet" _WU_VERSION="1.0"
+_WU_SHORT_OK=1
+_WU_SHORT_OK=1
 _WU_TAGLINE="network overview (offline)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
@@ -189,13 +191,13 @@ print_connection() {
     local pif kind dns_list
     pif=$(wn_primary)
     if [[ -z "$pif" ]]; then
-        pline "$(_ic '🛰️') ${DIM}$(t net_no_gw)${RESET}"
+        pline "$(_ic '🛰') ${DIM}$(t net_no_gw)${RESET}"
         return
     fi
     kind=$(wn_kind "$pif")
     local klabel
     klabel=$(wn_kind_label "$kind")
-    pline "$(_ic '🛰️') $(t conn_primary): ${BOLD}${pif}${RESET} (${klabel})"
+    pline "$(_ic '🛰') $(t conn_primary): ${BOLD}${pif}${RESET} (${klabel})"
     command -v ip &>/dev/null || return
 
     # VPN: endpoint + carrier gateway, then stop.
@@ -270,20 +272,14 @@ print_addr() {
     local out
     out=$(ip -brief address show 2>/dev/null) || out=""
     [[ -n "$out" ]] || { pline "${DIM}-$(t net_none)${RESET}"; return; }
-    local ifname state addrs scolor
+    local ifname state addrs
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         ifname=$(awk '{print $1}' <<< "$line")
         ifname="${ifname%%@*}"
-        state=$(awk '{print $2}' <<< "$line")
         addrs=$(cut -d' ' -f3- <<< "$line" | xargs)
-        case "$state" in
-            UP)   scolor="$G" ;;
-            DOWN) scolor="$R" ;;
-            *)    scolor="$DIM" ;;
-        esac
-        [[ -n "$addrs" ]] || addrs="-"
-        pline_sub "$(_ic '🌐') ${BOLD}${ifname}${RESET} ${scolor}[${state}]${RESET}  $addrs"
+        [[ -n "$addrs" ]] || continue
+        pline_sub "$(_ic '🌐') ${BOLD}${ifname}${RESET}  $addrs"
     done <<< "$out"
 }
 
@@ -495,12 +491,37 @@ json_out() {
 }
 
 # ─── Main ───────────────────────────────────────────────────────
+short_out() {
+    local pif kind ep
+    pif=$(wn_primary)
+    if [[ -z "$pif" ]]; then
+        printf -- '-\n'
+        return 0
+    fi
+    kind=$(wn_kind "$pif")
+    local out="$pif:$kind"
+    if [[ "$kind" == "vpn" ]]; then
+        ep=$(wn_vpn_endpoint "$pif")
+        [[ -n "$ep" ]] && out+="(${ep%%|*})"
+    elif [[ "$kind" == "wifi" ]] && command -v iw &>/dev/null; then
+        local ssid sig
+        ssid=$(iw dev "$pif" link 2>/dev/null | awk -F': *' '/^SSID:/{print $2; exit}') || ssid=""
+        sig=$(iw dev "$pif" link 2>/dev/null | awk '/^signal:/{print $2; exit}') || sig=""
+        [[ -n "$ssid" ]] && out+="($ssid${sig:+ $sig dBm})"
+    else
+        # Show the carrier kind when the primary rides a tunnel-less uplink.
+        :
+    fi
+    printf '%s\n' "$out"
+}
+
 main() {
+    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
 
     box_header "$(_emu '📡')" "wellnet" "$(t net_title)"
 
-    box "$(_emu '🛰️')" "$(t conn_title)" print_connection
+    box "$(_emu '🛰')" "$(t conn_title)" print_connection
     box "$(_emu '🔌')" "$(t net_ifaces)" print_ifaces
     box "$(_emu '🌐')" "$(t net_addr)" print_addr
     box "$(_emu '📶')" "$(t net_wifi)" print_wifi

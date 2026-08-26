@@ -204,6 +204,10 @@ wellup --self-update         # check and update wellutils
 wellup --self-update --check # only report the version difference
 ```
 
+`wellutils` also ships **SAMPLES.md** - real output of every tool from the
+author's machine, so you can see exactly what you get before installing:
+[SAMPLES.md](SAMPLES.md).
+
 ## Status-bar mode
 
 Every live tool prints a one-line status with `--short`, made for i3blocks,

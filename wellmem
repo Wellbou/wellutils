@@ -5,6 +5,7 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellmem" _WU_NAME="WellMem" _WU_VERSION="1.1"
+_WU_SHORT_OK=1
 _WU_TAGLINE="Beautiful memory overview"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"

@@ -104,6 +104,11 @@ wu_parse() {
     (( _WU_SHORT )) && _out_modes=$(( _out_modes + 1 ))
     (( _WU_HTML )) && _out_modes=$(( _out_modes + 1 ))
     (( _out_modes > 1 )) && { printf '%s: --json, --short and --html are mutually exclusive\n' "$_WU_TOOLNAME" >&2; exit 2; }
+    # --short is opt-in per tool: status-bar tools set _WU_SHORT_OK=1.
+    if (( _WU_SHORT )) && [[ "${_WU_SHORT_OK:-0}" != "1" ]]; then
+        printf '%s: --short is not supported by this tool\n' "$_WU_TOOLNAME" >&2
+        exit 2
+    fi
 
     case "$(_wlc "$_WU_LANG_ARG")" in
         ru) WELLUTILS_LANG=RU ;;
@@ -297,8 +302,11 @@ wu_json_num() {
     fi
 }
 
-_emu() { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s' "$1"; return 0; }
-_ic()  { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$1"; return 0; }
+# Emoji emitters: strip VS16 (U+FE0F) so terminals that render the bare
+# codepoint narrow agree with our column math (no half-wide surprises).
+_emoji_clean() { local e="$1"; printf '%s' "${e//$'\uFE0F'/}"; }
+_emu() { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; return 0; }
+_ic()  { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; printf ' '; return 0; }
 
 # Strip hand-drawn box frames from output (byte-safe, locale-independent).
 # Covers U+2500-U+257F (box drawing) plus tab compaction.

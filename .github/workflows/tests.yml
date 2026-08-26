@@ -23,27 +23,52 @@ jobs:
       - name: Install deps (arch)
         if: matrix.distro == 'archlinux:base'
         run: |
-          pacman -Syu --noconfirm bash python iproute2 pciutils usbutils smartmontools lm_sensors dmidecode util-linux hwdata kmod bat
+          pacman -Syu --noconfirm bash python iproute2 pciutils usbutils smartmontools lm_sensors dmidecode util-linux hwdata kmod git
 
       - name: Install deps (debian)
         if: matrix.distro == 'debian:trixie'
         run: |
-          apt-get update && apt-get install -y bash python3 iproute2 pciutils usbutils smartmontools lm-sensors dmidecode procps util-linux hwdata kmod bats file
+          apt-get update && apt-get install -y bash python3 iproute2 pciutils usbutils smartmontools lm-sensors dmidecode procps util-linux hwdata kmod git ca-certificates
 
       - name: Install deps (fedora)
         if: matrix.distro == 'fedora:latest'
         run: |
-          dnf install -y bash python3 iproute2 pciutils usbutils smartmontools lm_sensors dmidecode procps-ng util-linux hwdata kmod bats || true
+          dnf install -y bash python3 iproute2 pciutils usbutils smartmontools lm_sensors dmidecode procps-ng util-linux hwdata kmod git findutils
+
+      - name: Install bats-core (from source, all distros)
+        run: |
+          git clone --depth 1 https://github.com/bats-core/bats-core /tmp/bats-core
+          /tmp/bats-core/install.sh /usr/local
 
       - name: Syntax check
         run: |
-          for f in *.sh well*; do bash -n "$f"; done
+          for f in bootstrap.sh lang.sh box.sh cli.sh jedec.sh wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor wellutils; do
+            bash -n "$f"
+          done
 
-      - name: Run bats
+      - name: Run bats (mandatory)
+        run: bats tests/
+
+  macos:
+    # bash 3.2 is the macOS default; the suite requires >= 4 and must say so.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Default bash 3.2 must fail with a clear message
+        shell: '/bin/bash -o pipefail {0}'
         run: |
-          if command -v bats >/dev/null 2>&1; then
-            bats tests/
-          else
-            echo "bats missing on this image, running manual smoke";
-            ./wellcpu --help && ./wellmem --plain && ./wellhw --help
-          fi
+          out=$(./wellcpu --plain 2>&1 || true)
+          echo "$out" | grep -q "bash >= 4.0 required"
+
+      - name: Install modern bash + run suite
+        shell: bash
+        run: |
+          brew install bash coreutils gawk grep gnu-sed python > /dev/null 2>&1 || true
+          export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
+          for f in bootstrap.sh lang.sh box.sh cli.sh wellcpu wellmem wellnet wellpower welldoctor wellutils; do
+            /opt/homebrew/bin/bash -n "$f"
+          done
+          /opt/homebrew/bin/bash ./wellcpu --help > /dev/null
+          /opt/homebrew/bin/bash ./wellmem --short
+          /opt/homebrew/bin/bash ./wellcpu --json | python3 -m json.tool > /dev/null

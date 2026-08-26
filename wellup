@@ -438,7 +438,7 @@ self_main() {
     fi
 
     box_header "$(_emu '🔄')" "wellup --self-update" "$(t updu_title)"
-    box "$(_emu '⚙️')" "$(t updu_system)" self_info_box
+    box "$(_emu '⚙')" "$(t updu_system)" self_info_box
 
     if [[ "$status" == "up-to-date" || "$status" == "newer-local" ]]; then
         printf '\n  %s%s%s\n' "$G" "$(t updu_up_to_date)" "$RESET"

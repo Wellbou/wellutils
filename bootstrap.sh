@@ -18,8 +18,17 @@ _wu_resolve_lib() {
     fi
 }
 
+# Associative arrays and ${var,,} require bash 4 (macOS ships 3.2).
+if (( BASH_VERSINFO[0] < 4 )); then
+    printf 'wellutils: bash >= 4.0 required, found %s. On macOS: brew install bash\n' "$BASH_VERSION" >&2
+    return 1 2>/dev/null || exit 1
+fi
+
 _WU_BOOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 for _wu_lib_name in "$@"; do
-    _wu_resolve_lib "${_wu_lib_name}.sh" "$_WU_BOOT_DIR"
+    if ! _wu_resolve_lib "${_wu_lib_name}.sh" "$_WU_BOOT_DIR"; then
+        unset -f _wu_resolve_lib
+        return 1 2>/dev/null || exit 1
+    fi
 done
 unset -f _wu_resolve_lib

@@ -195,7 +195,7 @@ print_board() {
     [[ -n "$version" ]] && board="$board (v$version)"
     board="${board//  / }"
 
-    pline_hw "$(_emu '🖥️')" "$(t hw_board)" "${board:-$(t hw_unknown)}"
+    pline_hw "$(_emu '🖥')" "$(t hw_board)" "${board:-$(t hw_unknown)}"
     pline_hw "$(_emu '💾')" "$(t hw_bios)" "${bios:-$(t hw_unknown)}"
 }
 
@@ -674,7 +674,7 @@ main() {
 
     box "$(_emu '🧠')" "$(t hw_cpu)" print_cpu
     box "$(_emu '🎮')" "$(t hw_gpu)" print_gpu
-    box "$(_emu '🖥️')" "$(t hw_board)" print_board
+    box "$(_emu '🖥')" "$(t hw_board)" print_board
     box "$(_emu '🧩')" "$(t hw_ram)" print_ram
     box "$(_emu '💿')" "$(t hw_storage)" print_storage
     box "$(_emu '🌐')" "$(t hw_network)" print_network

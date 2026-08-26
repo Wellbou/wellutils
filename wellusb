@@ -158,17 +158,17 @@ device_icon() {
     local bclass=$1 utype=$2
     case "$utype" in
         Hub|Хаб)              printf ''"$(_emu "🔌")"'' ;;
-        Keyboard|Клавиатура)   printf ''"$(_ic "⌨️")"'' ;;
-        Mouse|Мышь)            printf ''"$(_ic "🖱️")"'' ;;
+        Keyboard|Клавиатура)   printf ''"$(_ic "⌨")"'' ;;
+        Mouse|Мышь)            printf ''"$(_ic "🖱")"'' ;;
         Webcam|Веб-камера)     printf ''"$(_emu "📷")"'' ;;
         Graphics*|Графический*) printf ''"$(_emu "🎨")"'' ;;
         Storage|Накопитель)    printf ''"$(_emu "💾")"'' ;;
-        Printer|Принтер)       printf ''"$(_ic "🖨️")"'' ;;
+        Printer|Принтер)       printf ''"$(_ic "🖨")"'' ;;
         Phone|Телефон)         printf ''"$(_emu "📱")"'' ;;
         Audio|Аудио)           printf ''"$(_emu "🔊")"'' ;;
         Network|Сеть)          printf ''"$(_emu "🌐")"'' ;;
         WiFi)                  printf ''"$(_emu "📡")"'' ;;
-        HID*)                  printf ''"$(_ic "⚙️")"'' ;;
+        HID*)                  printf ''"$(_ic "⚙")"'' ;;
         Gamepad|Геймпад)       printf ''"$(_emu "🎮")"'' ;;
         Misc|Прочее)           printf ''"$(_emu "🔧")"'' ;;
         *)                     printf ''"$(_emu "🔌")"'' ;;

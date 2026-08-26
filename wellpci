@@ -60,7 +60,7 @@ pci_class_icon() {
     case "$major" in
         03) printf ''"$(_emu "🎮")"'' ;; 02) printf ''"$(_emu "🌐")"'' ;; 01) printf ''"$(_emu "💾")"'' ;;
         04) printf ''"$(_emu "🔊")"'' ;; 0c) printf ''"$(_emu "🔌")"'' ;; 06) printf ''"$(_emu "🌉")"'' ;;
-        08) printf ''"$(_ic "⌨️")"'' ;; 0d) printf ''"$(_emu "📡")"'' ;; *)  printf ''"$(_emu "🔧")"'' ;;
+        08) printf ''"$(_ic "⌨")"'' ;; 0d) printf ''"$(_emu "📡")"'' ;; *)  printf ''"$(_emu "🔧")"'' ;;
     esac
 }
 

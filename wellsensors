@@ -5,6 +5,7 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellsensors" _WU_NAME="WellSensors" _WU_VERSION="1.3"
+_WU_SHORT_OK=1
 _WU_TAGLINE="Beautiful system temperature monitor"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
@@ -75,7 +76,7 @@ temp_bar() {
 
 temp_emoji() {
     local t=$1
-    if   (( t < 35 )); then printf ''"$(_emu "❄️")"''
+    if   (( t < 35 )); then printf ''"$(_emu "❄")"''
     elif (( t < 50 )); then printf ''"$(_emu "🌊")"''
     elif (( t < 65 )); then printf ''"$(_emu "🔥")"''
     elif (( t < 80 )); then printf ''"$(_emu "🌋")"''
@@ -561,7 +562,7 @@ print_cooling() {
     done
 
     pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${real_fan} $(t sens_devices)${RESET}"
-    pline_hw "$(_emu '⚙️')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
+    pline_hw "$(_emu '⚙')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
     pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
     (( acpi_fan > 0 )) && pline_hw "$(_emu '📋')" "$(t sens_acpi_fans)" "${DIM}${acpi_fan}${RESET}"
 
@@ -597,10 +598,10 @@ print_system() {
     else                                  load_color="$R"
     fi
 
-    pline_hw "$(_emu '🖥️')" "$(t sens_cpu)" "${model}  ${DIM}(${cores} $(t hw_threads))${RESET}"
+    pline_hw "$(_emu '🖥')" "$(t sens_cpu)" "${model}  ${DIM}(${cores} $(t hw_threads))${RESET}"
     pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${load}${RESET}  ${DIM}(1/5/15 min)${RESET}"
     pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${mem_used} MB / ${mem_total} MB  ${DIM}(${mem_pct}%)${RESET}"
-    pline_hw "$(_emu '⏱️')" "$(t sens_uptime)" "$uptime_str"
+    pline_hw "$(_emu '⏱')" "$(t sens_uptime)" "$uptime_str"
 }
 
 print_summary() {
@@ -1009,7 +1010,7 @@ print_report() {
     box "$(_emu '🧠')" "$(t sens_sys_overview)" print_system
     box "$(_emu '🔥')" "$(t sens_cpu_cores)" print_cpu
     box "$(_emu '🎮')" "$(t sens_gpu)" print_gpu
-    box "$(_emu '🌡️')" "$(t sens_acpi)" print_acpi
+    box "$(_emu '🌡')" "$(t sens_acpi)" print_acpi
     box "$(_emu '📡')" "$(t sens_thermal)" print_thermal_zones
     box "$(_emu '🔌')" "$(t sens_sensors)" print_network_temp
     box "$(_emu '💾')" "$(t sens_storage)" print_disks

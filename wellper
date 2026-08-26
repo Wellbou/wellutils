@@ -377,18 +377,18 @@ type_label() {
 
 icon_for() {
     case "$1" in
-        keyboard) printf '%s' "$(_ic '⌨️')" ;;
-        mouse)    printf '%s' "$(_ic '🖱️')" ;;
+        keyboard) printf '%s' "$(_ic '⌨')" ;;
+        mouse)    printf '%s' "$(_ic '🖱')" ;;
         tablet)   printf '%s' "$(_ic '🎨')" ;;
         gamepad)  printf '%s' "$(_ic '🎮')" ;;
         webcam)   printf '%s' "$(_ic '📷')" ;;
         audio)    printf '%s' "$(_ic '🎧')" ;;
-        printer)  printf '%s' "$(_ic '🖨️')" ;;
+        printer)  printf '%s' "$(_ic '🖨')" ;;
         phone)    printf '%s' "$(_ic '📱')" ;;
         network)  printf '%s' "$(_ic '📶')" ;;
         storage)  printf '%s' "$(_ic '💾')" ;;
         hub)      printf '%s' "$(_ic '🔌')" ;;
-        hid)      printf '%s' "$(_ic '⚙️')" ;;
+        hid)      printf '%s' "$(_ic '⚙')" ;;
         *)        printf '%s' "$(_ic '🔌')" ;;
     esac
 }
@@ -591,13 +591,28 @@ collect_displays() {
         IFS='|' read -r vend name <<< "$(read_edid "$d/edid")"
         name=$(clean_name "$name")
         [[ -z "$name" ]] && name="$conn"
-        # Extract physical size from EDID for PPI calculation
+        # Physical size from EDID: prefer the preferred-timing DTD image size
+        # (millimetre precision, bytes 66/67 + high nibbles in 68); fall back
+        # to the whole-centimetre screen-size fields (bytes 21/22).
         if [[ -r "$d/edid" ]]; then
-            local _ea _eb
+            local _ea _eb _mmw=0 _mmh=0 _mm_ok=0
             _ea=( $(od -An -v -tx1 "$d/edid" 2>/dev/null) )
             if (( ${#_ea[@]} >= 23 )); then
                 _eb=$(( 0x${_ea[21]} )); (( _eb > 0 )) && edid_w="$_eb"
                 _eb=$(( 0x${_ea[22]} )); (( _eb > 0 )) && edid_h="$_eb"
+            fi
+            if (( ${#_ea[@]} >= 69 )); then
+                _mmw=$(( (0x${_ea[68]} >> 4) * 256 + 0x${_ea[66]} ))
+                _mmh=$(( (0x${_ea[68]} & 15) * 256 + 0x${_ea[67]} ))
+                if (( _mmw > 100 && _mmh > 50 )); then
+                    edid_w=$_mmw; edid_h=$_mmh; _mm_ok=1
+                fi
+            fi
+            # Normalise to millimetres for the PPI math.
+            if [[ ! ( "$edid_w" =~ ^[0-9]+$ && "$edid_h" =~ ^[0-9]+$ ) ]]; then
+                edid_w="" edid_h=""
+            elif (( ! _mm_ok )); then
+                edid_w=$(( edid_w * 10 )); edid_h=$(( edid_h * 10 ))
             fi
         fi
         DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$mode") DISP_CONN+=("$(pretty_conn "$conn")")
@@ -629,7 +644,7 @@ render_displays() {
     for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
         local name="${DISP_NAME[$i]:-}" vend="${DISP_VEND[$i]:-}" mode="${DISP_MODE[$i]:-}" conn="${DISP_CONN[$i]:-}"
         [[ -z "$name" ]] && name="$(t per_unknown)"
-        pline "  $(_ic '🖥️')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
+        pline "  $(_ic '🖥')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
         local subs=() k
         [[ -n "$vend" ]] && subs+=( "$(t per_vendor): $(pnp_vendor "$vend")" )
         [[ -n "$conn" ]] && subs+=( "$(t per_interface): ${conn}" )
@@ -641,8 +656,10 @@ render_displays() {
             _ph=$(awk -F'x' '{print $2}' <<< "$mode")
             if [[ -n "$_pw" && -n "$_ph" && "$_ew" -gt 0 && "$_eh" -gt 0 ]]; then
                 local _ppi
-                _ppi=$(awk "BEGIN{printf \"%d\", (${_pw} / ${_ew} * 2.54 + ${_ph} / ${_eh} * 2.54) / 2}")
-                [[ -n "$_ppi" && "$_ppi" -gt 0 ]] && subs+=( "PPI: ${_ppi}" )
+                # Diagonal PPI; EDID sizes are millimetres here.
+                _ppi=$(awk -v pw="$_pw" -v ph="$_ph" -v ew="$_ew" -v eh="$_eh" \
+                    'BEGIN{ s=sqrt(ew*ew+eh*eh)/25.4; if (s>0) printf "%.1f", sqrt(pw*pw+ph*ph)/s }')
+                [[ "$_ppi" =~ ^[0-9]+\.[0-9]$ ]] && subs+=( "PPI: ${_ppi}" )
             fi
         fi
         for (( k = 0; k < ${#subs[@]}; k++ )); do
@@ -985,7 +1002,7 @@ main() {
                 ci=$(count_grp "$grp")
                 (( ci > 0 )) || continue
                 case "$grp" in
-                    in)    box "$(_ic '🖱️')" "$(t per_input) (${ci})" render_usb_in ;;
+                    in)    box "$(_ic '🖱')" "$(t per_input) (${ci})" render_usb_in ;;
                     media) box "$(_ic '📷')" "$(t per_media) (${ci})" render_usb_media ;;
                     other) box "$(_ic '🧩')" "$(t per_other) (${ci})" render_usb_other ;;
                 esac
@@ -994,7 +1011,7 @@ main() {
     fi
 
     if _s_has displays; then
-        box "$(_ic '🖥️')" "$(t per_displays) (${dcount})" render_displays
+        box "$(_ic '🖥')" "$(t per_displays) (${dcount})" render_displays
     fi
 
     if _s_has audio; then

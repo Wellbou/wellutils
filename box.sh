@@ -318,6 +318,13 @@ box() {
     fi
     local width
     width=$(_wu_maxw)
+    # The top border must fit icon + title too, otherwise long section
+    # titles get truncated and the frame turns asymmetric.
+    local _iw _tw _need
+    _iw=$(vislen "$icon")
+    _tw=$(vislen "$title")
+    _need=$(( _iw + _tw + 9 ))
+    (( width < _need )) && width=$_need
     box_top "$icon" "$title" "$width"
     for i in "${_LINES[@]}"; do box_row "$i" "$width"; done
     box_bottom "$width"

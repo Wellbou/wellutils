@@ -19,6 +19,7 @@ command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 else
@@ -66,11 +67,11 @@ _WU_EXTRA_HELP="      --no-logo, --text     text only, no logo
 wf_emoji() {
     case "$1" in
         user) _ic '◉' ;; os) _ic '◆' ;; kernel) _ic '◈' ;; uptime) _ic '◔' ;;
-        shell) _ic '🐚' ;; desktop) _ic '🪟' ;; wm) _ic '🎨' ;; terminal) _ic '⌨️' ;;
-        theme) _ic '🎭' ;; icons) _ic '🖌️' ;; font) _ic '🔠' ;; cpu) _ic '▚' ;;
+        shell) _ic '🐚' ;; desktop) _ic '🪟' ;; wm) _ic '🎨' ;; terminal) _ic '⌨' ;;
+        theme) _ic '🎭' ;; icons) _ic '🖌' ;; font) _ic '🔠' ;; cpu) _ic '▚' ;;
         gpu) _ic '▞' ;; mem) _ic '▤' ;; swap) _ic '🔁' ;; disk) _ic '💽' ;;
         disks) _ic '💿' ;; monitors) _ic '📺' ;; resolution) _ic '▣' ;;
-        audio) _ic '🎚️' ;; peripherals) _ic '🔌' ;; packages) _ic '📦' ;;
+        audio) _ic '🎚' ;; peripherals) _ic '🔌' ;; packages) _ic '📦' ;;
         locale) _ic '🌍' ;; date) _ic '📅' ;;
     esac
 }
@@ -394,11 +395,11 @@ wf_ptype() {
 
 wf_picon() {
     case "$1" in
-        keyboard) printf '⌨️' ;; mouse) printf '🖱️' ;; touchscreen) printf '👆' ;;
-        stylus) printf '✏️' ;; tablet) printf '🎨' ;;
+        keyboard) printf '⌨' ;; mouse) printf '🖱' ;; touchscreen) printf '👆' ;;
+        stylus) printf '✏' ;; tablet) printf '🎨' ;;
         gamepad) printf '🎮' ;; audio) printf '🎧' ;; webcam) printf '📷' ;;
-        printer) printf '🖨️' ;; storage) printf '💾' ;; network) printf '📶' ;;
-        phone) printf '📱' ;; hub) printf '🔌' ;; hid) printf '⚙️' ;;
+        printer) printf '🖨' ;; storage) printf '💾' ;; network) printf '📶' ;;
+        phone) printf '📱' ;; hub) printf '🔌' ;; hid) printf '⚙' ;;
         *) printf '🔌' ;;
     esac
 }
@@ -652,7 +653,7 @@ wf_logo_lines() {
         fi
     fi
     if [[ -f "$art" ]] && command -v python3 >/dev/null 2>&1 && [[ -f "$WF_LOGO" ]]; then
-        local cache_dir="${WF_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/wellutils}"
+        local cache_dir="${WF_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/wellutils}"
         local key="$(md5sum "$WF_LOGO" "$art" 2>/dev/null | md5sum | cut -d' ' -f1)"
         local cached="$cache_dir/logo-${lw}-${WF_KEY:-40}-${key}"
         if [[ -f "$cached" ]]; then
@@ -941,8 +942,8 @@ main() {
 # config override (function redefinitions or WF_VALUE_<sec>= overrides)
 if [[ -n "${WELLFETCH_CONFIG:-}" ]]; then
     [[ -f "$WELLFETCH_CONFIG" ]] && . "$WELLFETCH_CONFIG"
-elif [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/wellutils/wellfetch.conf" ]]; then
-    . "${XDG_CONFIG_HOME:-$HOME/.config}/wellutils/wellfetch.conf"
+elif [[ -f "${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/wellfetch.conf" ]]; then
+    . "${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/wellfetch.conf"
 fi
 
 wu_run main "$@"

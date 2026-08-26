@@ -266,8 +266,8 @@ wblock_detail() {
     box_header "$(_emu '💾')" "wellblock" "$devnode"
 
     box "$(_emu '📊')" "$(t blk_detail)" detail_info
-    box "$(_emu '🗂️')" "$(t blk_parts)" detail_parts
-    box "$(_emu '🛡️')" "$(t blk_smart)" wblock_smart
+    box "$(_emu '🗂')" "$(t blk_parts)" detail_parts
+    box "$(_emu '🛡')" "$(t blk_smart)" wblock_smart
 
     printf '\n  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
@@ -313,7 +313,7 @@ detail_info() {
     pline_hw "$(_emu '🔢')" "$(t blk_serial)" "${serial:-$(t blk_smart_unknown)}"
     [[ -n "$fwrev" ]] && pline_hw "$(_emu '📝')" "$(t blk_firmware)" "$fwrev"
     pline_hw "$(_emu '📏')" "$(t blk_size)" "$size_human"
-    pline_hw "$(_emu '🏷️')" "$(t blk_type)" "$type_color$type_label$RESET"
+    pline_hw "$(_emu '🏷')" "$(t blk_type)" "$type_color$type_label$RESET"
     [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}" || true
 }
 
@@ -631,7 +631,7 @@ main() {
 
         local type_icon type_label type_color
         if [[ "$removable" == "1" ]]; then
-            type_icon="$(_emu '⏏️')"
+            type_icon="$(_emu '⏏')"
             type_label="$(t blk_removable)"
             type_color="$M"
         elif [[ "$rotational" == "0" ]]; then

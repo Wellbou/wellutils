@@ -5,6 +5,7 @@ set -euo pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellcpu" _WU_NAME="WellCPU" _WU_VERSION="1.0"
+_WU_SHORT_OK=1
 _WU_TAGLINE="Beautiful CPU overview (topology, load, frequencies)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
@@ -59,6 +60,7 @@ core_loads() {
             cpu[0-9]*)
                 set -- $line
                 c=$1; shift
+                while (( $# < 8 )); do set -- "$@" 0; done
                 idle=$(( $4 + $5 ))
                 total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
                 t0[$((10#${c#cpu}))]="$idle $total" ;;
@@ -71,6 +73,7 @@ core_loads() {
             cpu[0-9]*)
                 set -- $line
                 c=$1; shift
+                while (( $# < 8 )); do set -- "$@" 0; done
                 idle=$(( $4 + $5 ))
                 total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
                 local idx=$((10#${c#cpu}))
@@ -133,9 +136,9 @@ print_cpu_info() {
     [[ -n "$virt" ]] && virt="$virt ($vtx)" || virt="$vtx"
 
     pline_hw "$(_emu '🧠')" "$(t cpu_model)" "$model"
-    pline_hw "$(_emu '🏛️')" "$(t cpu_arch)" "$arch"
+    pline_hw "$(_emu '🏛')" "$(t cpu_arch)" "$arch"
     pline_hw "$(_emu '🧩')" "$(t cpu_sockets)" "$sockets"
-    pline_hw "$(_emu '⚙️')" "$(t cpu_cores)" "$cores"
+    pline_hw "$(_emu '⚙')" "$(t cpu_cores)" "$cores"
     pline_hw "$(_emu '🔗')" "$(t cpu_threads)" "$threads"
 
     local freq_txt=""
@@ -193,9 +196,9 @@ print_cpu_info() {
         pline_hw "$(_emu '💡')" "$(t cpu_features)" "${feat_txt% }"
     fi
 
-    [[ -n "$virt" ]] && pline_hw "$(_emu '🛡️')" "$(t cpu_virt)" "$virt"
-    [[ "$flags" == *hypervisor* ]] && pline_hw "$(_emu '☁️')" "$(t cpu_hv)" "$hv_label"
-    [[ -n "$gov" ]] && pline_hw "$(_emu '🎚️')" "$(t cpu_governor)" "$gov" || true
+    [[ -n "$virt" ]] && pline_hw "$(_emu '🛡')" "$(t cpu_virt)" "$virt"
+    [[ "$flags" == *hypervisor* ]] && pline_hw "$(_emu '☁')" "$(t cpu_hv)" "$hv_label"
+    [[ -n "$gov" ]] && pline_hw "$(_emu '🎚')" "$(t cpu_governor)" "$gov" || true
 }
 
 print_cpu_load() {
@@ -325,13 +328,13 @@ json_out() {
 # ─── Main ────────────────────────────────────────────────────────
 short_out() {
     local a b
-    a=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || a=""
+    a=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || a=""
     [[ -n "$a" ]] || { printf -- '-\n'; return 0; }
     sleep 0.3
-    b=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || b=""
+    b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || b=""
     [[ -n "$b" ]] || { printf -- '-\n'; return 0; }
     local d_all=$(( ${b%% *} - ${a%% *} )) d_busy=$(( ${b#* } - ${a#* } ))
-    (( d_all > 0 )) || { printf '0%\n'; return 0; }
+    (( d_all > 0 )) || { printf '0%%\n'; return 0; }
     local pct=$(( d_busy * 100 / d_all ))
     (( pct < 0 )) && pct=0
     (( pct > 100 )) && pct=100
@@ -344,7 +347,7 @@ main() {
 
     box_header "$(_emu '🧠')" "wellcpu" "$(t cpu_title)"
 
-    box "$(_emu '⚙️')" "$(t cpu_summary)" print_cpu_info
+    box "$(_emu '⚙')" "$(t cpu_summary)" print_cpu_info
     box "$(_emu '📈')" "$(t cpu_load)" print_cpu_load
 
     printf '\n  %sWellCPU v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
