@@ -1,0 +1,18 @@
+#compdef whtml
+# zsh completion for whtml
+# Part of wellutils by wellbou_
+
+_whtml() {
+    _arguments -S \
+        --help[show help] \
+        --version[show version] \
+        '--output=[save HTML to file]:file:_files' \
+        --open[force open in browser] \
+        --no-open[do not auto-open in browser] \
+        '--ai[optional AI analysis (needs WHTML_AI_ENDPOINT)]' \
+        --no-ai[disable AI] \
+        '--lang=[output language]: :(ru en auto)' \
+        --debug[verbose on stderr (WHTML_DEBUG=1)]
+}
+
+_whtml "$@"

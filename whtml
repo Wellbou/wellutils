@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# whtml -- Rich HTML system report with AI enrichment
+# whtml -- Rich, self-contained HTML system report (offline, read-only)
 # Part of wellutils by wellbou_
+#
+# INVARIANT: this tool makes NO network requests by default. The only way it
+# ever contacts a server is the OPTIONAL, OFF-BY-DEFAULT AI enrichment, which
+# requires the user to supply their own endpoint (WHTML_AI_ENDPOINT) and pass
+# --ai. No endpoint is hardcoded. See the wellutils README ("AI enrichment").
 set -o pipefail
 
 # ─── Shared libs ────────────────────────────────────────────────
-_WU_TOOLNAME="whtml" _WU_NAME="WellHTML" _WU_VERSION="1.0"
-_WU_TAGLINE="Rich HTML system report with AI enrichment"
+_WU_TOOLNAME="whtml" _WU_NAME="whtml" _WU_VERSION="1.2"
+_WU_TAGLINE="Rich, self-contained HTML system report (offline)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 
-_WU_EXTRA_HELP="      --output FILE           save HTML to FILE (default: /tmp/wellreport.html)
-      --no-ai                 skip AI enrichment
+_WU_EXTRA_HELP="      --output FILE           save HTML to FILE (default: ~/wellreport.html)
       --no-open               do not auto-open in browser
-      --no-cache              do not use cached AI descriptions"
+      --open                  force open in browser
+      --ai                    optional AI analysis (needs WHTML_AI_ENDPOINT; OFF by default)"
 _WU_EXTRA_PARSE=whtml_extra_parse
 _WU_EXTRA_CONSUMED=0
 
-_WHTML_OUTPUT="/tmp/wellreport.html"
-_WHTML_AI=1
+_WHTML_OUTPUT="${HOME:-/tmp}/wellreport.html"
 _WHTML_OPEN=1
-_WHTML_CACHE=1
-_WHTML_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/wellutils"
-_WHTML_CACHE_FILE="$_WHTML_CACHE_DIR/whtml_ai.json"
-_WHTML_CACHE_TTL_DAYS=30
-_WHTML_TMP=""
+_WWHTML_AI=0
 
 whtml_extra_parse() {
     case "$1" in
@@ -32,27 +32,39 @@ whtml_extra_parse() {
             [[ $# -ge 2 ]] || { printf '%s: --output needs a file path\n' "$_WU_TOOLNAME" >&2; exit 2; }
             _WHTML_OUTPUT="$2"; _WU_EXTRA_CONSUMED=2; return 0 ;;
         --output=*) _WHTML_OUTPUT="${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
-        --no-ai) _WHTML_AI=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --no-open) _WHTML_OPEN=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
-        --no-cache) _WHTML_CACHE=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --open) _WHTML_OPEN=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --ai) _WHTML_AI=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --no-ai) _WHTML_AI=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
     esac
     return 1
 }
 
-# ─── Helpers ────────────────────────────────────────────────────
-_whtml_log() { [[ "${WHXML_DEBUG:-0}" == 1 ]] && printf '  [whtml] %s\n' "$*" >&2 || true; }
+# ─── Help ───────────────────────────────────────────────────────
+_whtml_show_help() {
+    cat <<EOF
+$_WU_NAME $_WU_VERSION - $_WU_TAGLINE
 
-_whtml_tool() {
-    local out rc
-    out="$("$@" --json 2>/dev/null)" && rc=0 || rc=$?
-    if [[ -z "$out" ]] || ! printf '%s' "$out" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
-        out='{}'
-    fi
-    printf '%s' "$out"
+Usage: $_WU_TOOLNAME [options]
+
+  --output FILE   save HTML to FILE (default: ~/wellreport.html)
+  --no-open       do not auto-open the report in a browser
+  --open          force open in browser
+  --ai            OPTIONAL AI analysis. Requires WHTML_AI_ENDPOINT to be set
+                  (bring-your-own endpoint, OpenAI-compatible). OFF by default;
+                  without it this tool makes zero network requests.
+  --help, -h      this help
+  --version, -V   print version
+
+Collects data from the wellutils suite via their --json output and renders a
+single self-contained HTML file (no external resources, no network access).
+EOF
 }
 
+# ─── Helpers ────────────────────────────────────────────────────
+_whtml_log() { [[ "${WHTML_DEBUG:-0}" == 1 ]] && printf '  [whtml] %s\n' "$*" >&2 || true; }
+
 _whtml_collect_json() {
-    # $1 = path   rest = command (tool must support --json)
     local path="${1:-}"; shift || true
     local out
     out="$("$@" --json 2>/dev/null)" || out=''
@@ -70,545 +82,493 @@ _whtml_host() {
     else
         os="Linux"
     fi
-    ker="$(uname -r 2>/dev/null)"
-    ver="$(uname -m 2>/dev/null)"
-    python3 -c "
-import json,sys
-print(json.dumps({'host':sys.argv[1],'os':sys.argv[2],'kernel':sys.argv[3],'arch':sys.argv[4]}))
-" "$host" "$os" "$ker" "$ver"
+    ker="$(uname -r 2>/dev/null)"; ver="$(uname -m 2>/dev/null)"
+    python3 -c "import json,sys;print(json.dumps({'host':sys.argv[1],'os':sys.argv[2],'kernel':sys.argv[3],'arch':sys.argv[4]}))" "$host" "$os" "$ker" "$ver"
 }
 
-# ─── Web research (keyless DuckDuckGo HTML) ─────────────────────
-_whtml_websearch() {
-    local q="$1" html hits=""
-    local ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    for attempt in 1 2 3; do
-        html="$(curl -sS --max-time 15 -A "$ua" "https://html.duckduckgo.com/html/?q=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$q")" 2>/dev/null)" || true
-        [[ -z "$html" ]] && { sleep 1; continue; }
-        hits="$(printf '%s' "$html" | python3 -c "
-import sys,re,html as H
-t=sys.stdin.read()
-snips=re.findall(r'class=\"result__snippet\"[^>]*>(.*?)</a>', t, re.S)
-out=[]
-for s in snips[:4]:
-    s=re.sub(r'<[^>]+>','',s); s=H.unescape(s).strip()
-    if s: out.append(s)
-print(' | '.join(out))
-" 2>/dev/null)" || true
-        [[ -n "$hits" ]] && break
-        sleep 1
-    done
-    printf '%s' "$hits"
-}
-
-# ─── AI enrichment ───────────────────────────────────────────────
-_whtml_signature() {
-    local sig
-    sig="$(python3 - "$_WHTML_TMP/cpu.json" "$_WHTML_TMP/gpu.json" "$_WHTML_TMP/board.json" "$_WHTML_TMP/mem.json" "$_WHTML_TMP/block.json" "$_WHTML_TMP/sensors.json" "$_WHTML_TMP/doctor.json" "$_WHTML_TMP/per.json" "$_WHTML_TMP/net.json" << 'PYEOF'
-import hashlib, json, sys
-h=hashlib.sha256()
-for p in sys.argv[1:]:
-    try:
-        d=json.load(open(p))
-        h.update(json.dumps(d,sort_keys=True).encode())
-    except Exception:
-        h.update(b'null')
-print(h.hexdigest()[:16])
-PYEOF
-)"
-    printf '%s' "$sig"
-}
-
-_whtml_cache_get() {
-    [[ "$_WHTML_CACHE" == 1 && -f "$_WHTML_CACHE_FILE" ]] || return 0
-    python3 - "$_WHTML_CACHE_FILE" "$1" "$_WHTML_CACHE_TTL_DAYS" << 'PYEOF'
-import json, sys, time
-f, key, ttl = sys.argv[1], sys.argv[2], int(sys.argv[3])
-try:
-    db = json.load(open(f))
-except Exception:
-    sys.exit(0)
-e = db.get(key)
-if not e: sys.exit(0)
-if time.time() - e.get('ts', 0) > ttl*86400:
-    sys.exit(0)
-print(json.dumps(e.get('data', {}), ensure_ascii=False))
-PYEOF
-}
-
-_whtml_cache_put() {
-    mkdir -p "$_WHTML_CACHE_DIR"
-    python3 - "$_WHTML_CACHE_FILE" "$1" "$2" << 'PYEOF'
-import json, sys, time
-f, key, data = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    db = json.load(open(f))
-except Exception:
-    db = {}
-db[key] = {'ts': time.time(), 'data': json.loads(data)}
-json.dump(db, open(f, 'w'), ensure_ascii=False)
-PYEOF
-}
-
+# ─── Optional, OFF-BY-DEFAULT AI enrichment ─────────────────────
+# Endpoint is BYO (no default). Context is sanitized (MAC/hostname/serial out).
+# Failure never breaks the report. Uses python urllib (no curl/wget).
 _whtml_ai_enrich() {
-    local lang="$1"
-    local ep="https://opencode.ai/zen/v1/chat/completions"
+    local endpoint="${WHTML_AI_ENDPOINT:-}"
+    local model="${WHTML_AI_MODEL:-}"
+    if [[ -z "$endpoint" ]]; then
+        echo "whtml: --ai: WHTML_AI_ENDPOINT is not set; skipping AI (staying offline)." >&2
+        return 0
+    fi
+    _whtml_log "AI enrichment -> $endpoint"
+    python3 - "$_WHTML_TMP" "$endpoint" "$model" "$WELLUTILS_LANG" << 'PYEOF'
+import json, os, sys, urllib.request, urllib.error
 
-    local web="" cpu_name gpu_name board_name
-    cpu_name="$(python3 -c "import json;d=json.load(open('$_WHTML_TMP/cpu.json'));print(d.get('model','') or '')" 2>/dev/null)"
-    gpu_name="$(python3 -c "import json;d=json.load(open('$_WHTML_TMP/gpu.json'));print(d.get('name','') or '')" 2>/dev/null)"
-    board_name="$(python3 -c "import json;d=json.load(open('$_WHTML_TMP/board.json'));print((d.get('vendor','')+' '+d.get('name','')).strip())" 2>/dev/null)"
-    [[ -n "$gpu_name" ]] && web+="GPU: $gpu_name. "
-    [[ -n "$cpu_name" ]] && web+="CPU: $cpu_name. "
-    [[ -n "$board_name" ]] && web+="Motherboard: $board_name."
-    local research=""
-    [[ -n "$web" ]] && research="$(_whtml_websearch "$web specifications architecture")"
-    printf '%s' "$research" > "$_WHTML_TMP/web.txt"
-    _whtml_log "web research: ${research:0:80}..."
+tmp, endpoint, model, lang = sys.argv[1:5]
 
-    python3 - "$_WHTML_TMP" "$lang" "$ep" "$research" << 'PYEOF'
-import json, os, sys, re, subprocess
+# Recursively strip identifying fields from the context.
+import re as _re
+_BAD = ("mac", "serial", "serial_number", "hostname", "host", "uuid", "uuid_",
+        "addr", "address", "ip", "ipv4", "ipv6", "inet", "local", "gateway", "dns")
+_IPRE = _re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+def strip(o):
+    if isinstance(o, dict):
+        return {k: strip(v) for k, v in o.items() if k.lower() not in _BAD}
+    if isinstance(o, list):
+        return [strip(x) for x in o]
+    if isinstance(o, str):
+        return _IPRE.sub("<ip>", o)
+    return o
 
-tmpdir, lang, ep, research = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+def load(name):
+    try:
+        d = json.load(open(os.path.join(tmp, name)))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
 
-def j(n):
-    try: return json.load(open(os.path.join(tmpdir, n)))
-    except Exception: return {}
-
-cpu = j('cpu.json'); gpu = j('gpu.json') or {}; board = j('board.json') or {}
-mem = j('mem.json') or {}; block = j('block.json') or {}; sensors = j('sensors.json') or {}
-doctor = j('doctor.json') or {}; per = j('per.json') or {}; net = j('net.json') or {}
-host = j('host.json') or {}
-
-def f(d, *ks):
-    cur = d
-    for k in ks:
-        if isinstance(cur, dict) and k in cur: cur = cur[k]
-        else: return None
-    return cur
-
-def gb(kb):
-    try: return round(int(kb)/1e6, 1)
-    except Exception: return None
-
-ctx = {
-    "language": lang,
-    "host": host,
-    "cpu": {
-        "model": f(cpu,'model') or f(cpu,'name'),
-        "cores": f(cpu,'cores'), "threads": f(cpu,'threads'),
-        "sockets": f(cpu,'sockets'),
-        "temps_c": [c.get('temp_c') for c in (f(sensors,'cpu_cores') or [])],
-        "load": f(sensors,'system','load'),
-    },
-    "gpu": {
-        "name": gpu.get('name'),
-        "temp_c": f(sensors,'gpu',0,'temp_c'),
-        "fan_percent": f(sensors,'gpu',0,'fan_percent'),
-        "power_w": f(sensors,'gpu',0,'power_w'),
-        "utilization_percent": f(sensors,'gpu',0,'utilization_percent'),
-        "cooler_note": "MSI Twin Frozr dual-fan cooler (0% fan at idle is normal for this design)",
-    },
-    "board": {"vendor": f(board,'vendor'), "model": f(board,'name') or f(board,'model'), "bios": f(board,'bios','version') or f(board,'bios')},
-    "memory": {"total_gb": gb(f(mem,'total_kb')), "used_gb": gb(f(mem,'used_kb')),
-               "type": f(mem,'type'), "slots": f(mem,'slots')},
-    "storage": {
-        "drives": [
-            {"name": d.get('name'), "model": d.get('model'),
-             "size_gb": round(d.get('size_bytes',0)/1e9,1) if d.get('size_bytes') else None,
-             "type": d.get('type'), "rotational": d.get('rotational')}
-            for d in (f(block,'disks') or [])
-        ]
-    },
-    "sensors": {"cpu_cores": f(sensors,'cpu_cores'), "gpu": f(sensors,'gpu'), "system": f(sensors,'system')},
-    "health_checks": [
-        {"check": c.get('check'), "status": c.get('status'), "detail": str(c.get('detail'))}
-        for c in (doctor.get('checks') or [])
-    ],
-    "peripherals": {
-        "usb_count": len(per.get('usb', []) or []),
-        "usb": [{"name": u.get('name'), "vendor": u.get('vendor'), "class": u.get('class')} for u in (per.get('usb') or [])[:12]],
-        "displays": [{"name": d.get('name'), "resolution": d.get('resolution'), "refresh_hz": d.get('refresh_rate') or d.get('refresh')} for d in (per.get('displays') or [])],
-        "audio": [{"name": a.get('name'), "driver": a.get('driver')} for a in (per.get('audio') or [])],
-        "pci": [{"name": p.get('name'), "class": p.get('class')} for p in (per.get('pci') or [])[:14]],
-    },
-    "network": [{"name": i.get('name'), "state": i.get('state'), "kind": i.get('kind'), "mac": i.get('mac'), "speed_mbps": i.get('speed_mbps')} for i in (net.get('interfaces') or [])],
-    "web_research": research,
+data = {
+    "host": strip(load("host.json")),
+    "cpu": strip(load("cpu.json")),
+    "gpu": strip(load("gpu.json")),
+    "board": strip(load("board.json")),
+    "memory": strip(load("mem.json")),
+    "network": strip(load("net.json")),
+    "peripherals": strip(load("per.json")),
+    "sensors": strip(load("sensors.json")),
+    "health": strip(load("doctor.json")),
+    "block": strip(load("block.json")),
 }
 
-SYSTEM = f"""You are a hardware analysis assistant embedded in the wellutils Linux toolkit (wellhw, wellsensors, welldoctor, wellnet, wellper, wellblock, wellpower, wellfetch).
-Write concise, factual, human-readable descriptions of each component and what the numbers imply for THIS machine.
-The user's language is {lang}. Write everything in {lang}.
-You may use the provided web_research to explain model families, architectures and cooler designs.
-Domain knowledge you may rely on:
-- MSI GeForce GTX 1050 Ti uses MSI's Twin Frozr dual-fan cooler; 0% fan at idle is NORMAL and indicates an efficient, quiet cooler, not a fault.
-- Intel Xeon E3-1230 V2 is an Ivy Bridge (2012) server-class CPU with no integrated graphics.
-- MSI PH61A-P35 is an H61 chipset ATX motherboard.
-- A S.M.A.R.T. 'critical' status on a drive means imminent failure risk - advise backup.
-Be specific about THIS hardware. Mention significance (cooler behaviour, upgrade paths, bottlenecks). Keep each description 1-3 sentences.
-Output ONLY a JSON object (no markdown, no code fences) with exactly these keys:
-cpu_desc, gpu_desc, board_desc, ram_desc, storage_desc, periph_desc, net_desc, thermal_desc, health_desc, summary.
-Each value is a string in {lang}."""
+system = ("You are a concise senior sysadmin writing short hardware report notes. "
+          "Return ONLY a JSON object with these keys, each a 1-2 sentence note in "
+          + ("Russian" if lang == "RU" else "English")
+          + ": overview, cpu, gpu, memory, disks, peripherals, network, thermal, "
+            "health, full. Do not invent numbers; comment only on what the data shows. "
+            "Note that 0% fan at idle is normal on zero-RPM coolers.")
 
-USER = "System context (JSON):\n" + json.dumps(ctx, ensure_ascii=False, indent=1)
+user = "Analyze this sanitized hardware summary:\n" + json.dumps(data, ensure_ascii=False)[:6000]
 
 payload = {
-    "model": "hy3-free",
+    "model": model or "local-model",
     "messages": [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": USER},
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
     ],
-    "temperature": 0.4,
-    "max_tokens": 2000,
-    "reasoning_effort": "none",
+    "max_tokens": 900,
+    "temperature": 0.3,
 }
-
-req_path = os.path.join(tmpdir, 'ai_req.json')
-with open(req_path, 'w') as fp:
-    json.dump(payload, fp, ensure_ascii=False)
-
+req = urllib.request.Request(
+    endpoint,
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
+)
 try:
-    proc = subprocess.run(
-        ["curl", "-sS", "--max-time", "150", "-H", "Content-Type: application/json",
-         "--data", "@" + req_path, ep],
-        capture_output=True, text=True, timeout=160,
-    )
-    resp = json.loads(proc.stdout)
+    with urllib.request.urlopen(req, timeout=40) as r:
+        resp = json.loads(r.read().decode())
     content = resp["choices"][0]["message"]["content"]
-except Exception as e:
-    sys.stderr.write("AI request failed: %r\n" % e)
-    content = ""
-
-data = {}
-if content:
-    m = re.search(r"\{.*\}", content, re.DOTALL)
-    if m:
-        try:
-            data = json.loads(m.group(0))
-        except Exception as e:
-            sys.stderr.write("AI parse failed: %r\n" % e)
-
-if not data:
-    data = {k: "" for k in ["cpu_desc","gpu_desc","board_desc","ram_desc","storage_desc",
-                            "periph_desc","net_desc","thermal_desc","health_desc","summary"]}
-
-with open(os.path.join(tmpdir, 'ai.json'), 'w') as fp:
-    json.dump(data, fp, ensure_ascii=False, indent=2)
+    ai = json.loads(content)
+    json.dump(ai, open(os.path.join(tmp, "ai.json"), "w"), ensure_ascii=False)
+except Exception as ex:
+    sys.stderr.write("whtml: AI enrichment failed (%s); continuing without it.\n" % ex)
 PYEOF
 }
 
 # ─── HTML generation ────────────────────────────────────────────
 _whtml_generate() {
-    python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$_WHTML_AI" "$WELLUTILS_LANG" << 'PYEOF'
+    python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" << 'PYEOF'
 import json, os, html as h, sys
 
-tmpdir, ts, wu_ver, ai_enabled_s, lang = sys.argv[1:6]
-ai_enabled = ai_enabled_s == '1'
+tmpdir, ts, wu_ver, lang = sys.argv[1:5]
 
 def load(name):
-    try: return json.load(open(os.path.join(tmpdir, name)))
-    except Exception: return {}
-
-host = load('host.json') or {}
-cpu = load('cpu.json') or {}; gpu = load('gpu.json') or {}; board = load('board.json') or {}
-mem = load('mem.json') or {}; net = load('net.json') or {}; per = load('per.json') or {}
-sensors = load('sensors.json') or {}; doctor = load('doctor.json') or {}; block = load('block.json') or {}
-
-ai = {}
-if ai_enabled:
     try:
-        af = os.path.join(tmpdir, 'ai.json')
-        if os.path.exists(af):
-            ai = load('ai.json')
+        d = json.load(open(os.path.join(tmpdir, name)))
+        return d if isinstance(d, dict) else {}
     except Exception:
-        pass
+        return {}
 
-def e(s):
-    return h.escape(str(s)) if s not in (None, '') else ''
+def run():
+    host = load('host.json'); cpu = load('cpu.json'); gpu = load('gpu.json')
+    board = load('board.json'); mem = load('mem.json'); net = load('net.json')
+    per = load('per.json'); sensors = load('sensors.json')
+    doctor = load('doctor.json'); block = load('block.json')
+    try:
+        ai = json.load(open(os.path.join(tmpdir, 'ai.json')))
+    except Exception:
+        ai = {}
 
-def row(lbl, val, cls=''):
-    c = f' class="{cls}"' if cls else ''
-    return f'<tr><td class="lbl">{e(lbl)}</td><td{c}>{e(val)}</td></tr>'
+    def e(s):
+        return h.escape(str(s)) if s not in (None, '') else ''
 
-def airow(key, default=''):
-    v = e(ai.get(key, '')) or e(default)
-    if not v: return ''
-    return f'<tr><td class="lbl"><span class="ai-badge">AI</span></td><td class="desc">{v}</td></tr>'
+    def row(lbl, val, cls=''):
+        c = f' class="{cls}"' if cls else ''
+        return f'<tr><td class="lbl">{e(lbl)}</td><td{c}>{e(val)}</td></tr>'
 
-def badge(status):
-    s = (status or '').lower()
-    cls = 'ok' if s == 'ok' else ('warn' if s == 'warning' else ('crit' if s in ('critical','fail','failed') else 'info'))
-    label = {'ok':'OK','warning':'WARN','critical':'CRIT','fail':'FAIL','failed':'FAIL','info':'INFO'}.get(s.upper(), (status or '').upper())
-    return f'<span class="badge {cls}">{e(label)}</span>'
+    def airow(key):
+        t = ai.get(key) if isinstance(ai, dict) else None
+        if not t:
+            return ''
+        return f'<tr><td class="lbl ai">AI</td><td class="ai">{e(t)}</td></tr>'
 
-TR = {
- 'RU': ['Обзор','Процессор','Видеокарта','Память','Диски и S.M.A.R.T.','Периферия','Сеть','Температуры','Здоровье','ИИ-анализ'],
- 'EN': ['Overview','CPU','GPU','Memory','Disks & S.M.A.R.T.','Peripherals','Network','Thermal','Health','AI Analysis'],
+    def badge(status):
+        s = (status or '').lower()
+        cls = 'ok' if s == 'ok' else ('warn' if s == 'warning' else ('crit' if s in ('critical','fail','failed') else 'info'))
+        label = {'ok':'OK','warning':'WARN','critical':'CRIT','fail':'FAIL','failed':'FAIL','info':'INFO'}.get(s.upper(), (status or '').upper())
+        return f'<span class="badge {cls}">{e(label)}</span>'
+
+    TR = {
+     'RU': ['Обзор','Процессор','Видеокарта','Память','Диски и S.M.A.R.T.','Периферия','Сеть','Температуры','Здоровье'],
+     'EN': ['Overview','CPU','GPU','Memory','Disks & S.M.A.R.T.','Peripherals','Network','Thermal','Health'],
+    }
+    L = TR.get(lang, TR['EN'])
+    R = lambda ru, en: (ru if lang == 'RU' else en)
+
+    def gv(d, *ks):
+        cur = d
+        for k in ks:
+            if isinstance(cur, dict) and k in cur: cur = cur[k]
+            else: return None
+        return cur
+
+    # ── Tab 0: Overview ──
+    t0 = [airow('overview')]
+    t0.append(row(R('Имя хоста','Hostname'), host.get('host','')))
+    t0.append(row(R('ОС','OS'), f"{host.get('os','')} {host.get('arch','')}".strip()))
+    t0.append(row(R('Ядро','Kernel'), host.get('kernel','')))
+    t0.append(row(R('Время работы','Uptime'), gv(sensors,'system','uptime') or gv(cpu,'uptime') or ''))
+    t0.append(row(R('Процессор','CPU'), gv(cpu,'model') or gv(cpu,'name') or ''))
+    t0.append(row(R('Видеокарта','GPU'), gpu.get('name','') or gv(sensors,'gpu',0,'name') or ''))
+    tk = gv(mem,'total_kb'); mem_gb = (round(tk/1e6,1) if tk else (gv(mem,'total_gb') or '')) if isinstance(mem, dict) else ''
+    t0.append(row(R('Память','Memory'), (f"{mem_gb} ГБ" if mem_gb else '')))
+
+    # ── Tab 1: CPU ──
+    t1 = [airow('cpu')]
+    t1.append(row(R('Модель','Model'), gv(cpu,'model') or gv(cpu,'name') or ''))
+    t1.append(row(R('Сокет','Socket'), gv(cpu,'sockets') or ''))
+    t1.append(row(R('Ядра / потоки','Cores / threads'), f"{gv(cpu,'cores') or '?'} / {gv(cpu,'threads') or '?'}" if (gv(cpu,'cores') or gv(cpu,'threads')) else ''))
+    t1.append(row(R('Макс. частота','Max freq'), gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz') or ''))
+    t1.append(row(R('Загрузка','Load avg'), gv(sensors,'system','load') or ''))
+    cores = gv(sensors,'cpu_cores') or []
+    if cores:
+        t1.append(f'<tr><td class="lbl">{R("Температуры ядер","Core temps")}</td><td><table class="mini">')
+        for c in cores:
+            t1.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
+        t1.append('</table></td></tr>')
+
+    # ── Tab 2: GPU ──
+    gp = gv(sensors,'gpu')
+    if isinstance(gp, list): gp = gp[0] if gp else {}
+    if not isinstance(gp, dict): gp = {}
+    t2 = [airow('gpu')]
+    t2.append(row(R('Модель','Model'), gpu.get('name','') or gp.get('name','')))
+    t2.append(row(R('Драйвер','Driver'), gpu.get('driver','') or gp.get('driver','')))
+    vram = gpu.get('vram_total_mib') or gp.get('vram_total_mib')
+    t2.append(row(R('Память','VRAM'), f"{vram} МБ" if vram else ''))
+    t2.append(row(R('Температура','Temp'), f"{gp.get('temp_c')}°C" if gp.get('temp_c') is not None else ''))
+    t2.append(row(R('Вентилятор','Fan'), f"{gp.get('fan_percent')}%" if gp.get('fan_percent') is not None else ''))
+    t2.append(row(R('Энергопотребление','Power'), f"{gp.get('power_w')} Вт" if gp.get('power_w') is not None else ''))
+    t2.append(row(R('Загрузка','Utilization'), f"{gp.get('utilization_percent')}%" if gp.get('utilization_percent') is not None else ''))
+    t2.append(row(R('Частоты','Clocks'), f"GPU {gp.get('clock_gpu_mhz') or '?'} МГц / MEM {gp.get('clock_mem_mhz') or '?'} МГц"))
+
+    # ── Tab 3: Memory ──
+    t3 = [airow('memory')]
+    if isinstance(mem, dict):
+        tk = gv(mem,'total_kb'); uk = gv(mem,'used_kb')
+        tg = round(tk/1e6,1) if tk else (gv(mem,'total_gb') or '')
+        ug = round(uk/1e6,1) if uk else ''
+        t3.append(row(R('Всего','Total'), (f"{tg} ГБ" if tg else '')))
+        t3.append(row(R('Тип','Type'), gv(mem,'type') or ''))
+        t3.append(row(R('Использовано','Used'), (f"{ug} / {tg} ГБ" if (ug and tg) else '')))
+        slots = gv(mem,'slots') or []
+        if isinstance(slots, list) and slots:
+            t3.append(f'<tr><td class="lbl">{R("Слоты","Slots")}</td><td><table class="mini">')
+            for s in slots:
+                if isinstance(s, dict):
+                    t3.append(f'<tr><td>{e(s.get("bank","") or s.get("locator",""))}</td><td>{e(s.get("size_gb") or s.get("size_mb") or "")}</td><td>{e(s.get("type",""))}</td></tr>')
+            t3.append('</table></td></tr>')
+    else:
+        t3.append(row('', R('Нет данных','No data')))
+
+    # ── Tab 4: Disks & S.M.A.R.T. ──
+    t4 = [airow('disks')]
+    disks = gv(block,'disks') or []
+    smart = {}
+    for c in (doctor.get('checks') or []):
+        ck = c.get('check','')
+        if ck.startswith('smart_'):
+            smart[ck.replace('smart_','')] = c.get('status')
+    for d in disks:
+        nm = d.get('name','')
+        size = d.get('size_bytes')
+        size_s = f"{size/1e9:.0f} ГБ" if size else ''
+        t4.append(row(nm, f"{d.get('model','')} - {size_s} ({d.get('type','')})"))
+        st = smart.get(nm)
+        if st:
+            t4.append(f'<tr><td class="lbl">S.M.A.R.T.</td><td>{badge(st)} {e(str(d.get("detail","")).strip())}</td></tr>')
+        parts = d.get('partitions') or []
+        if parts:
+            t4.append('<tr><td class="lbl">Разделы</td><td><table class="mini">')
+            for p in parts:
+                t4.append(f'<tr><td>{e(p.get("name",""))}</td><td>{e(p.get("fs_type",""))}</td><td>{e(p.get("mountpoint",""))}</td></tr>')
+            t4.append('</table></td></tr>')
+    if not disks:
+        t4.append(row('', '-'))
+
+    # ── Tab 5: Peripherals ──
+    t5 = [airow('peripherals')]
+    usb = per.get('usb') or []
+    if usb:
+        t5.append(f'<tr><td class="lbl">USB ({len(usb)})</td><td><table class="mini">')
+        for u in usb[:16]:
+            t5.append(f'<tr><td>{e(u.get("name",""))}</td><td>{e(u.get("vendor",""))}</td><td class="muted">{e(u.get("class",""))}</td></tr>')
+        t5.append('</table></td></tr>')
+    disp = per.get('displays') or []
+    if disp:
+        t5.append(f'<tr><td class="lbl">{R("Дисплеи","Displays")}</td><td><table class="mini">')
+        for dd in disp:
+            t5.append(f'<tr><td>{e(dd.get("name",""))}</td><td>{e(dd.get("resolution",""))}</td><td>{e(dd.get("refresh_rate") or dd.get("refresh") or "")} Гц</td></tr>')
+        t5.append('</table></td></tr>')
+    aud = per.get('audio') or []
+    if aud:
+        t5.append(f'<tr><td class="lbl">{R("Аудио","Audio")}</td><td><table class="mini">')
+        for a in aud:
+            t5.append(f'<tr><td>{e(a.get("name",""))}</td><td class="muted">{e(a.get("driver",""))}</td></tr>')
+        t5.append('</table></td></tr>')
+    pci = per.get('pci') or []
+    if pci:
+        t5.append(f'<tr><td class="lbl">PCI ({len(pci)})</td><td><table class="mini">')
+        for p in pci[:16]:
+            t5.append(f'<tr><td>{e(p.get("name",""))}</td><td class="muted">{e(p.get("class",""))}</td></tr>')
+        t5.append('</table></td></tr>')
+    if not any([usb,disp,aud,pci]):
+        t5.append(row('', '-'))
+
+    # ── Tab 6: Network ──
+    t6 = [airow('network')]
+    ifs = net.get('interfaces') or []
+    for i in ifs:
+        t6.append(row(i.get('name',''), f'{i.get("kind","")} - {i.get("state","")}' + (f' - {i.get("speed_mbps")} Мбит/с' if i.get('speed_mbps') else '')))
+    if not ifs:
+        t6.append(row('', '-'))
+
+    # ── Tab 7: Thermal & Fans ──
+    t7 = [airow('thermal')]
+    cores = gv(sensors,'cpu_cores') or []
+    if cores:
+        t7.append(f'<tr><td class="lbl">{R("Процессор","CPU")}</td><td><table class="mini">')
+        for c in cores:
+            t7.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
+        t7.append('</table></td></tr>')
+    if gp:
+        t7.append(row('GPU', (f"{gp.get('temp_c')}°C - {gp.get('fan_percent')}% - {gp.get('power_w')} Вт" if gp.get('power_w') is not None else f"{gp.get('temp_c')}°C - {gp.get('fan_percent')}%")))
+    if gv(sensors,'system','memory_percent'):
+        t7.append(row(R('Память','Memory'), f"{gv(sensors,'system','memory_percent')}%"))
+
+    # ── Tab 8: Health ──
+    t8 = [airow('health')]
+    crit = gv(doctor,'summary','critical') or 0
+    warn = gv(doctor,'summary','warnings') or 0
+    try:
+        score = max(0, 100 - int(crit)*15 - int(warn)*5)
+    except Exception:
+        score = 100
+    t8.append(row(R('Оценка здоровья','Health score'), f"{score}/100"))
+    for c in (doctor.get('checks') or []):
+        t8.append(f'<tr><td class="lbl">{badge(c.get("status"))}</td><td>{e(c.get("check",""))} - {e(c.get("detail",""))}</td></tr>')
+    if not (doctor.get('checks') or []):
+        t8.append(row('', '-'))
+
+    panels = ['\n'.join(t) for t in [t0,t1,t2,t3,t4,t5,t6,t7,t8]]
+
+    if ai:
+        ta = ['<tr><td class="lbl ai">AI</td><td class="ai">' + e(ai.get('full')) + '</td></tr>']
+        panels.append('\n'.join(ta))
+        L = L + [R('ИИ-анализ','AI Analysis')]
+
+    css = """
+:root{
+ --bg:#0d0f14; --panel:#14171e; --panel2:#1c2029; --bd:#262c38;
+ --fg:#c8d2dc; --muted:#5f6b7a; --dim:#3a4350;
+ --grn:#8ec07c; --grn2:#6bbf63; --cyn:#79b8c9; --pur:#b08fd6; --blu:#7aa2f7;
+ --ylw:#e5c07b; --red:#e06666; --hl:#8ec07c; --hlbg:#8ec07c22;
 }
-L = TR.get(lang, TR['EN'])
-R = lambda ru, en: (ru if lang == 'RU' else en)
-
-def gv(d, *ks):
-    cur = d
-    for k in ks:
-        if isinstance(cur, dict) and k in cur: cur = cur[k]
-        else: return None
-    return cur
-
-# ── Tab 0: Overview ──
-t0 = []
-t0.append(row(R('Имя хоста','Hostname'), host.get('host','')))
-t0.append(row(R('ОС','OS'), f"{host.get('os','')} {host.get('arch','')}".strip()))
-t0.append(airow('board_desc'))
-t0.append(row(R('Ядро','Kernel'), host.get('kernel','')))
-t0.append(row(R('Время работы','Uptime'), gv(sensors,'system','uptime') or gv(cpu,'uptime') or ''))
-t0.append(row(R('Процессор','CPU'), gv(cpu,'model') or gv(cpu,'name') or ''))
-t0.append(airow('cpu_desc'))
-t0.append(row(R('Видеокарта','GPU'), gpu.get('name','') or gv(sensors,'gpu',0,'name') or ''))
-t0.append(airow('gpu_desc'))
-mem_gb = (round(gv(mem,'total_kb')/1e6,1) if gv(mem,'total_kb') else (gv(mem,'total_gb') or '')) if isinstance(mem, dict) else ''
-t0.append(row(R('Память','Memory'), (f"{mem_gb} ГБ" if mem_gb else '')))
-t0.append(airow('ram_desc'))
-if ai.get('summary'):
-    t0.append(f'<tr><td class="lbl"><span class="ai-badge">AI</span></td><td class="desc summary">{e(ai.get("summary"))}</td></tr>')
-
-# ── Tab 1: CPU ──
-t1 = []
-t1.append(row(R('Модель','Model'), gv(cpu,'model') or gv(cpu,'name') or ''))
-t1.append(row(R('Сокет','Socket'), gv(cpu,'sockets') or ''))
-t1.append(row(R('Ядра / потоки','Cores / threads'), f"{gv(cpu,'cores') or '?'} / {gv(cpu,'threads') or '?'}" if (gv(cpu,'cores') or gv(cpu,'threads')) else ''))
-t1.append(row(R('Макс. частота','Max freq'), gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz') or ''))
-t1.append(row(R('Загрузка','Load avg'), gv(sensors,'system','load') or ''))
-t1.append(airow('cpu_desc'))
-cores = gv(sensors,'cpu_cores') or []
-if cores:
-    t1.append(f'<tr><td class="lbl">{R("Температуры ядер","Core temps")}</td><td><table class="mini">')
-    for c in cores:
-        t1.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
-    t1.append('</table></td></tr>')
-
-# ── Tab 2: GPU ──
-gp = gv(sensors,'gpu')
-if isinstance(gp, list): gp = gp[0] if gp else {}
-t2 = []
-t2.append(row(R('Модель','Model'), gpu.get('name','') or gp.get('name','')))
-t2.append(row(R('Драйвер','Driver'), gpu.get('driver','') or gp.get('driver','')))
-vram = gpu.get('vram_total_mib') or gp.get('vram_total_mib')
-t2.append(row(R('Память','VRAM'), f"{vram} МБ" if vram else ''))
-t2.append(row(R('Температура','Temp'), f"{gp.get('temp_c')}°C" if gp.get('temp_c') is not None else ''))
-t2.append(row(R('Вентилятор','Fan'), f"{gp.get('fan_percent')}%" if gp.get('fan_percent') is not None else ''))
-t2.append(row(R('Энергопотребление','Power'), f"{gp.get('power_w')} Вт" if gp.get('power_w') is not None else ''))
-t2.append(row(R('Загрузка','Utilization'), f"{gp.get('utilization_percent')}%" if gp.get('utilization_percent') is not None else ''))
-t2.append(row(R('Частоты','Clocks'), f"GPU {gp.get('clock_gpu_mhz') or '?'} МГц / MEM {gp.get('clock_mem_mhz') or '?'} МГц"))
-t2.append(airow('gpu_desc'))
-if ai.get('gpu_desc'):
-    t2.append(f'<tr><td class="lbl"></td><td class="note">{R("Кулер: MSI Twin Frozr (двухвентиляторный). 0% в простое — норма.","Cooler: MSI Twin Frozr dual-fan. 0% at idle is normal.")}</td></tr>')
-
-# ── Tab 3: Memory ──
-t3 = []
-if isinstance(mem, dict):
-    tk = gv(mem,'total_kb'); uk = gv(mem,'used_kb')
-    tg = round(tk/1e6,1) if tk else (gv(mem,'total_gb') or '')
-    ug = round(uk/1e6,1) if uk else ''
-    t3.append(row(R('Всего','Total'), (f"{tg} ГБ" if tg else '')))
-    t3.append(row(R('Тип','Type'), gv(mem,'type') or ''))
-    t3.append(row(R('Использовано','Used'), (f"{ug} / {tg} ГБ" if (ug and tg) else '')))
-    t3.append(airow('ram_desc'))
-    slots = gv(mem,'slots') or []
-    if isinstance(slots, list) and slots:
-        t3.append(f'<tr><td class="lbl">{R("Слоты","Slots")}</td><td><table class="mini">')
-        for s in slots:
-            if isinstance(s, dict):
-                t3.append(f'<tr><td>{e(s.get("bank","") or s.get("locator",""))}</td><td>{e(s.get("size_gb") or s.get("size_mb") or "")}</td><td>{e(s.get("type",""))}</td></tr>')
-        t3.append('</table></td></tr>')
-else:
-    t3.append(row('', R('Нет данных','No data')))
-
-# ── Tab 4: Disks & SMART ──
-t4 = []
-disks = gv(block,'disks') or []
-smart = {}
-for c in (doctor.get('checks') or []):
-    ck = c.get('check','')
-    if ck.startswith('smart_'):
-        smart[ck.replace('smart_','')] = c.get('status')
-for d in disks:
-    nm = d.get('name','')
-    size = d.get('size_bytes')
-    size_s = f"{size/1e9:.0f} ГБ" if size else ''
-    t4.append(row(nm, f"{d.get('model','')} — {size_s} ({d.get('type','')})"))
-    st = smart.get(nm)
-    if st:
-        t4.append(f'<tr><td class="lbl">S.M.A.R.T.</td><td>{badge(st)} {e(str(d.get("detail","")).strip())}</td></tr>')
-    parts = d.get('partitions') or []
-    if parts:
-        t4.append('<tr><td class="lbl">Разделы</td><td><table class="mini">')
-        for p in parts:
-            t4.append(f'<tr><td>{e(p.get("name",""))}</td><td>{e(p.get("fs_type",""))}</td><td>{e(p.get("mountpoint",""))}</td></tr>')
-        t4.append('</table></td></tr>')
-t4.append(airow('storage_desc'))
-if not disks:
-    t4.append(row('', '—'))
-
-# ── Tab 5: Peripherals ──
-t5 = []
-usb = per.get('usb') or []
-if usb:
-    t5.append(f'<tr><td class="lbl">USB ({len(usb)})</td><td><table class="mini">')
-    for u in usb[:16]:
-        t5.append(f'<tr><td>{e(u.get("name",""))}</td><td>{e(u.get("vendor",""))}</td><td class="muted">{e(u.get("class",""))}</td></tr>')
-    t5.append('</table></td></tr>')
-disp = per.get('displays') or []
-if disp:
-    t5.append(f'<tr><td class="lbl">{R("Дисплеи","Displays")}</td><td><table class="mini">')
-    for dd in disp:
-        t5.append(f'<tr><td>{e(dd.get("name",""))}</td><td>{e(dd.get("resolution",""))}</td><td>{e(dd.get("refresh_rate") or dd.get("refresh") or "")} Гц</td></tr>')
-    t5.append('</table></td></tr>')
-aud = per.get('audio') or []
-if aud:
-    t5.append(f'<tr><td class="lbl">{R("Аудио","Audio")}</td><td><table class="mini">')
-    for a in aud:
-        t5.append(f'<tr><td>{e(a.get("name",""))}</td><td class="muted">{e(a.get("driver",""))}</td></tr>')
-    t5.append('</table></td></tr>')
-pci = per.get('pci') or []
-if pci:
-    t5.append(f'<tr><td class="lbl">PCI ({len(pci)})</td><td><table class="mini">')
-    for p in pci[:16]:
-        t5.append(f'<tr><td>{e(p.get("name",""))}</td><td class="muted">{e(p.get("class",""))}</td></tr>')
-    t5.append('</table></td></tr>')
-t5.append(airow('periph_desc'))
-if not any([usb,disp,aud,pci]):
-    t5.append(row('', '—'))
-
-# ── Tab 6: Network ──
-t6 = []
-ifs = net.get('interfaces') or []
-for i in ifs:
-    t6.append(row(i.get('name',''), f'{i.get("kind","")} · {i.get("state","")} · {i.get("mac","")}' + (f' · {i.get("speed_mbps")} Мбит/с' if i.get('speed_mbps') else '')))
-t6.append(airow('net_desc'))
-if not ifs:
-    t6.append(row('', '—'))
-
-# ── Tab 7: Thermal & Fans ──
-t7 = []
-cores = gv(sensors,'cpu_cores') or []
-if cores:
-    t7.append(f'<tr><td class="lbl">{R("Процессор","CPU")}</td><td><table class="mini">')
-    for c in cores:
-        t7.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
-    t7.append('</table></td></tr>')
-if gp:
-    t7.append(row('GPU', f"{gp.get('temp_c')}°C · {gp.get('fan_percent')}% · {gp.get('power_w')} Вт" if gp.get('power_w') is not None else f"{gp.get('temp_c')}°C · {gp.get('fan_percent')}%"))
-if gv(sensors,'system','memory_percent'):
-    t7.append(row(R('Память','Memory'), f"{gv(sensors,'system','memory_percent')}%"))
-t7.append(airow('thermal_desc'))
-
-# ── Tab 8: Health ──
-t8 = []
-crit = gv(doctor,'summary','critical') or 0
-warn = gv(doctor,'summary','warnings') or 0
-try:
-    score = max(0, 100 - int(crit)*15 - int(warn)*5)
-except Exception:
-    score = 100
-t8.append(row(R('Оценка здоровья','Health score'), f"{score}/100"))
-for c in (doctor.get('checks') or []):
-    t8.append(f'<tr><td class="lbl">{badge(c.get("status"))}</td><td>{e(c.get("check",""))} — {e(c.get("detail",""))}</td></tr>')
-t8.append(airow('health_desc'))
-if not (doctor.get('checks') or []):
-    t8.append(row('', '—'))
-
-# ── Tab 9: AI Analysis ──
-t9 = []
-def card(title, key):
-    v = e(ai.get(key,''))
-    if not v: return ''
-    return f'<div class="ai-card"><div class="ai-card-h"><span class="ai-badge">AI</span> {e(title)}</div><div class="ai-card-b">{v}</div></div>'
-if ai.get('summary'):
-    t9.append(f'<div class="ai-card hl"><div class="ai-card-h"><span class="ai-badge">AI</span> {R("Общий вывод","Summary")}</div><div class="ai-card-b">{e(ai.get("summary"))}</div></div>')
-for title, key in [(R('Процессор','CPU'),'cpu_desc'),(R('Видеокарта','GPU'),'gpu_desc'),
-                   (R('Материнская плата','Motherboard'),'board_desc'),(R('Память','Memory'),'ram_desc'),
-                   (R('Диски','Storage'),'storage_desc'),(R('Периферия','Peripherals'),'periph_desc'),
-                   (R('Сеть','Network'),'net_desc'),(R('Температуры','Thermal'),'thermal_desc'),
-                   (R('Здоровье','Health'),'health_desc')]:
-    c = card(title, key)
-    if c: t9.append(c)
-if not t9:
-    t9.append(f'<div class="muted">{R("AI недоступно / отключено.","AI unavailable / disabled.")}</div>')
-
-panels = ['\n'.join(t) for t in [t0,t1,t2,t3,t4,t5,t6,t7,t8,t9]]
-tabs_js = ','.join(f'"{e(x)}"' for x in L)
-
-css = """
-:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c232c;--fg:#e6edf3;--muted:#8b949e;--acc:#2f81f7;--acc2:#3fb950;--warn:#d29922;--crit:#f85149;--bd:#30363d;}
+[data-theme="light"]{
+ --bg:#f5f6f8; --panel:#ffffff; --panel2:#eef1f5; --bd:#d8dde4;
+ --fg:#1c232b; --muted:#5a6673; --dim:#b0b8c2;
+ --grn:#4f8c3a; --grn2:#3f8f34; --cyn:#2a7a96; --pur:#7d5bb0; --blu:#2f5fd0;
+ --ylw:#9a6b00; --red:#c0392b; --hl:#4f8c3a; --hlbg:#4f8c3a1a;
+}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+ font:14px/1.55 "JetBrains Mono","Fira Code","SFMono-Regular",ui-monospace,Menlo,Consolas,monospace}
 body{display:flex;flex-direction:column;min-height:100vh}
-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;background:linear-gradient(90deg,#161b22,#1c232c);border-bottom:1px solid var(--bd)}
-header .brand{font-size:18px;font-weight:700;letter-spacing:.3px}
-header .brand small{color:var(--muted);font-weight:400;margin-left:8px}
-header .meta{color:var(--muted);font-size:12px}
-.btn{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
-.btn:hover{filter:brightness(1.1)}
-nav{position:sticky;top:57px;z-index:9;display:flex;flex-wrap:wrap;gap:6px;padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--bd);overflow-x:auto}
-nav button{background:var(--panel);color:var(--muted);border:1px solid var(--bd);border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;white-space:nowrap}
-nav button.active{background:var(--acc);color:#fff;border-color:var(--acc)}
-main{flex:1;padding:22px;max-width:980px;width:100%;margin:0 auto}
-.panel{display:none;background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:8px 18px;overflow-x:auto}
+::selection{background:var(--hlbg)}
+header{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:14px;
+ padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--bd)}
+header .prompt{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .prompt .user{color:var(--grn);font-weight:700}
+header .prompt .at{color:var(--muted)}
+header .prompt .host{color:var(--cyn);font-weight:600}
+header .prompt .dollar{color:var(--grn)}
+header .prompt .cmd{color:var(--fg)}
+header .prompt .cursor{display:inline-block;width:8px;background:var(--grn);animation:blink 1.1s steps(1) infinite;vertical-align:-1px;}
+@keyframes blink{50%{opacity:0}}
+header .ctrl{display:flex;gap:8px;align-items:center}
+.key{color:var(--muted);font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:2px 7px;background:var(--panel2)}
+.btn{background:var(--panel2);color:var(--grn);border:1px solid var(--bd);border-radius:6px;padding:7px 12px;
+ font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;font-family:inherit}
+.btn:hover{border-color:var(--grn);color:var(--grn)}
+nav{position:sticky;top:46px;z-index:15;display:flex;flex-wrap:wrap;gap:5px;padding:9px 18px;background:var(--bg);border-bottom:1px solid var(--bd);overflow-x:auto}
+nav button{background:var(--panel);color:var(--muted);border:1px solid var(--bd);border-radius:6px;padding:5px 10px;
+ font-size:12px;cursor:pointer;white-space:nowrap;font-family:inherit}
+nav button .idx{color:var(--dim);margin-right:4px}
+nav button:hover{border-color:var(--grn)}
+nav button.active{background:var(--hlbg);color:var(--grn);border-color:var(--grn)}
+nav button.active .idx{color:var(--grn)}
+#search{position:sticky;top:88px;z-index:14;display:none;align-items:center;gap:8px;margin:0 auto;max-width:980px;
+ width:100%;padding:6px 14px;background:var(--panel);border:1px solid var(--grn);border-radius:6px;color:var(--fg);font-size:13px}
+#search .p{color:var(--grn)}
+#search input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-family:inherit;font-size:13px}
+#search .count{color:var(--muted);font-size:11px}
+main{flex:1;padding:18px;max-width:980px;width:100%;margin:0 auto}
+.panel{display:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:6px 14px;overflow-x:auto}
 .panel.active{display:block}
 table{border-collapse:collapse;width:100%}
-td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
-td.lbl{color:var(--muted);width:200px;font-weight:600;white-space:nowrap}
-td.desc{background:linear-gradient(90deg,rgba(47,129,247,.10),transparent);border-left:3px solid var(--acc);font-style:italic}
-td.desc.summary{font-size:15px}
-td.note{color:var(--muted);font-size:12px}
-.mini{margin:2px 0;font-size:12px}
+td{padding:7px 10px;border-bottom:1px solid var(--panel2);vertical-align:top}
+td.lbl{color:var(--muted);width:210px;font-weight:600;white-space:nowrap}
+td.lbl::before{content:"$ ";color:var(--dim)}
+td.val b{color:var(--grn)}
+td.ai{background:var(--hlbg);color:var(--fg);font-style:normal}
+td.ai::before{content:"ai ";color:var(--cyn);font-weight:700}
+.mini{margin:2px 0;font-size:12.5px}
 .mini td{border-bottom:1px solid var(--panel2);padding:3px 8px}
+.mini td::before{content:none}
 .muted{color:var(--muted)}
-.ai-badge{background:var(--acc);color:#fff;border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700;letter-spacing:.5px;vertical-align:middle}
-.badge{border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
-.badge.ok{background:var(--acc2)}.badge.warn{background:var(--warn);color:#1c232c}.badge.crit{background:var(--crit)}.badge.info{background:var(--muted)}
-.ai-card{background:var(--panel2);border:1px solid var(--bd);border-left:4px solid var(--acc);border-radius:10px;padding:12px 16px;margin:10px 0}
-.ai-card.hl{border-left-color:var(--acc2);background:linear-gradient(90deg,rgba(63,185,80,.08),var(--panel2))}
-.ai-card-h{font-weight:700;margin-bottom:6px}
-.ai-card-b{color:var(--fg)}
-footer{padding:16px 22px;text-align:center;color:var(--muted);font-size:12px;border-top:1px solid var(--bd)}
-@media print{body{background:#fff;color:#000}header,nav,footer{position:static}.panel{display:block!important;border:none}td.desc{background:#f0f4ff}}
+.badge{border-radius:4px;padding:1px 7px;font-size:10.5px;font-weight:700}
+.badge.ok{color:#1e2b1a;background:var(--grn)}
+.badge.warn{color:#1e2b1a;background:var(--ylw)}
+.badge.crit{color:#fff;background:var(--red)}
+.badge.info{color:var(--fg);background:var(--dim)}
+.tag{color:var(--pur)}
+footer{padding:14px 20px;text-align:center;color:var(--muted);font-size:11px;border-top:1px solid var(--bd)}
+footer .hint{color:var(--dim)}
+#help{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+#help.open{display:flex}
+#help .box{background:var(--panel);border:1px solid var(--grn);border-radius:8px;max-width:560px;width:90%;
+ padding:20px 24px;color:var(--fg);box-shadow:0 10px 40px rgba(0,0,0,.5)}
+#help h2{color:var(--grn);font-size:14px;margin:0 0 12px;letter-spacing:.5px;text-transform:uppercase}
+#help .row{display:flex;justify-content:space-between;gap:20px;padding:5px 0;border-bottom:1px solid var(--panel2);font-size:13px}
+#help .row .k{color:var(--cyn);font-weight:700}
+#help .close{margin-top:14px;text-align:right;color:var(--muted);font-size:11px}
+.hl{background:var(--ylw);color:#1e2b1a;border-radius:2px}
+@media (max-width:760px){td.lbl{width:130px}}
+@media print{body{background:#fff;color:#000}[data-theme]{}header,nav,footer,#help,#search{position:static}.panel{display:block!important;border:none}nav{display:none}}
 """
 
-html = f"""<!DOCTYPE html>
+    user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
+    out = f"""<!DOCTYPE html>
 <html lang="{lang.lower()}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WellHTML — {e(host.get('host',''))}</title>
+<title>WellHTML - {e(user)}@{e(host.get('host',''))}</title>
 <style>{css}</style>
 </head>
-<body>
+<body data-theme="dark">
 <header>
-  <div class="brand">WellHTML <small>{e(wu_ver)}</small></div>
-  <div class="meta">{e(ts)} · {e(host.get('os',''))}</div>
-  <a class="btn" id="dl" download="wellreport.html">{R('Скачать HTML','Download HTML')}</a>
+  <div class="prompt">
+    <span class="user">{e(user)}</span><span class="at">@</span><span class="host">{e(host.get('host',''))}</span>
+    <span class="dollar">:$</span> <span class="cmd">whtml</span><span class="cursor"></span>
+  </div>
+  <div class="ctrl">
+    <span class="key">?</span><span class="muted">{R('хелп','help')}</span>
+    <span class="key">/</span><span class="muted">{R('поиск','search')}</span>
+    <span class="key">t</span><span class="muted">{R('тема','theme')}</span>
+    <a class="btn" id="dl" download="wellreport.html">{R('Скачать HTML','Download HTML')}</a>
+  </div>
 </header>
-<nav id="nav">
+<nav id="nav" aria-label="tabs">
 """
-for i, name in enumerate(L):
-    html += f'<button data-i="{i}" class="{"active" if i==0 else ""}">{e(name)}</button>\n'
-html += "</nav>\n<main>\n"
-for i, p in enumerate(panels):
-    html += f'<div class="panel{" active" if i==0 else ""}" id="p{i}"><table>{p}</table></div>\n'
-html += f"""</main>
-<footer>wellutils · WellHTML {e(wu_ver)} · {R('сгенерировано','generated')} {e(ts)}</footer>
+    for i, name in enumerate(L):
+        idx = (i+1) % 10
+        out += f'<button data-i="{i}" class="{"active" if i==0 else ""}"><span class="idx">[{idx}]</span>{e(name)}</button>\n'
+    out += "</nav>\n"
+    out += f"""<div id="search"><span class="p">&gt; </span><input type="text" id="searchin" placeholder="{R('фильтр строк…','filter rows…')}" autocomplete="off"><span class="count" id="searchcount"></span></div>
+<main>
+"""
+    for i, p in enumerate(panels):
+        out += f'<div class="panel{" active" if i==0 else ""}" id="p{i}"><table>{p}</table></div>\n'
+    out += f"""</main>
+<footer>wellutils - WellHTML {e(wu_ver)} - {e(ts)} - <span class="hint">{R('<- -> или цифры для навигации','<- -> or digits to navigate')}</span></footer>
+<div id="help">
+  <div class="box">
+    <h2>{R('Клавиатура','Keyboard')}</h2>
+    <div class="row"><span class="k">{R('<- -> / ^ v','<- -> / ^ v')}</span><span>{R('переключить вкладку','switch tab')}</span></div>
+    <div class="row"><span class="k">1…9 / 0</span><span>{R('перейти к вкладке','jump to tab')}</span></div>
+    <div class="row"><span class="k">Home / End</span><span>{R('первая / последняя','first / last')}</span></div>
+    <div class="row"><span class="k">/</span><span>{R('фильтр строк','filter rows')}</span></div>
+    <div class="row"><span class="k">t</span><span>{R('тёмная / светлая тема','dark / light theme')}</span></div>
+    <div class="row"><span class="k">?</span><span>{R('эта справка','this help')}</span></div>
+    <div class="row"><span class="k">Esc</span><span>{R('закрыть','close')}</span></div>
+    <div class="close">wellutils - WellHTML {e(wu_ver)}</div>
+  </div>
+</div>
 <script>
-var panels=document.querySelectorAll('.panel');
-var btns=document.querySelectorAll('#nav button');
-btns.forEach(function(b){{b.onclick=function(){{var i=+b.dataset.i;panels.forEach(function(p,k){{p.classList.toggle('active',k===i)}});btns.forEach(function(x){{x.classList.toggle('active',x===b)}});window.scrollTo(0,0);}};}});
+(function(){{
+var panels=[].slice.call(document.querySelectorAll('.panel'));
+var btns=[].slice.call(document.querySelectorAll('#nav button'));
+var search=document.getElementById('search');
+var searchin=document.getElementById('searchin');
+var searchcount=document.getElementById('searchcount');
+var help=document.getElementById('help');
+var N=panels.length;
+function show(i){{i=(i%N+N)%N;panels.forEach(function(p,k){{p.classList.toggle('active',k===i)}});
+  btns.forEach(function(b,k){{b.classList.toggle('active',k===i)}});window.scrollTo(0,0);filter();}}
+function cur(){{return btns.findIndex(function(b){{return b.classList.contains('active')}})}}
+function theme(){{var b=document.body;var t=b.getAttribute('data-theme');b.setAttribute('data-theme',t==='dark'?'light':'dark');try{{localStorage.setItem('whtml-theme',b.getAttribute('data-theme'))}}catch(e){{}}}}
+function filter(){{var q=searchin.value.toLowerCase().trim();
+  var active=document.querySelector('.panel.active');if(!active)return;
+  var rows=[].slice.call(active.querySelectorAll('table > tbody > tr, table > tr'));
+  var shown=0;rows.forEach(function(tr){{if(!q){{tr.style.display='';shown++;return}}
+    var match=tr.textContent.toLowerCase().indexOf(q)>-1;tr.style.display=match?'':'none';if(match)shown++;}});
+  searchcount.textContent=q?shown+'/'+rows.length:'';}}
+function openSearch(){{search.style.display='flex';searchin.focus()}}
+function closeSearch(){{search.style.display='none';searchin.value='';filter();document.activeElement&&document.activeElement.blur()}}
+btns.forEach(function(b){{b.onclick=function(){{show(+b.dataset.i)}}}});
+btns.forEach(function(b){{b.onmousedown=function(e){{e.preventDefault();show(+b.dataset.i)}}}});
+document.addEventListener('keydown',function(ev){{
+  var tag=(document.activeElement&&document.activeElement.tagName||'').toUpperCase();
+  var inSearch=search.style.display==='flex';
+  if(ev.key==='Escape'){{if(help.classList.contains('open')){{help.classList.remove('open')}}
+    else if(inSearch)closeSearch();return}}
+  if(help.classList.contains('open'))return;
+  if(inSearch){{if(ev.key==='Enter')ev.preventDefault();return}}
+  if(tag==='INPUT'||tag==='TEXTAREA')return;
+  switch(ev.key){{case 'ArrowRight':case 'ArrowDown':ev.preventDefault();show(cur()+1);break;
+    case 'ArrowLeft':case 'ArrowUp':ev.preventDefault();show(cur()-1);break;
+    case 'Home':show(0);break;case 'End':show(N-1);break;
+    case 't':case 'T':theme();break;
+    case '?':help.classList.add('open');break;
+    case '/':ev.preventDefault();openSearch();break;
+    default:
+      if(/^[0-9]$/.test(ev.key)){{show((+ev.key||10)-1);break}}}}}});
+searchin.addEventListener('input',filter);
+searchin.addEventListener('keydown',function(ev){{if(ev.key==='Escape')closeSearch()}});
+help.addEventListener('click',function(ev){{if(ev.target===help)help.classList.remove('open')}});
+try{{var saved=localStorage.getItem('whtml-theme');if(saved)document.body.setAttribute('data-theme',saved)}}catch(e){{}}
 document.getElementById('dl').href='data:text/html;charset=utf-8,'+encodeURIComponent(document.documentElement.outerHTML);
+}})();
 </script>
 </body>
 </html>"""
+    print(out)
 
-print(html)
+try:
+    run()
+except SystemExit:
+    raise
+except Exception as ex:
+    import traceback
+    traceback.print_exc()
+    sys.stderr.write("whtml: generation failed: %s\n" % ex)
+    sys.exit(1)
 PYEOF
 }
 
@@ -616,14 +576,13 @@ PYEOF
 main() {
     _WHTML_TMP="$(mktemp -d /tmp/tmp.XXXXXXXXXX)"
     local keep=0
-    [[ "${WHXML_KEEP_TMP:-0}" == 1 ]] && keep=1
+    [[ "${WHTML_KEEP_TMP:-0}" == 1 ]] && keep=1
     trap '[[ "${keep:-0}" -eq 0 ]] && rm -rf "$_WHTML_TMP"' EXIT
 
     _whtml_log "collecting data..."
     printf '%s' "$($_whtml_host)" > "$_WHTML_TMP/host.json"
 
     _whtml_collect_json "$_WHTML_TMP/hw.json" wellhw
-    _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem
     python3 - "$_WHTML_TMP" << 'PYEOF'
 import json, os
 t=os.sys.argv[1]
@@ -637,20 +596,20 @@ def split(src, dst):
         if v is None: v={}
         json.dump(v, open(os.path.join(t, out),'w'), ensure_ascii=False)
 split('hw.json', {'cpu':'cpu.json','gpu':'gpu.json','board':'board.json','storage':'storage.json'})
-# memory: prefer wellmem, fall back to wellhw memory
 mem={}
 try:
-    mem=json.load(open(os.path.join(t,'memraw.json'))).get('memory') or {}
+    mem=json.load(open(os.path.join(t,'hw.json'))).get('memory') or {}
 except Exception:
     pass
 if not mem:
     try:
-        mem=json.load(open(os.path.join(t,'hw.json'))).get('memory') or {}
+        mem=json.load(open(os.path.join(t,'memraw.json'))).get('memory') or {}
     except Exception:
         pass
 json.dump(mem, open(os.path.join(t,'mem.json'),'w'), ensure_ascii=False)
 PYEOF
 
+    _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem
     _whtml_collect_json "$_WHTML_TMP/net.json"     wellnet
     _whtml_collect_json "$_WHTML_TMP/per.json"     wellper
     _whtml_collect_json "$_WHTML_TMP/sensors.json" wellsensors
@@ -658,25 +617,19 @@ PYEOF
     _whtml_collect_json "$_WHTML_TMP/block.json"   wellblock
 
     if [[ "$_WHTML_AI" == 1 ]]; then
-        local sig key cached
-        sig="$(_whtml_signature)"
-        key="${WELLUTILS_LANG}:${sig}"
-        cached="$(_whtml_cache_get "$key")"
-        if [[ -n "$cached" ]]; then
-            _whtml_log "AI cache hit: $key"
-            printf '%s' "$cached" > "$_WHTML_TMP/ai.json"
-        else
-            _whtml_log "AI cache miss, calling model..."
-            _whtml_ai_enrich "$WELLUTILS_LANG"
-            if [[ -f "$_WHTML_TMP/ai.json" ]]; then
-                _whtml_cache_put "$key" "$(cat "$_WHTML_TMP/ai.json")"
-            fi
-        fi
+        _whtml_ai_enrich
     fi
 
     _whtml_log "building HTML..."
     local html
-    html="$(_whtml_generate)"
+    if ! html="$( _whtml_generate )"; then
+        echo "whtml: generation failed (see above)" >&2
+        exit 1
+    fi
+    if [[ -z "$html" ]]; then
+        echo "whtml: generation produced empty output" >&2
+        exit 1
+    fi
     printf '%s' "$html" > "$_WHTML_OUTPUT"
 
     printf '  %s%s%s %s\n' "$G" "$(t done)" "$RESET" "$_WHTML_OUTPUT"
@@ -687,7 +640,7 @@ PYEOF
     fi
 }
 
-# ─── Argument parsing (extra tool options) ──────────────────────
+# ─── Argument parsing (strict CLI contract) ────────────────────
 _WU_REST=()
 while [[ $# -gt 0 ]]; do
     consumed=0
@@ -696,7 +649,14 @@ while [[ $# -gt 0 ]]; do
         consumed=1
     fi
     if [[ "$consumed" -eq 0 ]]; then
-        _WU_REST+=("$1"); shift
+        case "$1" in
+            --) shift; while [[ $# -gt 0 ]]; do _WU_REST+=("$1"); shift; done; break ;;
+            --help|-h)  _whtml_show_help; exit 0 ;;
+            --version|-V) echo "whtml $_WU_VERSION"; exit 0 ;;
+            --json)     echo "whtml: --json is not supported (this tool emits HTML)" >&2; exit 2 ;;
+            --*)        echo "whtml: unknown option: $1" >&2; exit 2 ;;
+            *)          _WU_REST+=("$1"); shift ;;
+        esac
     fi
 done
 set -- "${_WU_REST[@]}"

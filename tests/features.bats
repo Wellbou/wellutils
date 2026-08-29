@@ -45,3 +45,33 @@
     run ./wellup --pacnew --plain
     [ "$status" -eq 0 ]
 }
+
+@test "whtml: default run is fully offline (no curl) and emits HTML" {
+    local rundir="$(mktemp -d)"
+    printf '#!/bin/sh\nexit 127\n' > "$rundir/curl"; chmod +x "$rundir/curl"
+    # Hide curl; whtml must not need it (no network by default).
+    run env PATH="$rundir:/usr/bin:/bin" ./whtml --no-open --output "$rundir/report.html"
+    [ "$status" -eq 0 ]
+    [ -s "$rundir/report.html" ]
+    head -1 "$rundir/report.html" | grep -q "<!DOCTYPE html>"
+    # No external resources / URLs.
+    if grep -q 'https://' "$rundir/report.html"; then
+        echo "report references an external resource"
+        false
+    fi
+}
+
+@test "whtml: report contains SMART" {
+    local f="$(mktemp)"
+    run ./whtml --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    grep -qi "S.M.A.R.T." "$f"
+}
+
+@test "whtml: --ai without an endpoint stays offline and succeeds" {
+    local f="$(mktemp)"
+    unset WHTML_AI_ENDPOINT
+    run ./whtml --ai --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    [ -s "$f" ]
+}

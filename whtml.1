@@ -1,0 +1,80 @@
+.TH WHTML 1 "August 2026" "whtml 1.1" "wellutils"
+.SH NAME
+whtml \- rich, self-contained HTML system report (offline)
+.SH SYNOPSIS
+.B whtml
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B whtml
+collects data from the wellutils suite (via their
+.BR --json
+output) and renders a single self-contained HTML file: Overview, CPU, GPU,
+Memory, Disks & S.M.A.R.T., Peripherals, Network, Thermal, and Health.
+.PP
+The generated file is fully offline: it embeds all CSS/JS inline, loads no
+external resources, and makes no network requests. You can open it locally or
+share it as-is.
+.PP
+No internet access is used. (The only wellutils command that connects to the
+network is
+.BR wellup (1)
+for self-updates \(em unrelated to this tool.)
+.SH OPTIONS
+.TP
+.BI \-\-output " FILE"
+Save the HTML report to FILE (default:
+.IR ~/wellreport.html ).
+.TP
+.B \-\-no-open
+Do not auto-open the report in a browser.
+.TP
+.B \-\-open
+Force opening the report in a browser after generation.
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.SH AI ENRICHMENT
+AI analysis is OPTIONAL and OFF BY DEFAULT. It activates only when you
+.B explicitly
+request it and supply your own endpoint:
+.IP
+.nf
+WHTML_AI_ENDPOINT=https://your.llm.host/v1/chat/completions whtml --ai
+.fi
+.PP
+This tool never ships a default endpoint (bring your own), so by default it
+makes zero network requests. When enabled, the context sent to the endpoint is
+sanitized: MAC addresses, hostnames, IPs, serial numbers and UUIDs are
+stripped before anything leaves the machine. Any AI failure is ignored and the
+HTML report is still produced.
+.PP
+The rest of the report is fully offline and read-only.
+.SH ENVIRONMENT
+.TP
+.B WHTML_AI_ENDPOINT
+Optional. If set (and
+.B --ai
+is passed) the tool posts a sanitized summary to this OpenAI-compatible
+endpoint. No default value.
+.TP
+.B WHTML_AI_MODEL
+Optional model name for the endpoint (default:
+.BR local-model ).
+.TP
+.B WELLUTILS_LANG
+Force
+.BR ru | en ;
+otherwise the locale is used.
+.TP
+.B WHTML_DEBUG
+Set to
+.B 1
+to print collection progress to stderr.
+.SH SEE ALSO
+.BR wellutils (1),
+.BR wellhw (1),
+.BR welldoctor (1),
+.BR wellup (1)

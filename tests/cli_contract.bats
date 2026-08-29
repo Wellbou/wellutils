@@ -1,7 +1,7 @@
 # CLI contract shared by every wellutils tool.
 # Part of wellutils by wellbou_
 
-TOOLS=(wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor)
+TOOLS=(wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor whtml)
 
 setup() {
     # Arch ships `python`, Debian/Fedora ship `python3`.
@@ -41,6 +41,9 @@ setup() {
                 false
             fi
             continue
+        elif [[ "$t" == "whtml" ]]; then
+            # No --plain: emits an offline HTML file to a temp path.
+            run ./whtml --no-open --output /tmp/contract_whtml.html
         else
             run "./$t" --plain
         fi

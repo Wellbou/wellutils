@@ -34,6 +34,13 @@ codes, same box-drawing output. A launcher (`wellutils`) ties them
 together, and short aliases (`wusb`, `wpci`, `wmem`, ...) are
 installed alongside.
 
+> **This toolkit makes no network requests. At all.**
+>
+> Every report tool is read-only and offline - your data never leaves the
+> machine. The only exception is `wellup` / `wellutils self-update`, and only
+> when you run it. `whtml`, despite its nice HTML output, performs zero network
+> calls by default.
+
 The same interface ships as a single PowerShell file for Windows.
 No WSL, no admin rights, no installers - data comes from CIM/WMI.
 
@@ -190,7 +197,7 @@ Every tool has a man page (`man wellper`) and bash completion.
 | `wellnet`     | Offline network overview: interfaces, Wi-Fi, routes, ports    |
 | `wellpower`   | Battery wear, cycles, charge thresholds, power profiles       |
 | `welldoctor`  | Health aggregator for cron: SMART, temps, units, disk, pacnew |
-| `whtml`       | Rich HTML system report with AI enrichment (launcher: `wellutils html`) |
+| `whtml`       | Offline HTML system report, CLI-styled with keyboard nav (launcher: `wellutils html`) |
 
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
@@ -213,6 +220,22 @@ wellup --self-update --check # only report the version difference
 `wellutils` also ships **SAMPLES.md** - real output of every tool from the
 author's machine, so you can see exactly what you get before installing:
 [SAMPLES.md](SAMPLES.md).
+
+### AI enrichment (off by default)
+
+`whtml` ships without AI so it stays offline and read-only. If you want local
+AI commentary on the report, you can point it at *your own* LLM endpoint:
+
+```sh
+WHTML_AI_ENDPOINT=http://localhost:11434/v1/chat/completions \
+WHTML_AI_MODEL=qwen2.5 whtml --ai --output ~/report.html
+```
+
+This is bring-your-own: there is **no default endpoint**, so unless you set
+`WHTML_AI_ENDPOINT` and pass `--ai`, whtml makes zero network requests. When
+enabled, the context sent is sanitized - MAC addresses, hostnames, IPs,
+serials and UUIDs are stripped before anything leaves the machine - and any
+AI failure is ignored, so the HTML report is still produced.
 
 ## Status-bar mode
 
@@ -265,10 +288,11 @@ keys are documented by example in [SAMPLES.md](SAMPLES.md).
 - `wellpower` - battery wear, cycle count, charge thresholds, power profiles.
 - `welldoctor` - health aggregator for cron (SMART, temperatures, failed
   units, disk usage, pacnew leftovers, orphans); exit code 0/1/2.
-- `whtml` / `wellutils html` - rich self-contained HTML report with AI-written
-  descriptions of every component (CPU, GPU, board, RAM, disks + S.M.A.R.T.,
-  peripherals, temperatures/fans, health). Share the file as-is; AI output is
-  cached locally so repeats are instant.
+- `whtml` / `wellutils html` - rich, fully offline HTML system report
+  (CPU, GPU, board, RAM, disks + S.M.A.R.T., peripherals, temperatures/fans,
+  health), styled like a terminal with full keyboard navigation (arrows,
+  digits, search `/`, theme toggle `t`, help `?`). One self-contained file,
+  no external resources, no network.
 - `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
 - `wellup --pacnew` - list leftover config files.
 - `--html` on every report tool - standalone HTML page of the report.
