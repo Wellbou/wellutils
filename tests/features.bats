@@ -75,3 +75,57 @@
     [ "$status" -eq 0 ]
     [ -s "$f" ]
 }
+
+@test "whtml: default CLI contains cyrillic" {
+    local f="$(mktemp)"
+    run ./whtml --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    grep -qP '[А-Яа-я]' "$f"
+}
+
+@test "whtml: --ami is English only (no cyrillic)" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    ! grep -qP '[А-Яа-я]' "$f"
+}
+
+@test "whtml: --ami has AMIBIOS banner and embedded font" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    grep -q "AMIBIOS SETUP UTILITY" "$f"
+    grep -q "data:font" "$f"
+}
+
+@test "whtml: --ami uses English units (GB, GHz, MHz)" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    grep -q " GB" "$f"
+    grep -q " GHz" "$f"
+    grep -q " MHz" "$f"
+    ! grep -q " ГБ" "$f"
+    ! grep -q " ГГц" "$f"
+    ! grep -q " МГц" "$f"
+}
+
+@test "whtml: --ami contains exact disk models" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    grep -q "WDC" "$f"
+}
+
+@test "whtml: --ami has no https://" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    ! grep -q "https://" "$f"
+}
+
+@test "whtml: --help shows --ami" {
+    run ./whtml --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--ami"* ]]
+}

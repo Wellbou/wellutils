@@ -18,13 +18,17 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 _WU_EXTRA_HELP="      --output FILE           save HTML to FILE (default: ~/wellreport.html)
       --no-open               do not auto-open in browser
       --open                  force open in browser
+      --ami                   render the classic AMI BIOS 2000s setup look (English only,
+                              xb-16 palette & embedded VGA font)
       --ai                    optional AI analysis (needs WHTML_AI_ENDPOINT; OFF by default)"
 _WU_EXTRA_PARSE=whtml_extra_parse
 _WU_EXTRA_CONSUMED=0
 
 _WHTML_OUTPUT="${HOME:-/tmp}/wellreport.html"
 _WHTML_OPEN=1
-_WWHTML_AI=0
+_WHTML_AI=0
+_WHTML_AMI=0
+_WHTML_FONT_B64="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"
 
 whtml_extra_parse() {
     case "$1" in
@@ -34,6 +38,7 @@ whtml_extra_parse() {
         --output=*) _WHTML_OUTPUT="${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --no-open) _WHTML_OPEN=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --open) _WHTML_OPEN=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --ami) _WHTML_AMI=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --ai) _WHTML_AI=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --no-ai) _WHTML_AI=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
     esac
@@ -50,6 +55,8 @@ Usage: $_WU_TOOLNAME [options]
   --output FILE   save HTML to FILE (default: ~/wellreport.html)
   --no-open       do not auto-open the report in a browser
   --open          force open in browser
+  --ami           render the classic AMI BIOS 2000s setup look (English only,
+                  xb-16 palette & embedded VGA font)
   --ai            OPTIONAL AI analysis. Requires WHTML_AI_ENDPOINT to be set
                   (bring-your-own endpoint, OpenAI-compatible). OFF by default;
                   without it this tool makes zero network requests.
@@ -67,7 +74,7 @@ _whtml_log() { [[ "${WHTML_DEBUG:-0}" == 1 ]] && printf '  [whtml] %s\n' "$*" >&
 _whtml_collect_json() {
     local path="${1:-}"; shift || true
     local out
-    out="$("$@" --json 2>/dev/null)" || out=''
+    out="$("$@" --json 2>/dev/null || true)"
     if [[ -z "$out" ]] || ! printf '%s' "$out" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
         out='{}'
     fi
@@ -172,10 +179,13 @@ PYEOF
 
 # ─── HTML generation ────────────────────────────────────────────
 _whtml_generate() {
-    python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" << 'PYEOF'
-import json, os, html as h, sys
+    WHTML_FONT_B64="$_WHTML_FONT_B64" python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" "$_WHTML_AMI" << 'PYEOF'
+# whtml generator (self-contained)
+import json, os, html as h, sys, re
 
-tmpdir, ts, wu_ver, lang = sys.argv[1:5]
+tmpdir, ts, wu_ver, lang, ami = sys.argv[1:6]
+ami = str(ami) == '1'
+FONT_B64 = os.environ.get('WHTML_FONT_B64','')
 
 def load(name):
     try:
@@ -184,220 +194,396 @@ def load(name):
     except Exception:
         return {}
 
+def esc(s):
+    return h.escape(str(s)) if s not in (None, '') else ''
+
+def gv(d, *ks):
+    cur = d
+    for k in ks:
+        if isinstance(cur, dict) and k in cur: cur = cur[k]
+        else: return None
+    return cur
+
 def run():
     host = load('host.json'); cpu = load('cpu.json'); gpu = load('gpu.json')
     board = load('board.json'); mem = load('mem.json'); net = load('net.json')
     per = load('per.json'); sensors = load('sensors.json')
     doctor = load('doctor.json'); block = load('block.json')
+    memraw = load('memraw.json').get('memory') or {}
     try:
         ai = json.load(open(os.path.join(tmpdir, 'ai.json')))
     except Exception:
         ai = {}
 
-    def e(s):
-        return h.escape(str(s)) if s not in (None, '') else ''
-
-    def row(lbl, val, cls=''):
-        c = f' class="{cls}"' if cls else ''
-        return f'<tr><td class="lbl">{e(lbl)}</td><td{c}>{e(val)}</td></tr>'
-
-    def airow(key):
-        t = ai.get(key) if isinstance(ai, dict) else None
-        if not t:
-            return ''
-        return f'<tr><td class="lbl ai">AI</td><td class="ai">{e(t)}</td></tr>'
+    TR = {
+     'RU': ['Обзор','Процессор','Видеокарта','Память','Диски и S.M.A.R.T.','Периферия','Сеть','Температуры','Здоровье'],
+     'EN': ['Overview','CPU','GPU','Memory','Disks & S.M.A.R.T.','Peripherals','Network','Thermal','Health'],
+    }
+    L = TR['EN'] if (lang != 'RU' or ami) else TR.get(lang, TR['EN'])
+    def R(ru, en):
+        return en if (lang != 'RU' or ami) else ru
+    if lang == 'RU' and not ami:
+        U_GB=' ГБ'; U_GHZ=' ГГц'; U_MB=' МБ'; U_W=' Вт'; U_MBIT=' Мбит/с'; U_MHZ=' МГц'
+    else:
+        U_GB=' GB'; U_GHZ=' GHz'; U_MB=' MB'; U_W=' W'; U_MBIT=' Mbps'; U_MHZ=' MHz'
 
     def badge(status):
         s = (status or '').lower()
         cls = 'ok' if s == 'ok' else ('warn' if s == 'warning' else ('crit' if s in ('critical','fail','failed') else 'info'))
         label = {'ok':'OK','warning':'WARN','critical':'CRIT','fail':'FAIL','failed':'FAIL','info':'INFO'}.get(s.upper(), (status or '').upper())
-        return f'<span class="badge {cls}">{e(label)}</span>'
+        return '<span class="badge ' + cls + '">' + esc(label) + '</span>'
 
-    TR = {
-     'RU': ['Обзор','Процессор','Видеокарта','Память','Диски и S.M.A.R.T.','Периферия','Сеть','Температуры','Здоровье'],
-     'EN': ['Overview','CPU','GPU','Memory','Disks & S.M.A.R.T.','Peripherals','Network','Thermal','Health'],
-    }
-    L = TR.get(lang, TR['EN'])
-    R = lambda ru, en: (ru if lang == 'RU' else en)
+    def trr(lbl, val, cls=''):
+        c = ' class="' + cls + '"' if cls else ''
+        return '<tr><td class="lbl">' + esc(lbl) + '</td><td' + c + '>' + (val if not isinstance(val, str) else val) + '</td></tr>'
 
-    def gv(d, *ks):
-        cur = d
-        for k in ks:
-            if isinstance(cur, dict) and k in cur: cur = cur[k]
-            else: return None
-        return cur
+    def trow(lbl, val):
+        return '<tr><td class="lbl">' + esc(lbl) + '</td><td>' + esc(val) + '</td></tr>'
 
-    # ── Tab 0: Overview ──
-    t0 = [airow('overview')]
-    t0.append(row(R('Имя хоста','Hostname'), host.get('host','')))
-    t0.append(row(R('ОС','OS'), f"{host.get('os','')} {host.get('arch','')}".strip()))
-    t0.append(row(R('Ядро','Kernel'), host.get('kernel','')))
-    t0.append(row(R('Время работы','Uptime'), gv(sensors,'system','uptime') or gv(cpu,'uptime') or ''))
-    t0.append(row(R('Процессор','CPU'), gv(cpu,'model') or gv(cpu,'name') or ''))
-    t0.append(row(R('Видеокарта','GPU'), gpu.get('name','') or gv(sensors,'gpu',0,'name') or ''))
-    tk = gv(mem,'total_kb'); mem_gb = (round(tk/1e6,1) if tk else (gv(mem,'total_gb') or '')) if isinstance(mem, dict) else ''
-    t0.append(row(R('Память','Memory'), (f"{mem_gb} ГБ" if mem_gb else '')))
+    # ---- data ----
+    cpu_max = gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz')
+    if gv(cpu,'max_freq_khz') and not cpu_max:
+        cpu_max = '%.1f' % (int(gv(cpu,'max_freq_khz'))/1000.0) + U_GHZ
+    cpu_base = gv(cpu,'base_freq_ghz') or gv(cpu,'base_freq_mhz')
+    if gv(cpu,'base_freq_khz') and not cpu_base:
+        cpu_base = '%.1f' % (int(gv(cpu,'base_freq_khz'))/1000.0) + U_GHZ
 
-    # ── Tab 1: CPU ──
-    t1 = [airow('cpu')]
-    t1.append(row(R('Модель','Model'), gv(cpu,'model') or gv(cpu,'name') or ''))
-    t1.append(row(R('Сокет','Socket'), gv(cpu,'sockets') or ''))
-    t1.append(row(R('Ядра / потоки','Cores / threads'), f"{gv(cpu,'cores') or '?'} / {gv(cpu,'threads') or '?'}" if (gv(cpu,'cores') or gv(cpu,'threads')) else ''))
-    t1.append(row(R('Макс. частота','Max freq'), gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz') or ''))
-    t1.append(row(R('Загрузка','Load avg'), gv(sensors,'system','load') or ''))
+    mem_type = gv(mem,'type') or ''
+    slots = gv(mem,'slots') or []
+    if not isinstance(slots, list): slots=[]
+    if not mem_type and slots: mem_type = slots[0].get('type','')
+    mem_size_mb = gv(mem,'size_mb')
+
+    def mem_total_gb():
+        tk = gv(mem,'total_kb')
+        if tk: return round(tk/1e6,1)
+        tg = gv(mem,'total_gb')
+        if tg: return tg
+        if mem_size_mb: return round(mem_size_mb/1024.0,1)
+        return None
+    def mem_used_gb():
+        uk = gv(mem,'used_kb') or gv(memraw,'used_kb')
+        if uk: return round(uk/1e6,1)
+        ug = gv(mem,'used_gb') or gv(memraw,'used_gb')
+        if ug: return ug
+        return None
+    mem_t = mem_total_gb(); mem_u = mem_used_gb()
+
+    def slot_size_gb(s):
+        sz = s.get('size') or s.get('size_gb') or s.get('size_mb') or ''
+        m = re.match(r'^\s*([\d.]+)\s*(GiB|GB|MiB|MB)?', str(sz))
+        if not m: return str(sz).strip()
+        v = float(m.group(1)); u = (m.group(2) or '')
+        if u in ('MiB','MB'): v = v/1024.0
+        return ('%g' % v) + U_GB
+
+    disks = gv(block,'disks') or []
+    if not isinstance(disks, list): disks=[]
+    smart = {}
+    for c in (doctor.get('checks') or []):
+        if c.get('check','').startswith('smart_'):
+            smart[c['check'].replace('smart_','')] = c
+    usb = per.get('usb') or []; disp = per.get('displays') or []
+    aud = per.get('audio') or []; pci = per.get('pci') or []
+    for x in (usb,disp,aud,pci):
+        if not isinstance(x, list): x[:] = []
+
     cores = gv(sensors,'cpu_cores') or []
-    if cores:
-        t1.append(f'<tr><td class="lbl">{R("Температуры ядер","Core temps")}</td><td><table class="mini">')
-        for c in cores:
-            t1.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
-        t1.append('</table></td></tr>')
-
-    # ── Tab 2: GPU ──
+    if not isinstance(cores, list): cores=[]
     gp = gv(sensors,'gpu')
     if isinstance(gp, list): gp = gp[0] if gp else {}
     if not isinstance(gp, dict): gp = {}
-    t2 = [airow('gpu')]
-    t2.append(row(R('Модель','Model'), gpu.get('name','') or gp.get('name','')))
-    t2.append(row(R('Драйвер','Driver'), gpu.get('driver','') or gp.get('driver','')))
+    ifs = net.get('interfaces') or []
+    if not isinstance(ifs, list): ifs=[]
+
+    def airow(key):
+        t = ai.get(key) if isinstance(ai, dict) else None
+        if not t: return ''
+        return '<tr><td class="lbl ai">AI</td><td class="ai">' + esc(t) + '</td></tr>'
+
+    # ================= panels =================
+    # panel: (main_title, [ subtab ])
+    # subtab: ('label', rows_html, optional_subtables_html)
+    panels = []
+
+    # Overview
+    bt = gv(board,'bios')
+    board_line = (str(board.get('vendor','')) + ' ' + str(board.get('name',''))).strip()
+    bios_line = ''
+    if isinstance(bt, dict):
+        bios_line = (str(bt.get('vendor','')) + ' ' + str(bt.get('version',''))).strip()
+    memov = (('%s' % mem_t) + U_GB) if mem_t else ''
+    ov_rows = airow('overview')
+    ov_rows += trow(R('Имя хоста','Hostname'), host.get('host',''))
+    ov_rows += trow(R('Материнская плата','Motherboard'), board_line)
+    ov_rows += trow(R('BIOS','BIOS'), bios_line)
+    ov_rows += trow(R('ОС','OS'), (str(host.get('os','')) + ' ' + str(host.get('arch',''))).strip())
+    ov_rows += trow(R('Ядро','Kernel'), host.get('kernel',''))
+    ov_rows += trow(R('Время работы','Uptime'), gv(sensors,'system','uptime') or gv(cpu,'uptime') or '')
+    ov_rows += trow(R('Процессор','CPU'), gv(cpu,'model') or gv(cpu,'name') or '')
+    ov_rows += trow(R('Видеокарта','GPU'), gpu.get('name','') or gv(sensors,'gpu',0,'name') or '')
+    ov_rows += trow(R('Память','Memory'), memov)
+    panels.append((L[0], [('Overview', ov_rows, '')]))
+
+    # CPU
+    cpu_rows = airow('cpu')
+    cpu_rows += trow(R('Модель','Model'), gv(cpu,'model') or gv(cpu,'name') or '')
+    cpu_rows += trow(R('Сокет','Socket'), gv(cpu,'sockets') or '')
+    cpu_rows += trow(R('Макс. частота','Max freq'), cpu_max or '')
+    cpu_rows += trow(R('Баз. частота','Base freq'), cpu_base or '')
+    cpu_rows += trow(R('Ядра / потоки','Cores / threads'), ('%s / %s' % (gv(cpu,'cores') or '?', gv(cpu,'threads') or '?')) if (gv(cpu,'cores') or gv(cpu,'threads')) else '')
+    cpu_rows += trow(R('Загрузка','Load avg'), gv(sensors,'system','load') or '')
+    coretab = ''
+    if cores:
+        coretab = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s°C</td></tr>' % (esc(c.get("label","")), esc(c.get("temp_c"))) for c in cores) + '</tbody></table>'
+    panels.append((L[1], [('CPU', cpu_rows, coretab)]))
+
+    # GPU
+    gpu_rows = airow('gpu')
     vram = gpu.get('vram_total_mib') or gp.get('vram_total_mib')
-    t2.append(row(R('Память','VRAM'), f"{vram} МБ" if vram else ''))
-    t2.append(row(R('Температура','Temp'), f"{gp.get('temp_c')}°C" if gp.get('temp_c') is not None else ''))
-    t2.append(row(R('Вентилятор','Fan'), f"{gp.get('fan_percent')}%" if gp.get('fan_percent') is not None else ''))
-    t2.append(row(R('Энергопотребление','Power'), f"{gp.get('power_w')} Вт" if gp.get('power_w') is not None else ''))
-    t2.append(row(R('Загрузка','Utilization'), f"{gp.get('utilization_percent')}%" if gp.get('utilization_percent') is not None else ''))
-    t2.append(row(R('Частоты','Clocks'), f"GPU {gp.get('clock_gpu_mhz') or '?'} МГц / MEM {gp.get('clock_mem_mhz') or '?'} МГц"))
+    gpu_rows += trow(R('Модель','Model'), gpu.get('name','') or gp.get('name',''))
+    gpu_rows += trow(R('Драйвер','Driver'), gpu.get('driver','') or gp.get('driver',''))
+    gpu_rows += trow(R('Память','VRAM'), (('%s' % vram) + U_MB) if vram else '')
+    gpu_rows += trow(R('Температура','Temp'), ('%s°C' % gp.get('temp_c')) if gp.get('temp_c') is not None else '')
+    gpu_rows += trow(R('Вентилятор','Fan'), ('%s%%' % gp.get('fan_percent')) if gp.get('fan_percent') is not None else '')
+    gpu_rows += trow(R('Энергопотребление','Power'), (('%s' % gp.get('power_w')) + U_W) if gp.get('power_w') is not None else '')
+    gpu_rows += trow(R('Загрузка','Utilization'), ('%s%%' % gp.get('utilization_percent')) if gp.get('utilization_percent') is not None else '')
+    panels.append((L[2], [('GPU', gpu_rows, '')]))
 
-    # ── Tab 3: Memory ──
-    t3 = [airow('memory')]
-    if isinstance(mem, dict):
-        tk = gv(mem,'total_kb'); uk = gv(mem,'used_kb')
-        tg = round(tk/1e6,1) if tk else (gv(mem,'total_gb') or '')
-        ug = round(uk/1e6,1) if uk else ''
-        t3.append(row(R('Всего','Total'), (f"{tg} ГБ" if tg else '')))
-        t3.append(row(R('Тип','Type'), gv(mem,'type') or ''))
-        t3.append(row(R('Использовано','Used'), (f"{ug} / {tg} ГБ" if (ug and tg) else '')))
-        slots = gv(mem,'slots') or []
-        if isinstance(slots, list) and slots:
-            t3.append(f'<tr><td class="lbl">{R("Слоты","Slots")}</td><td><table class="mini">')
-            for s in slots:
-                if isinstance(s, dict):
-                    t3.append(f'<tr><td>{e(s.get("bank","") or s.get("locator",""))}</td><td>{e(s.get("size_gb") or s.get("size_mb") or "")}</td><td>{e(s.get("type",""))}</td></tr>')
-            t3.append('</table></td></tr>')
-    else:
-        t3.append(row('', R('Нет данных','No data')))
+    # Memory
+    mem_subs = []
+    mem_main = 'Нет данных' if not (mem_t or slots or mem_type or mem_size_mb) else ''
+    ram_rows = airow('memory')
+    ram_rows += trow(R('Всего','Total'), (('%s' % mem_t) + U_GB) if mem_t else '')
+    ram_rows += trow(R('Тип','Type'), mem_type)
+    ram_rows += trow(R('Использовано','Used'), ((('%s' % mem_u) + ' / ' + ('%s' % mem_t)) + U_GB) if (mem_u and mem_t) else '')
+    if mem_size_mb:
+        ram_rows += trow(R('В системе','Installed'), (('%s' % round(mem_size_mb/1024.0,1)) + U_GB))
+    mem_subs.append(('RAM', ram_rows, ''))
+    if slots:
+        slottab = '<table class="mini"><tbody>' + ''.join(
+            '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                esc(s.get('locator','') or s.get('bank','')), esc(slot_size_gb(s)),
+                esc(s.get('type','')), esc((str(s.get('speed_mts')) + U_MHZ) if s.get('speed_mts') else ''))
+            for s in slots) + '</tbody></table>'
+        mem_subs.append(('Slots', '', slottab))
+    panels.append((L[3], mem_subs))
 
-    # ── Tab 4: Disks & S.M.A.R.T. ──
-    t4 = [airow('disks')]
-    disks = gv(block,'disks') or []
-    smart = {}
-    for c in (doctor.get('checks') or []):
-        ck = c.get('check','')
-        if ck.startswith('smart_'):
-            smart[ck.replace('smart_','')] = c.get('status')
+    # Disks & SMART
+    disk_subs = []
     for d in disks:
         nm = d.get('name','')
         size = d.get('size_bytes')
-        size_s = f"{size/1e9:.0f} ГБ" if size else ''
-        t4.append(row(nm, f"{d.get('model','')} - {size_s} ({d.get('type','')})"))
+        size_s = (('%d' % (size/1e9)) + U_GB) if size else ''
+        rows = '<tr><td class="lbl">%s</td><td>%s</td></tr>' % (esc(nm), esc('%s - %s (%s)' % (d.get('model',''), size_s, d.get('type',''))))
         st = smart.get(nm)
         if st:
-            t4.append(f'<tr><td class="lbl">S.M.A.R.T.</td><td>{badge(st)} {e(str(d.get("detail","")).strip())}</td></tr>')
+            rows += '<tr><td class="lbl">S.M.A.R.T.</td><td>%s %s</td></tr>' % (badge(st.get('status')), esc(str(st.get('detail','')).strip()))
         parts = d.get('partitions') or []
-        if parts:
-            t4.append('<tr><td class="lbl">Разделы</td><td><table class="mini">')
-            for p in parts:
-                t4.append(f'<tr><td>{e(p.get("name",""))}</td><td>{e(p.get("fs_type",""))}</td><td>{e(p.get("mountpoint",""))}</td></tr>')
-            t4.append('</table></td></tr>')
-    if not disks:
-        t4.append(row('', '-'))
+        subt = ''
+        if isinstance(parts, list) and parts:
+            subt = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(p.get("name","")), esc(p.get("fs_type","")), esc(p.get("mountpoint",""))) for p in parts) + '</tbody></table>'
+        disk_subs.append((nm.upper(), rows, subt))
+    if not disk_subs:
+        disk_subs.append((R('Диски','Disks'), trow('', '-'), ''))
+    panels.append((L[4], disk_subs))
 
-    # ── Tab 5: Peripherals ──
-    t5 = [airow('peripherals')]
-    usb = per.get('usb') or []
+    # Peripherals
+    per_subs = []
     if usb:
-        t5.append(f'<tr><td class="lbl">USB ({len(usb)})</td><td><table class="mini">')
-        for u in usb[:16]:
-            t5.append(f'<tr><td>{e(u.get("name",""))}</td><td>{e(u.get("vendor",""))}</td><td class="muted">{e(u.get("class",""))}</td></tr>')
-        t5.append('</table></td></tr>')
-    disp = per.get('displays') or []
+        subt = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(u.get("name","")), esc(u.get("vendor","")), esc(u.get("class",""))) for u in usb) + '</tbody></table>'
+        per_subs.append(('USB (%d)' % len(usb), '', subt))
     if disp:
-        t5.append(f'<tr><td class="lbl">{R("Дисплеи","Displays")}</td><td><table class="mini">')
+        dtrs = ''
         for dd in disp:
-            t5.append(f'<tr><td>{e(dd.get("name",""))}</td><td>{e(dd.get("resolution",""))}</td><td>{e(dd.get("refresh_rate") or dd.get("refresh") or "")} Гц</td></tr>')
-        t5.append('</table></td></tr>')
-    aud = per.get('audio') or []
+            refresh = dd.get('refresh_hz') or dd.get('refresh_rate') or dd.get('refresh')
+            cells = [esc(dd.get('name','') or dd.get('model','')), esc(dd.get('mode') or dd.get('resolution') or '')]
+            if refresh: cells.append(esc(refresh) + ' Гц')
+            dtrs += '<tr><td>%s</td><td>%s</td>%s</tr>' % (cells[0], cells[1], ('<td>'+cells[2]+'</td>') if len(cells)>2 else '')
+        per_subs.append((R('Дисплеи','Displays'), '', '<table class="mini"><tbody>' + dtrs + '</tbody></table>'))
     if aud:
-        t5.append(f'<tr><td class="lbl">{R("Аудио","Audio")}</td><td><table class="mini">')
-        for a in aud:
-            t5.append(f'<tr><td>{e(a.get("name",""))}</td><td class="muted">{e(a.get("driver",""))}</td></tr>')
-        t5.append('</table></td></tr>')
-    pci = per.get('pci') or []
+        atr = ''.join('<tr><td>%s</td><td>%s</td></tr>' % (esc(str(a.get('id','')).strip()), esc(a.get('description',''))) for a in aud)
+        per_subs.append((R('Аудио','Audio'), '', '<table class="mini"><tbody>' + atr + '</tbody></table>'))
     if pci:
-        t5.append(f'<tr><td class="lbl">PCI ({len(pci)})</td><td><table class="mini">')
-        for p in pci[:16]:
-            t5.append(f'<tr><td>{e(p.get("name",""))}</td><td class="muted">{e(p.get("class",""))}</td></tr>')
-        t5.append('</table></td></tr>')
-    if not any([usb,disp,aud,pci]):
-        t5.append(row('', '-'))
+        ptr = ''.join('<tr><td>%s</td><td>%s</td></tr>' % (esc(p.get('bus','')), esc(p.get('description',''))) for p in pci)
+        per_subs.append(('PCI (%d)' % len(pci), '', '<table class="mini"><tbody>' + ptr + '</tbody></table>'))
+    if not (usb or disp or aud or pci):
+        per_subs.append((R('Периферия','Peripherals'), trow('', '-'), ''))
+    panels.append((L[5], per_subs))
 
-    # ── Tab 6: Network ──
-    t6 = [airow('network')]
-    ifs = net.get('interfaces') or []
-    for i in ifs:
-        t6.append(row(i.get('name',''), f'{i.get("kind","")} - {i.get("state","")}' + (f' - {i.get("speed_mbps")} Мбит/с' if i.get('speed_mbps') else '')))
-    if not ifs:
-        t6.append(row('', '-'))
+    # Network
+    net_rows = airow('network')
+    if ifs:
+        for i in ifs:
+            sp = ((' - %s' % i.get('speed_mbps')) + U_MBIT) if i.get('speed_mbps') else ''
+            net_rows += trow(i.get('name',''), '%s - %s%s' % (i.get('kind',''), i.get('state',''), sp))
+    else:
+        net_rows += trow('', '-')
+    panels.append((L[6], [('Network', net_rows, '')]))
 
-    # ── Tab 7: Thermal & Fans ──
-    t7 = [airow('thermal')]
-    cores = gv(sensors,'cpu_cores') or []
+    # Thermal
+    th_subs = []
     if cores:
-        t7.append(f'<tr><td class="lbl">{R("Процессор","CPU")}</td><td><table class="mini">')
-        for c in cores:
-            t7.append(f'<tr><td>{e(c.get("label",""))}</td><td>{e(c.get("temp_c"))}°C</td></tr>')
-        t7.append('</table></td></tr>')
+        th_subs.append((R('Процессор','CPU'), '', '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s°C</td></tr>' % (esc(c.get("label","")), esc(c.get("temp_c"))) for c in cores) + '</tbody></table>'))
     if gp:
-        t7.append(row('GPU', (f"{gp.get('temp_c')}°C - {gp.get('fan_percent')}% - {gp.get('power_w')} Вт" if gp.get('power_w') is not None else f"{gp.get('temp_c')}°C - {gp.get('fan_percent')}%")))
+        gline = '%s°C - %s%%' % (gp.get('temp_c'), gp.get('fan_percent'))
+        if gp.get('power_w') is not None: gline += ((' - %s' % gp.get('power_w')) + U_W)
+        th_subs.append(('GPU', trow('GPU', gline), ''))
     if gv(sensors,'system','memory_percent'):
-        t7.append(row(R('Память','Memory'), f"{gv(sensors,'system','memory_percent')}%"))
+        th_subs.append((R('Память','Memory'), trow(R('Память','Memory'), '%s%%' % gv(sensors,'system','memory_percent')), ''))
+    if not th_subs:
+        th_subs.append((R('Температуры','Thermal'), trow('', '-'), ''))
+    panels.append((L[7], th_subs))
 
-    # ── Tab 8: Health ──
-    t8 = [airow('health')]
+    # Health
     crit = gv(doctor,'summary','critical') or 0
     warn = gv(doctor,'summary','warnings') or 0
-    try:
-        score = max(0, 100 - int(crit)*15 - int(warn)*5)
-    except Exception:
-        score = 100
-    t8.append(row(R('Оценка здоровья','Health score'), f"{score}/100"))
-    for c in (doctor.get('checks') or []):
-        t8.append(f'<tr><td class="lbl">{badge(c.get("status"))}</td><td>{e(c.get("check",""))} - {e(c.get("detail",""))}</td></tr>')
-    if not (doctor.get('checks') or []):
-        t8.append(row('', '-'))
-
-    panels = ['\n'.join(t) for t in [t0,t1,t2,t3,t4,t5,t6,t7,t8]]
+    try: score = max(0, 100 - int(crit)*15 - int(warn)*5)
+    except Exception: score = 100
+    checks = doctor.get('checks') or []
+    h_rows = airow('health')
+    h_rows += trow(R('Оценка здоровья','Health score'), '%s/100' % score)
+    h_rows += trow(R('Критично','Critical'), str(crit))
+    h_rows += trow(R('Предупреждений','Warnings'), str(warn))
+    for c in checks:
+        h_rows += '<tr><td class="lbl">%s</td><td>%s - %s</td></tr>' % (badge(c.get('status')), esc(c.get('check','')), esc(c.get('detail','')))
+    if not checks:
+        h_rows += trow('', '-')
+    panels.append((L[8], [('Health', h_rows, '')]))
 
     if ai:
-        ta = ['<tr><td class="lbl ai">AI</td><td class="ai">' + e(ai.get('full')) + '</td></tr>']
-        panels.append('\n'.join(ta))
-        L = L + [R('ИИ-анализ','AI Analysis')]
+        panels.append((R('ИИ-анализ','AI Analysis'), [('AI', '<tr><td class="lbl ai">AI</td><td class="ai">%s</td></tr>' % esc(ai.get('full')), '')]))
 
-    css = """
+    user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
+    if ami:
+        out = render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64)
+    else:
+        out = render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64)
+    sys.stdout.write(out)
+
+
+# ===================================================================
+def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
+    css = CSS_CLI.replace('__FONT__', '')
+
+    out = ["<!DOCTYPE html>", "<html lang=\"%s\">" % lang.lower(), "<head>",
+           "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+           "<title>WellHTML - %s@%s</title>" % (esc(user), esc(host.get('host',''))),
+           "<style>", css, "</style>", "</head>",
+           "<body data-theme=\"dark\">"]
+    # header
+    out.append(HEADER_CLI.replace('__USER__', esc(user)).replace('__HOST__', esc(host.get('host','')))
+               .replace('__HELP__', R('хелп','help')).replace('__SEARCH__', R('поиск','search'))
+               .replace('__THEME__', R('тема','theme')).replace('__DL__', R('Скачать HTML','Download HTML')))
+    # nav main
+    nav = ['<nav id="nav" aria-label="tabs">']
+    for i, p in enumerate(panels):
+        idx = (i+1) % 10
+        nav.append('<button data-i="%d" class="%s"><span class="idx">[%d]</span>%s</button>' % (i, 'active' if i==0 else '', idx, esc(p[0])))
+    nav.append('</nav>')
+    out.append(''.join(nav))
+    out.append('<div id="search"><span class="p">&gt; </span><input type="text" id="searchin" placeholder="%s" autocomplete="off"><span class="count" id="searchcount"></span></div>' % R('фильтр строк…','filter rows…'))
+    out.append('<main>')
+    for i, (maintitle, subs) in enumerate(panels):
+        out.append('<div class="panel%s" id="p%d">' % (' active' if i==0 else '', i))
+        if len(subs) > 1:
+            sub = ['<div class="subnav" id="subnav-%d">' % i]
+            for si, s in enumerate(subs):
+                sub.append('<button data-s="%d" class="%s">%s</button>' % (si, 'active' if si==0 else '', esc(s[0])))
+            sub.append('</div>')
+            out.append(''.join(sub))
+        for si, s in enumerate(subs):
+            out.append('<div class="subpanel%s" id="s%d-%d">' % (' active' if si==0 else '', i, si))
+            out.append('<table><tbody>%s</tbody></table>' % s[1])
+            if s[2]:
+                out.append(s[2])
+            out.append('</div>')
+        out.append('</div>')
+    out.append('</main>')
+    out.append(FOOTER_CLI.replace('__VER__', esc(wu_ver)).replace('__TS__', esc(ts))
+               .replace('__HINT__', R('<- -> или цифры для навигации','<- -> or digits to navigate')))
+    out.append(HELP_CLI.replace('__H1__', R('Клавиатура','Keyboard'))
+               .replace('__H1K__', R('<- -> / ^ v','<- -> / ^ v')).replace('__H1V__', R('переключить вкладку','switch tab'))
+               .replace('__H2K__', 'Tab / Enter').replace('__H2V__', R('внутренняя вкладка','inner tab'))
+               .replace('__H3K__', '1…9 / 0').replace('__H3V__', R('перейти к вкладке','jump to tab'))
+               .replace('__H4K__', 'Home / End').replace('__H4V__', R('первая / последняя','first / last'))
+               .replace('__H5K__', '/').replace('__H5V__', R('фильтр строк','filter rows'))
+               .replace('__H6K__', 't').replace('__H6V__', R('тёмная / светлая тема','dark / light theme'))
+               .replace('__H7K__', '?').replace('__H7V__', R('эта справка','this help'))
+               .replace('__H8K__', 'Esc').replace('__H8V__', R('закрыть','close'))
+               .replace('__VER2__', esc(wu_ver)))
+    out.append(JS_CLI)
+    out.append('</body></html>')
+    return ''.join(out)
+
+# ===================================================================
+def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64):
+    font_decl = ''
+    if FONT_B64:
+        font_decl = "@font-face{font-family:'BIOS';src:url(data:font/woff;base64," + FONT_B64 + ") format('woff')}"
+    head_css = CSS_AMI.replace('__FONT__', font_decl)
+
+    out = ["<!DOCTYPE html>", "<html lang=\"en\">", "<head>",
+           "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+           "<title>AMIBIOS SETUP UTILITY - %s@%s</title>" % (esc(user), esc(host.get('host',''))),
+           "<style>", head_css, "</style>", "</head>",
+           "<body class=\"ami\">"]
+    # header banner
+    out.append('<div class="banner"><span>AMIBIOS SETUP UTILITY</span><span class="bversion">%s</span></div>' % esc(wu_ver))
+    # main tabs (one per panel) - horizontal nav like real BIOS
+    tabs = ['<div class="tabs">']
+    for i, p in enumerate(panels):
+        tabs.append('<button class="tab%s" data-p="%d">%s</button>' % (' active' if i==0 else '', i, esc(p[0])))
+    tabs.append('</div>')
+    out.append(''.join(tabs))
+    # body
+    out.append('<div class="ami-body">')
+    for i, (maintitle, subs) in enumerate(panels):
+        out.append('<div class="pane%s" id="pane%d">' % (' active' if i==0 else '', i))
+        # left submenu (only if multiple subs)
+        if len(subs) > 1:
+            out.append('<div class="subcol">')
+            for si, s in enumerate(subs):
+                out.append('<button class="subit%s" data-p="%d" data-s="%d" type="button"><span class="caret">&gt;</span>%s</button>'
+                           % (' active' if si==0 else '', i, si, esc(s[0])))
+            out.append('</div>')
+        else:
+            out.append('<div class="subcol empty"></div>')
+        # content columns
+        for si, s in enumerate(subs):
+            out.append('<div class="content%s" id="c%d-%d">' % (' active' if si==0 else '', i, si))
+            out.append('<table class="tbl"><tbody>%s</tbody></table>' % s[1])
+            if s[2]:
+                out.append('<div class="miniwrap">%s</div>' % s[2])
+            out.append('</div>')
+        # item specific help
+        out.append('<div class="helpcol"><div class="helptitle">Item Specific Help</div>'
+                   '<div class="helpbody">' + esc(maintitle) + '</div></div>')
+        out.append('</div>')
+    out.append('</div>')  # ami-body
+    out.append(LEGEND_AMI)
+    out.append(JS_AMI)
+    out.append('</body></html>')
+    return ''.join(out)
+
+
+# ===================================================================
+CSS_CLI = '''__FONT__
 :root{
  --bg:#0d0f14; --panel:#14171e; --panel2:#1c2029; --bd:#262c38;
  --fg:#c8d2dc; --muted:#5f6b7a; --dim:#3a4350;
- --grn:#8ec07c; --grn2:#6bbf63; --cyn:#79b8c9; --pur:#b08fd6; --blu:#7aa2f7;
+ --grn:#8ec07c; --cyn:#79b8c9; --pur:#b08fd6; --blu:#7aa2f7;
  --ylw:#e5c07b; --red:#e06666; --hl:#8ec07c; --hlbg:#8ec07c22;
 }
 [data-theme="light"]{
  --bg:#f5f6f8; --panel:#ffffff; --panel2:#eef1f5; --bd:#d8dde4;
  --fg:#1c232b; --muted:#5a6673; --dim:#b0b8c2;
- --grn:#4f8c3a; --grn2:#3f8f34; --cyn:#2a7a96; --pur:#7d5bb0; --blu:#2f5fd0;
+ --grn:#4f8c3a; --cyn:#2a7a96; --pur:#7d5bb0; --blu:#2f5fd0;
  --ylw:#9a6b00; --red:#c0392b; --hl:#4f8c3a; --hlbg:#4f8c3a1a;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
- font:14px/1.55 "JetBrains Mono","Fira Code","SFMono-Regular",ui-monospace,Menlo,Consolas,monospace}
+ font:14px/1.55 "JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace}
 body{display:flex;flex-direction:column;min-height:100vh}
 ::selection{background:var(--hlbg)}
 header{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:14px;
@@ -408,7 +594,7 @@ header .prompt .at{color:var(--muted)}
 header .prompt .host{color:var(--cyn);font-weight:600}
 header .prompt .dollar{color:var(--grn)}
 header .prompt .cmd{color:var(--fg)}
-header .prompt .cursor{display:inline-block;width:8px;background:var(--grn);animation:blink 1.1s steps(1) infinite;vertical-align:-1px;}
+header .prompt .cursor{display:inline-block;width:8px;background:var(--grn);animation:blink 1.1s steps(1) infinite;vertical-align:-1px}
 @keyframes blink{50%{opacity:0}}
 header .ctrl{display:flex;gap:8px;align-items:center}
 .key{color:var(--muted);font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:2px 7px;background:var(--panel2)}
@@ -434,11 +620,11 @@ table{border-collapse:collapse;width:100%}
 td{padding:7px 10px;border-bottom:1px solid var(--panel2);vertical-align:top}
 td.lbl{color:var(--muted);width:210px;font-weight:600;white-space:nowrap}
 td.lbl::before{content:"$ ";color:var(--dim)}
-td.val b{color:var(--grn)}
-td.ai{background:var(--hlbg);color:var(--fg);font-style:normal}
+td.ai{background:var(--hlbg);color:var(--fg)}
 td.ai::before{content:"ai ";color:var(--cyn);font-weight:700}
-.mini{margin:2px 0;font-size:12.5px}
+.mini{margin:2px 0;font-size:12.5px;width:100%}
 .mini td{border-bottom:1px solid var(--panel2);padding:3px 8px}
+.mini td.lbl{width:auto}
 .mini td::before{content:none}
 .muted{color:var(--muted)}
 .badge{border-radius:4px;padding:1px 7px;font-size:10.5px;font-weight:700}
@@ -446,7 +632,13 @@ td.ai::before{content:"ai ";color:var(--cyn);font-weight:700}
 .badge.warn{color:#1e2b1a;background:var(--ylw)}
 .badge.crit{color:#fff;background:var(--red)}
 .badge.info{color:var(--fg);background:var(--dim)}
-.tag{color:var(--pur)}
+.subnav{display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 10px}
+.subnav button{background:transparent;color:var(--muted);border:1px solid transparent;border-radius:5px;padding:3px 8px;
+ font-size:11.5px;cursor:pointer;font-family:inherit}
+.subnav button:hover{color:var(--fg)}
+.subnav button.active{color:var(--grn);border-color:var(--grn);background:var(--hlbg)}
+.subpanel{display:none}
+.subpanel.active{display:block}
 footer{padding:14px 20px;text-align:center;color:var(--muted);font-size:11px;border-top:1px solid var(--bd)}
 footer .hint{color:var(--dim)}
 #help{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
@@ -457,61 +649,45 @@ footer .hint{color:var(--dim)}
 #help .row{display:flex;justify-content:space-between;gap:20px;padding:5px 0;border-bottom:1px solid var(--panel2);font-size:13px}
 #help .row .k{color:var(--cyn);font-weight:700}
 #help .close{margin-top:14px;text-align:right;color:var(--muted);font-size:11px}
-.hl{background:var(--ylw);color:#1e2b1a;border-radius:2px}
 @media (max-width:760px){td.lbl{width:130px}}
-@media print{body{background:#fff;color:#000}[data-theme]{}header,nav,footer,#help,#search{position:static}.panel{display:block!important;border:none}nav{display:none}}
-"""
+@media print{body{background:#fff;color:#000}header,nav,footer,#help,#search{position:static}.panel{display:block!important;border:none}nav{display:none}}
+'''
 
-    user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
-    out = f"""<!DOCTYPE html>
-<html lang="{lang.lower()}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WellHTML - {e(user)}@{e(host.get('host',''))}</title>
-<style>{css}</style>
-</head>
-<body data-theme="dark">
-<header>
+HEADER_CLI = '''<header>
   <div class="prompt">
-    <span class="user">{e(user)}</span><span class="at">@</span><span class="host">{e(host.get('host',''))}</span>
+    <span class="user">__USER__</span><span class="at">@</span><span class="host">__HOST__</span>
     <span class="dollar">:$</span> <span class="cmd">whtml</span><span class="cursor"></span>
   </div>
   <div class="ctrl">
-    <span class="key">?</span><span class="muted">{R('хелп','help')}</span>
-    <span class="key">/</span><span class="muted">{R('поиск','search')}</span>
-    <span class="key">t</span><span class="muted">{R('тема','theme')}</span>
-    <a class="btn" id="dl" download="wellreport.html">{R('Скачать HTML','Download HTML')}</a>
+    <span class="key">?</span><span class="muted">__HELP__</span>
+    <span class="key">/</span><span class="muted">__SEARCH__</span>
+    <span class="key">t</span><span class="muted">__THEME__</span>
+    <a class="btn" id="dl" download="wellreport.html">__DL__</a>
   </div>
 </header>
-<nav id="nav" aria-label="tabs">
-"""
-    for i, name in enumerate(L):
-        idx = (i+1) % 10
-        out += f'<button data-i="{i}" class="{"active" if i==0 else ""}"><span class="idx">[{idx}]</span>{e(name)}</button>\n'
-    out += "</nav>\n"
-    out += f"""<div id="search"><span class="p">&gt; </span><input type="text" id="searchin" placeholder="{R('фильтр строк…','filter rows…')}" autocomplete="off"><span class="count" id="searchcount"></span></div>
-<main>
-"""
-    for i, p in enumerate(panels):
-        out += f'<div class="panel{" active" if i==0 else ""}" id="p{i}"><table>{p}</table></div>\n'
-    out += f"""</main>
-<footer>wellutils - WellHTML {e(wu_ver)} - {e(ts)} - <span class="hint">{R('<- -> или цифры для навигации','<- -> or digits to navigate')}</span></footer>
-<div id="help">
+'''
+
+FOOTER_CLI = '''<footer>wellutils - WellHTML __VER__ - __TS__ - <span class="hint">__HINT__</span></footer>
+'''
+
+HELP_CLI = '''<div id="help">
   <div class="box">
-    <h2>{R('Клавиатура','Keyboard')}</h2>
-    <div class="row"><span class="k">{R('<- -> / ^ v','<- -> / ^ v')}</span><span>{R('переключить вкладку','switch tab')}</span></div>
-    <div class="row"><span class="k">1…9 / 0</span><span>{R('перейти к вкладке','jump to tab')}</span></div>
-    <div class="row"><span class="k">Home / End</span><span>{R('первая / последняя','first / last')}</span></div>
-    <div class="row"><span class="k">/</span><span>{R('фильтр строк','filter rows')}</span></div>
-    <div class="row"><span class="k">t</span><span>{R('тёмная / светлая тема','dark / light theme')}</span></div>
-    <div class="row"><span class="k">?</span><span>{R('эта справка','this help')}</span></div>
-    <div class="row"><span class="k">Esc</span><span>{R('закрыть','close')}</span></div>
-    <div class="close">wellutils - WellHTML {e(wu_ver)}</div>
+    <h2>__H1__</h2>
+    <div class="row"><span class="k">__H1K__</span><span>__H1V__</span></div>
+    <div class="row"><span class="k">__H2K__</span><span>__H2V__</span></div>
+    <div class="row"><span class="k">__H3K__</span><span>__H3V__</span></div>
+    <div class="row"><span class="k">__H4K__</span><span>__H4V__</span></div>
+    <div class="row"><span class="k">__H5K__</span><span>__H5V__</span></div>
+    <div class="row"><span class="k">__H6K__</span><span>__H6V__</span></div>
+    <div class="row"><span class="k">__H7K__</span><span>__H7V__</span></div>
+    <div class="row"><span class="k">__H8K__</span><span>__H8V__</span></div>
+    <div class="close">wellutils - WellHTML __VER2__</div>
   </div>
 </div>
-<script>
-(function(){{
+'''
+
+JS_CLI = '''<script>
+(function(){
 var panels=[].slice.call(document.querySelectorAll('.panel'));
 var btns=[].slice.call(document.querySelectorAll('#nav button'));
 var search=document.getElementById('search');
@@ -519,54 +695,155 @@ var searchin=document.getElementById('searchin');
 var searchcount=document.getElementById('searchcount');
 var help=document.getElementById('help');
 var N=panels.length;
-function show(i){{i=(i%N+N)%N;panels.forEach(function(p,k){{p.classList.toggle('active',k===i)}});
-  btns.forEach(function(b,k){{b.classList.toggle('active',k===i)}});window.scrollTo(0,0);filter();}}
-function cur(){{return btns.findIndex(function(b){{return b.classList.contains('active')}})}}
-function theme(){{var b=document.body;var t=b.getAttribute('data-theme');b.setAttribute('data-theme',t==='dark'?'light':'dark');try{{localStorage.setItem('whtml-theme',b.getAttribute('data-theme'))}}catch(e){{}}}}
-function filter(){{var q=searchin.value.toLowerCase().trim();
+function show(i){i=(i%N+N)%N;panels.forEach(function(p,k){p.classList.toggle('active',k===i)});
+  btns.forEach(function(b,k){b.classList.toggle('active',k===i)});window.scrollTo(0,0);filter();}
+function cur(){return btns.findIndex(function(b){return b.classList.contains('active')})}
+function theme(){var b=document.body;var t=b.getAttribute('data-theme');b.setAttribute('data-theme',t==='dark'?'light':'dark');try{localStorage.setItem('whtml-theme',b.getAttribute('data-theme'))}catch(e){}}
+function filter(){var q=searchin.value.toLowerCase().trim();
   var active=document.querySelector('.panel.active');if(!active)return;
   var rows=[].slice.call(active.querySelectorAll('table > tbody > tr, table > tr'));
-  var shown=0;rows.forEach(function(tr){{if(!q){{tr.style.display='';shown++;return}}
-    var match=tr.textContent.toLowerCase().indexOf(q)>-1;tr.style.display=match?'':'none';if(match)shown++;}});
-  searchcount.textContent=q?shown+'/'+rows.length:'';}}
-function openSearch(){{search.style.display='flex';searchin.focus()}}
-function closeSearch(){{search.style.display='none';searchin.value='';filter();document.activeElement&&document.activeElement.blur()}}
-btns.forEach(function(b){{b.onclick=function(){{show(+b.dataset.i)}}}});
-btns.forEach(function(b){{b.onmousedown=function(e){{e.preventDefault();show(+b.dataset.i)}}}});
-document.addEventListener('keydown',function(ev){{
+  var shown=0;rows.forEach(function(tr){if(!q){tr.style.display='';shown++;return}
+    var match=tr.textContent.toLowerCase().indexOf(q)>-1;tr.style.display=match?'':'none';if(match)shown++;});
+  searchcount.textContent=q?shown+'/'+rows.length:'';}
+function openSearch(){search.style.display='flex';searchin.focus()}
+function closeSearch(){search.style.display='none';searchin.value='';filter();}
+function curSub(pi){var sn=document.getElementById('subnav-'+pi);if(!sn)return 0;
+  var a=sn.querySelector('button.active');return a?+a.dataset.s:0}
+function showSub(pi,si){var sn=document.getElementById('subnav-'+pi);if(!sn)return;
+  sn.querySelectorAll('button').forEach(function(b,k){b.classList.toggle('active',k===si)});
+  var p=document.getElementById('p'+pi);p.querySelectorAll('.subpanel').forEach(function(sp,k){sp.classList.toggle('active',k===si)});filter();}
+btns.forEach(function(b){b.onclick=function(){show(+b.dataset.i)}});
+btns.forEach(function(b){b.onmousedown=function(e){e.preventDefault();show(+b.dataset.i)}});
+document.querySelectorAll('.subnav').forEach(function(sn){var pi=+sn.id.replace('subnav-','');
+  sn.querySelectorAll('button').forEach(function(b){b.onclick=function(){showSub(pi,+b.dataset.s)}});});
+document.addEventListener('keydown',function(ev){
   var tag=(document.activeElement&&document.activeElement.tagName||'').toUpperCase();
   var inSearch=search.style.display==='flex';
-  if(ev.key==='Escape'){{if(help.classList.contains('open')){{help.classList.remove('open')}}
-    else if(inSearch)closeSearch();return}}
+  if(ev.key==='Escape'){if(help.classList.contains('open')){help.classList.remove('open')}
+    else if(inSearch)closeSearch();return}
   if(help.classList.contains('open'))return;
-  if(inSearch){{if(ev.key==='Enter')ev.preventDefault();return}}
+  if(inSearch){if(ev.key==='Enter')ev.preventDefault();return}
   if(tag==='INPUT'||tag==='TEXTAREA')return;
-  switch(ev.key){{case 'ArrowRight':case 'ArrowDown':ev.preventDefault();show(cur()+1);break;
+  switch(ev.key){
+    case 'ArrowRight':case 'ArrowDown':ev.preventDefault();show(cur()+1);break;
     case 'ArrowLeft':case 'ArrowUp':ev.preventDefault();show(cur()-1);break;
     case 'Home':show(0);break;case 'End':show(N-1);break;
+    case 'Tab':ev.preventDefault();{var pi=cur();var si=curSub(pi);var sn=document.getElementById('subnav-'+pi);
+      if(sn){var n=sn.querySelectorAll('button').length;showSub(pi,(si+1)%n);} }break;
     case 't':case 'T':theme();break;
     case '?':help.classList.add('open');break;
     case '/':ev.preventDefault();openSearch();break;
     default:
-      if(/^[0-9]$/.test(ev.key)){{show((+ev.key||10)-1);break}}}}}});
+      if(/^[0-9]$/.test(ev.key)){show((+ev.key||10)-1);break}}});
 searchin.addEventListener('input',filter);
-searchin.addEventListener('keydown',function(ev){{if(ev.key==='Escape')closeSearch()}});
-help.addEventListener('click',function(ev){{if(ev.target===help)help.classList.remove('open')}});
-try{{var saved=localStorage.getItem('whtml-theme');if(saved)document.body.setAttribute('data-theme',saved)}}catch(e){{}}
+searchin.addEventListener('keydown',function(ev){if(ev.key==='Escape')closeSearch()});
+help.addEventListener('click',function(ev){if(ev.target===help)help.classList.remove('open')});
+try{var saved=localStorage.getItem('whtml-theme');if(saved)document.body.setAttribute('data-theme',saved)}catch(e){}
 document.getElementById('dl').href='data:text/html;charset=utf-8,'+encodeURIComponent(document.documentElement.outerHTML);
-}})();
+})();
 </script>
-</body>
-</html>"""
-    print(out)
+'''
+# ===================================================================
+# AMI BIOS Hi-Flex style - palette & sizes taken from xb-16 BIOS emulator
+# :root { --blueLight:#0089bb; --blueDark:#0019cb; --grey:#b6b3b0; }  font-size:21px; font-weight:600
+# ===================================================================
+CSS_AMI = '''__FONT__
+:root{--blueLight:#0089bb;--blueDark:#0019cb;--grey:#b6b3b0}
+html,body.ami{height:100%}
+body.ami{margin:0;padding:0;overflow:hidden;display:flex;flex-direction:column;
+ color:var(--blueDark);font-family:"BIOS","Perfect DOS VGA 437","Courier New",monospace;
+ font-size:21px;font-weight:600;
+ background:linear-gradient(180deg,#b6b3b0 0%,#aaa7a4 45%,#9e9b98 100%)}
+body.ami *{box-sizing:border-box;user-select:none;-webkit-user-select:none}
+body.ami button{font-family:inherit;background:none;border:none;color:inherit;font-size:inherit;font-weight:inherit}
+.banner{display:flex;justify-content:space-between;align-items:center;color:#fff;
+ background:linear-gradient(180deg,#0099cc,#0089bb 40%,#007aaa);font-weight:700;
+ padding:6px 18px;letter-spacing:.4px}
+.banner .bversion{font-size:0.7em;color:#e0f2ff}
+.tabs{display:flex;background:var(--blueDark);color:var(--grey)}
+.tabs .tab{flex:1;color:var(--grey);padding:7px 4px;text-align:center;border-right:1px solid #1f2f9f;
+ text-transform:capitalize}
+.tabs .tab:last-child{border-right:none}
+.tabs .tab.active{background:var(--grey);color:var(--blueDark)}
+.tabs .tab:hover{color:#fff}
+.ami-body{flex:1;display:flex;overflow:hidden}
+.pane{display:none;flex:1;min-width:0}
+.pane.active{display:flex}
+.subcol{width:220px;flex-shrink:0;border-right:1px solid #8a8784;padding:6px 0;overflow-y:auto}
+.subcol.empty{width:220px}
+.subit{display:flex;align-items:center;gap:6px;width:100%;text-align:left;color:var(--blueDark);
+ padding:6px 12px;white-space:nowrap;text-transform:capitalize}
+.subit .caret{color:#3f3c39;visibility:hidden;width:16px;flex-shrink:0}
+.subit.active .caret{visibility:visible}
+.subit.active{background:var(--blueDark);color:#fff}
+.subit:hover{background:var(--blueDark);color:#fff}
+.content{flex:1;min-width:0;overflow:auto;padding:22px 26px;color:var(--blueDark);
+ border:2px solid #000;border-left:none}
+.content .tbl{border-collapse:collapse;width:100%;color:var(--blueDark)}
+.content .tbl td{padding:7px 8px;border:none;font-size:inherit;vertical-align:top}
+.content .tbl td.lbl{color:#33303d;width:200px;white-space:nowrap}
+.content .tbl td.lbl::after{content:":";color:#4a47a0}
+.miniwrap{margin-top:12px}
+.miniwrap table{border-collapse:collapse;width:100%;color:var(--blueDark)}
+.miniwrap table td{font-size:0.8em;padding:4px 8px;border:none;text-align:left}
+.miniwrap table td:first-child{color:#33303d}
+.helpcol{width:300px;flex-shrink:0;border-left:2px solid #8a8784;display:flex;flex-direction:column}
+.helptitle{padding:6px 12px;text-align:center;color:var(--blueLight);font-weight:700;
+ border-bottom:1px solid #8a8784}
+.helpbody{flex:1;padding:18px 14px;color:#7a3a08;font-size:0.78em;line-height:1.4;overflow:auto}
+.legend{background:var(--blueLight);color:#fff;font-size:0.72em;padding:5px 14px;display:flex;
+ justify-content:center;flex-wrap:wrap;gap:2px 24px;flex-shrink:0}
+.legend .row{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 24px}
+.legend b{color:#fff}
+.badge.ok{color:#0a7a0a}.badge.warn{color:#8a6a00}.badge.crit{color:#a50f0f}.badge.info{color:var(--blueDark)}
+@media (max-width:960px){.subcol{width:150px}.helpcol{display:none}}
+'''
+
+LEGEND_AMI = '''<div class="legend">
+  <div class="row">
+    <span><b>F1</b> Help</span><span><b>&#8593;&#8595;</b> Select Item</span>
+    <span><b>&#8592;&#8594;</b> Select Menu</span><span><b>&#8722;/+</b> Change Values</span>
+    <span><b>Enter</b> Select &nbsp;Sub-Menu</span><span><b>F9</b> Setup Defaults</span>
+    <span><b>F10</b> Save &amp; Exit</span><span><b>Esc</b> Exit</span>
+  </div>
+</div>
+'''
+
+JS_AMI = '''<script>
+(function(){
+var panes=[].slice.call(document.querySelectorAll('.pane'));
+var tabs=[].slice.call(document.querySelectorAll('.tab'));
+function show(p){p=(p%panes.length+panes.length)%panes.length;
+  panes.forEach(function(x,k){x.classList.toggle('active',k===p)});
+  tabs.forEach(function(x,k){x.classList.toggle('active',k===p)});
+  tabScroll=0;}
+var tabScroll=0;
+function curPane(){return panes.findIndex(function(x){return x.classList.contains('active')})}
+function curSub(p){var a=panes[p].querySelector('.subit.active');return a?+a.dataset.s:0}
+function showSub(p,s){panes[p].querySelectorAll('.subit').forEach(function(b,k){b.classList.toggle('active',k===s)});
+  panes[p].querySelectorAll('.content').forEach(function(c,k){c.classList.toggle('active',k===s)});}
+tabs.forEach(function(t){t.onclick=function(){show(+t.dataset.p)}});
+document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){showSub(+b.dataset.p,+b.dataset.s)}});
+document.addEventListener('keydown',function(ev){
+  var p=curPane();var n=panes[p].querySelectorAll('.subit').length;
+  switch(ev.key){
+    case 'ArrowRight':ev.preventDefault();show((p+1)%panes.length);break;
+    case 'ArrowLeft':ev.preventDefault();show((p-1+panes.length)%panes.length);break;
+    case 'ArrowDown':ev.preventDefault();if(n){showSub(p,(curSub(p)+1)%n);tabScroll++;}break;
+    case 'ArrowUp':ev.preventDefault();if(n){showSub(p,(curSub(p)-1+n)%n);tabScroll++;}break;
+    case 'Home':show(0);break;case 'End':show(panes.length-1);break;}});
+})();
+</script>
+
+'''
+
 
 try:
     run()
 except SystemExit:
     raise
 except Exception as ex:
-    import traceback
-    traceback.print_exc()
+    import traceback; traceback.print_exc()
     sys.stderr.write("whtml: generation failed: %s\n" % ex)
     sys.exit(1)
 PYEOF
@@ -580,9 +857,12 @@ main() {
     trap '[[ "${keep:-0}" -eq 0 ]] && rm -rf "$_WHTML_TMP"' EXIT
 
     _whtml_log "collecting data..."
-    printf '%s' "$($_whtml_host)" > "$_WHTML_TMP/host.json"
+    printf '%s' "$(_whtml_host)" > "$_WHTML_TMP/host.json"
 
     _whtml_collect_json "$_WHTML_TMP/hw.json" wellhw
+    if command -v wellcpu >/dev/null 2>&1; then
+        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" wellcpu
+    fi
     python3 - "$_WHTML_TMP" << 'PYEOF'
 import json, os
 t=os.sys.argv[1]
@@ -607,6 +887,14 @@ if not mem:
     except Exception:
         pass
 json.dump(mem, open(os.path.join(t,'mem.json'),'w'), ensure_ascii=False)
+try:
+    ci=json.load(open(os.path.join(t,'cpuinfo.json'))).get('info') or {}
+    cpu=json.load(open(os.path.join(t,'cpu.json')))
+    for k in ('sockets','max_freq_khz','base_freq_khz'):
+        if k in ci: cpu[k]=ci[k]
+    json.dump(cpu, open(os.path.join(t,'cpu.json'),'w'), ensure_ascii=False)
+except Exception:
+    pass
 PYEOF
 
     _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem

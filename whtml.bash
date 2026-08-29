@@ -7,7 +7,7 @@ _whtml() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --output --output= --open --no-open --ai --no-ai --lang --lang= --debug --"
+    local opts="--help -h --version -V --output --output= --open --no-open --ami --ai --no-ai --lang --lang= --debug --"
 
     case "$prev" in
         --output)

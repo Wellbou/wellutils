@@ -9,6 +9,7 @@ _whtml() {
         '--output=[save HTML to file]:file:_files' \
         --open[force open in browser] \
         --no-open[do not auto-open in browser] \
+        --ami[classic AMI BIOS style, English only] \
         '--ai[optional AI analysis (needs WHTML_AI_ENDPOINT)]' \
         --no-ai[disable AI] \
         '--lang=[output language]: :(ru en auto)' \
