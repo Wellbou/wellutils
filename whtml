@@ -456,7 +456,7 @@ def run():
 
     user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
     if ami:
-        out = render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64)
+        out = render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=cpu, mem_t=mem_t, disks=disks)
     else:
         out = render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64)
     sys.stdout.write(out)
@@ -517,7 +517,7 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
     return ''.join(out)
 
 # ===================================================================
-def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64):
+def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=None, disks=None):
     font_decl = ''
     if FONT_B64:
         font_decl = "@font-face{font-family:'BIOS';src:url(data:font/woff;base64," + FONT_B64 + ") format('woff')}"
@@ -584,7 +584,14 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64):
       '<div class="row"><span class="key">Esc</span><span>Exit / close popup</span></div>'
       '<div style="margin-top:14px;text-align:center;color:#0ff">Press any key to close</div>'
       '</div></div>')
-    out.append(JS_AMI)
+    boot_cpu = esc(str(gv(cpu,'model') or 'N/A') if cpu else 'N/A')
+    boot_mem = esc(str(mem_t)+' GB' if mem_t else 'N/A')
+    boot_disks = [esc(str(d.get('model','') or d.get('name','') or 'None')) for d in (disks[:4] if disks else [])]
+    while len(boot_disks) < 4: boot_disks.append('None')
+    import json as _json
+    boot_disks_js = _json.dumps(boot_disks)
+    js_boot = JS_AMI.replace('__BOOT_CPU__', boot_cpu).replace('__BOOT_MEM__', boot_mem).replace('__BOOT_DISKS__', boot_disks_js)
+    out.append(js_boot)
     out.append('</body></html>')
     return ''.join(out)
 
@@ -906,27 +913,38 @@ document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){sho
 
 function runBoot(){
   closeAll();bootEl.innerHTML='';bootOv.classList.add('show');
+  var cpu_m="__BOOT_CPU__";
+  var mem_s="__BOOT_MEM__";
+  var disks=__BOOT_DISKS__;
   var lines=[
     '<span class="hi">AMIBIOS (C)2024 American Megatrends Inc.,</span>','','',
-    '<span class="hi">BIOS Date: 01/15/2024  Ver: 08.00.15</span>','',
-    'CPU: <span class="hi">INTEL(R) CORE(TM) i7-10750H @ 2.60GHz</span>','',
-    'Speed: <span class="hi">2600 MHz</span>   Cores: <span class="hi">6</span>','',
-    'Memory Test :  <span class="ok">16384 MB OK</span>','',
-    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 65536K','',
-    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 131072K','',
-    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 196608K','',
-    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 262144K','',
-    'SATA AHCI 1.08  <span class="ok">[OK]</span>',
-    'WDC WD5000LPCX-22C6AH0    <span class="ok">[OK]</span>',
-    'TOSHIBA MK1059GSXP         <span class="ok">[OK]</span>',
-    'WDC WD5000AZRX-00HTKB0    <span class="ok">[OK]</span>',
-    'Apacer AS350 120GB          <span class="ok">[OK]</span>','',
-    'USB Device: Generic USB Hub  <span class="ok">[OK]</span>','',
-    '<span class="warn">Reboot and Select proper Boot device</span>',
-    '<span class="warn">or Insert Boot Media in selected Boot device and press a key</span><span class="blink">_</span>'
+    'BIOS Version : 08.00.15   Build Date : Jan 15 2024','','',
+    'Main Processor : <span class="hi">'+cpu_m+'</span>',
+    'Processor Speed : '+mem_s.split(' ')[0]+'x100 MHz','','',
+    'Memory Test :   <span class="ok">'+mem_s+'</span>',
+    'Performing memory test...  <span class="ok">OK</span>','','',
+    'ATA Channel 0 Master : <span class="hi">'+(disks[0]||'None')+'</span>',
+    'ATA Channel 0 Slave  : <span class="hi">'+(disks[1]||'None')+'</span>',
+    'ATA Channel 1 Master : <span class="hi">'+(disks[2]||'None')+'</span>',
+    'ATA Channel 1 Slave  : <span class="hi">'+(disks[3]||'None')+'</span>','','',
+    'SATA Port 0 : <span class="hi">'+(disks[0]||'None')+'</span>',
+    'SATA Port 1 : <span class="hi">'+(disks[1]||'None')+'</span>','','',
+    'USB Device : Mouse              ... <span class="ok">OK</span>',
+    'USB Device : Keyboard           ... <span class="ok">OK</span>',
+    'USB Mass Storage               ... <span class="ok">OK</span>','','',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>',
+    '<span class="warn">No bootable device -- please restart system</span>'
   ];
   var i=0;(function next(){if(i>=lines.length||!bootOv.classList.contains('show'))return;
-    bootEl.innerHTML+=lines[i]+'\\n';i++;setTimeout(next,i<6?40:120)})();
+    bootEl.innerHTML+=lines[i]+'\\n';i++;setTimeout(next,i<=8?50:800)})();
 }
 
 function openHelp(){closeAll();openPopup(helpOv)}
