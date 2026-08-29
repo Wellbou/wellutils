@@ -75,6 +75,7 @@ show_help() {
     printf '                up=wellup  wup=wellup  net=wellnet  wnet=wellnet\n'
     printf '                power=wellpower  wpower=wellpower  wbatt=wellpower\n'
     printf '                doctor=welldoctor  wdoc=welldoctor  wdoctor=welldoctor\n'
+    printf '                html=whtml  report=whtml  whtml=whtml\n'
     printf '\n'
     printf '  %s%s:%s %s%s%s\n\n' "$DIM" "$(t launcher_current_lang)" "$RESET" "$BOLD" "$WELLUTILS_LANG" "$RESET"
 }
@@ -131,6 +132,7 @@ while [[ $# -gt 0 ]]; do
         net|wellnet|wnet)          CMD="wellnet";     shift ;;
         power|wellpower|wpower|wbatt) CMD="wellpower"; shift ;;
         doctor|welldoctor|wdoc|wdoctor) CMD="welldoctor"; shift ;;
+        html|report|whtml)            CMD="whtml";      shift ;;
         self-update|selfupdate)    CMD="wellup";      set -- --self-update "${@:2}" ;;
         *)
             printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"

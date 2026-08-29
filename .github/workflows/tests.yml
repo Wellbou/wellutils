@@ -42,7 +42,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          for f in bootstrap.sh lang.sh box.sh cli.sh jedec.sh wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor wellutils; do
+          for f in bootstrap.sh lang.sh box.sh cli.sh jedec.sh wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor whtml wellutils; do
             bash -n "$f"
           done
 
@@ -67,7 +67,7 @@ jobs:
           export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
           B=/opt/homebrew/bin/bash
           [ -x "$B" ] || B=/usr/local/bin/bash
-          for f in bootstrap.sh lang.sh box.sh cli.sh wellcpu wellmem wellnet wellpower welldoctor wellutils; do
+          for f in bootstrap.sh lang.sh box.sh cli.sh wellcpu wellmem wellnet wellpower welldoctor whtml wellutils; do
             "$B" -n "$f"
           done
           "$B" ./wellcpu --help > /dev/null

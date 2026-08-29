@@ -190,6 +190,7 @@ Every tool has a man page (`man wellper`) and bash completion.
 | `wellnet`     | Offline network overview: interfaces, Wi-Fi, routes, ports    |
 | `wellpower`   | Battery wear, cycles, charge thresholds, power profiles       |
 | `welldoctor`  | Health aggregator for cron: SMART, temps, units, disk, pacnew |
+| `whtml`       | Rich HTML system report with AI enrichment (launcher: `wellutils html`) |
 
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
@@ -264,6 +265,10 @@ keys are documented by example in [SAMPLES.md](SAMPLES.md).
 - `wellpower` - battery wear, cycle count, charge thresholds, power profiles.
 - `welldoctor` - health aggregator for cron (SMART, temperatures, failed
   units, disk usage, pacnew leftovers, orphans); exit code 0/1/2.
+- `whtml` / `wellutils html` - rich self-contained HTML report with AI-written
+  descriptions of every component (CPU, GPU, board, RAM, disks + S.M.A.R.T.,
+  peripherals, temperatures/fans, health). Share the file as-is; AI output is
+  cached locally so repeats are instant.
 - `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
 - `wellup --pacnew` - list leftover config files.
 - `--html` on every report tool - standalone HTML page of the report.
