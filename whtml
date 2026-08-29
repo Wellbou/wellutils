@@ -562,6 +562,28 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64):
         out.append('</div>')
     out.append('</div>')  # ami-body
     out.append(LEGEND_AMI)
+    # overlays: help, F9, F10, boot
+    out.append('<div class="overlay" id="bootOverlay"><div class="boot-screen" id="bootText"></div></div>')
+    out.append('<div class="popup" id="f9Popup"><div class="popup-box" id="f9PopupInner">'
+      '<div class="msg">Load optimized defaults?<br>All current settings will be lost.</div>'
+      '<div class="opts"><button class="active" id="f9Yes">[ Yes ]</button>'
+      '<button id="f9No">[ No ]</button></div></div></div>')
+    out.append('<div class="popup" id="f10Popup"><div class="popup-box" id="f10PopupInner">'
+      '<div class="msg">Save configuration and exit?</div>'
+      '<div class="opts"><button class="active" id="f10Yes">[ Yes ]</button>'
+      '<button id="f10No">[ No ]</button></div></div></div>')
+    out.append('<div class="help-overlay" id="helpOverlay"><div class="help-box">'
+      '<h3>BIOS SETUP UTILITY - HELP</h3>'
+      '<div class="row"><span class="key">F1</span><span>Open this help screen</span></div>'
+      '<div class="row"><span class="key">&larr; &rarr;</span><span>Navigate between tabs</span></div>'
+      '<div class="row"><span class="key">&uarr; &darr;</span><span>Select item in submenu</span></div>'
+      '<div class="row"><span class="key">Enter</span><span>Select sub-menu item</span></div>'
+      '<div class="row"><span class="key">+/-</span><span>Change option value</span></div>'
+      '<div class="row"><span class="key">F9</span><span>Load optimal defaults</span></div>'
+      '<div class="row"><span class="key">F10</span><span>Save and exit</span></div>'
+      '<div class="row"><span class="key">Esc</span><span>Exit / close popup</span></div>'
+      '<div style="margin-top:14px;text-align:center;color:#0ff">Press any key to close</div>'
+      '</div></div>')
     out.append(JS_AMI)
     out.append('</body></html>')
     return ''.join(out)
@@ -749,20 +771,20 @@ document.getElementById('dl').href='data:text/html;charset=utf-8,'+encodeURIComp
 # ===================================================================
 CSS_AMI = '''__FONT__
 :root{--blueLight:#0089bb;--blueDark:#0019cb;--grey:#b6b3b0}
-html,body.ami{height:100%}
-body.ami{margin:0;padding:0;overflow:hidden;display:flex;flex-direction:column;
+html,body.ami{height:100%;overflow:hidden}
+body.ami{margin:0;padding:0;display:flex;flex-direction:column;
  color:var(--blueDark);font-family:"BIOS","Perfect DOS VGA 437","Courier New",monospace;
- font-size:21px;font-weight:600;
+ font-size:21px;font-weight:600;cursor:default;
  background:linear-gradient(180deg,#b6b3b0 0%,#aaa7a4 45%,#9e9b98 100%)}
 body.ami *{box-sizing:border-box;user-select:none;-webkit-user-select:none}
-body.ami button{font-family:inherit;background:none;border:none;color:inherit;font-size:inherit;font-weight:inherit}
+body.ami button{font-family:inherit;background:none;border:none;color:inherit;font-size:inherit;font-weight:inherit;cursor:default}
 .banner{display:flex;justify-content:space-between;align-items:center;color:#fff;
  background:linear-gradient(180deg,#0099cc,#0089bb 40%,#007aaa);font-weight:700;
  padding:6px 18px;letter-spacing:.4px}
 .banner .bversion{font-size:0.7em;color:#e0f2ff}
 .tabs{display:flex;background:var(--blueDark);color:var(--grey)}
 .tabs .tab{flex:1;color:var(--grey);padding:7px 4px;text-align:center;border-right:1px solid #1f2f9f;
- text-transform:capitalize}
+ text-transform:capitalize;cursor:default}
 .tabs .tab:last-child{border-right:none}
 .tabs .tab.active{background:var(--grey);color:var(--blueDark)}
 .tabs .tab:hover{color:#fff}
@@ -772,13 +794,14 @@ body.ami button{font-family:inherit;background:none;border:none;color:inherit;fo
 .subcol{width:220px;flex-shrink:0;border-right:1px solid #8a8784;padding:6px 0;overflow-y:auto}
 .subcol.empty{width:220px}
 .subit{display:flex;align-items:center;gap:6px;width:100%;text-align:left;color:var(--blueDark);
- padding:6px 12px;white-space:nowrap;text-transform:capitalize}
+ padding:6px 12px;white-space:nowrap;text-transform:capitalize;cursor:default}
 .subit .caret{color:#3f3c39;visibility:hidden;width:16px;flex-shrink:0}
 .subit.active .caret{visibility:visible}
 .subit.active{background:var(--blueDark);color:#fff}
 .subit:hover{background:var(--blueDark);color:#fff}
-.content{flex:1;min-width:0;overflow:auto;padding:22px 26px;color:var(--blueDark);
+.content{display:none;flex:1;min-width:0;overflow:auto;padding:22px 26px;color:var(--blueDark);
  border:2px solid #000;border-left:none}
+.content.active{display:block}
 .content .tbl{border-collapse:collapse;width:100%;color:var(--blueDark)}
 .content .tbl td{padding:7px 8px;border:none;font-size:inherit;vertical-align:top}
 .content .tbl td.lbl{color:#33303d;width:200px;white-space:nowrap}
@@ -796,16 +819,46 @@ body.ami button{font-family:inherit;background:none;border:none;color:inherit;fo
 .legend .row{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 24px}
 .legend b{color:#fff}
 .badge.ok{color:#0a7a0a}.badge.warn{color:#8a6a00}.badge.crit{color:#a50f0f}.badge.info{color:var(--blueDark)}
+.overlay{display:none;position:fixed;inset:0;z-index:100;background:#000;flex-direction:column;align-items:center;justify-content:center}
+.overlay.show{display:flex}
+.boot-screen{color:#aaa;font:21px/1.6 "BIOS","Perfect DOS VGA 437","Courier New",monospace;white-space:pre;text-align:left}
+.boot-screen .hi{color:#fff}
+.boot-screen .ok{color:#0a0}
+.boot-screen .warn{color:#aa0}
+.boot-screen .fail{color:#a00}
+.boot-screen .blink{animation:blinker 1s steps(1) infinite}
+@keyframes blinker{50%{opacity:0}}
+.popup{display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.55);
+ align-items:center;justify-content:center}
+.popup.show{display:flex}
+.popup-box{background:#0000b0;border:2px solid #fff;color:#fff;padding:18px 28px;
+ font:21px/1.5 "BIOS","Perfect DOS VGA 437","Courier New",monospace;min-width:360px;text-align:center}
+.popup-box .msg{margin-bottom:16px}
+.popup-box .opts{display:flex;gap:18px;justify-content:center}
+.popup-box .opts button{color:#fff;font:inherit;padding:4px 14px;border:1px solid transparent;
+ background:none;cursor:default}
+.popup-box .opts button.active{border-color:#fff;color:#fff}
+.popup-box .opts button:hover{color:#0ff}
+.help-overlay{display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.7);
+ align-items:center;justify-content:center}
+.help-overlay.show{display:flex}
+.help-box{background:#000080;border:2px solid #fff;color:#fff;padding:22px 32px;
+ font:18px/1.6 "BIOS","Perfect DOS VGA 437","Courier New",monospace;max-width:600px}
+.help-box h3{margin:0 0 10px;color:#0ff;font-size:20px}
+.help-box .row{display:flex;justify-content:space-between;border-bottom:1px solid #336;padding:3px 0}
+.help-box .key{color:#ff0;min-width:80px}
 @media (max-width:960px){.subcol{width:150px}.helpcol{display:none}}
 '''
 
 LEGEND_AMI = '''<div class="legend">
-  <div class="row">
-    <span><b>F1</b> Help</span><span><b>&#8593;&#8595;</b> Select Item</span>
-    <span><b>&#8592;&#8594;</b> Select Menu</span><span><b>&#8722;/+</b> Change Values</span>
-    <span><b>Enter</b> Select &nbsp;Sub-Menu</span><span><b>F9</b> Setup Defaults</span>
-    <span><b>F10</b> Save &amp; Exit</span><span><b>Esc</b> Exit</span>
-  </div>
+<span><b>&#8592;&#8594;</b> Tab</span>
+<span><b>&#8593;&#8595;</b> Select Item</span>
+<span><b>+</b>/<b>-</b> Change Value</span>
+<span><b>Enter</b> Select Sub-Menu</span>
+<span><b>F1</b> Help</span>
+<span><b>F9</b> Setup Defaults</span>
+<span><b>F10</b> Save &amp; Exit</span>
+<span><b>Esc</b> Exit</span>
 </div>
 '''
 
@@ -813,28 +866,132 @@ JS_AMI = '''<script>
 (function(){
 var panes=[].slice.call(document.querySelectorAll('.pane'));
 var tabs=[].slice.call(document.querySelectorAll('.tab'));
-function show(p){p=(p%panes.length+panes.length)%panes.length;
+var helpOv=document.getElementById('helpOverlay');
+var f9Popup=document.getElementById('f9Popup');
+var f10Popup=document.getElementById('f10Popup');
+var bootOv=document.getElementById('bootOverlay');
+var bootEl=document.getElementById('bootText');
+
+function show(p){
+  p=(p%panes.length+panes.length)%panes.length;
   panes.forEach(function(x,k){x.classList.toggle('active',k===p)});
   tabs.forEach(function(x,k){x.classList.toggle('active',k===p)});
-  tabScroll=0;}
-var tabScroll=0;
+  var subs=panes[p].querySelectorAll('.subit');
+  var contents=panes[p].querySelectorAll('.content');
+  if(subs.length){
+    var cur=0;
+    subs.forEach(function(s,k){if(s.classList.contains('active'))cur=k});
+    subs.forEach(function(s,k){s.classList.toggle('active',k===cur)});
+    contents.forEach(function(c,k){c.classList.toggle('active',k===cur)});
+  }else{
+    contents.forEach(function(c,k){c.classList.toggle('active',k===0)});
+  }
+}
 function curPane(){return panes.findIndex(function(x){return x.classList.contains('active')})}
 function curSub(p){var a=panes[p].querySelector('.subit.active');return a?+a.dataset.s:0}
-function showSub(p,s){panes[p].querySelectorAll('.subit').forEach(function(b,k){b.classList.toggle('active',k===s)});
-  panes[p].querySelectorAll('.content').forEach(function(c,k){c.classList.toggle('active',k===s)});}
+function showSub(p,s){
+  var subs=panes[p].querySelectorAll('.subit');
+  var contents=panes[p].querySelectorAll('.content');
+  if(!subs.length)return;
+  s=(s%subs.length+subs.length)%subs.length;
+  subs.forEach(function(b,k){b.classList.toggle('active',k===s)});
+  contents.forEach(function(c,k){c.classList.toggle('active',k===s)});
+}
+function openPopup(el){el.classList.add('show')}
+function closeAll(){helpOv.classList.remove('show');f9Popup.classList.remove('show');f10Popup.classList.remove('show');bootOv.classList.remove('show')}
+function anyOpen(){return helpOv.classList.contains('show')||f9Popup.classList.contains('show')||f10Popup.classList.contains('show')||bootOv.classList.contains('show')}
+
 tabs.forEach(function(t){t.onclick=function(){show(+t.dataset.p)}});
 document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){showSub(+b.dataset.p,+b.dataset.s)}});
+
+function runBoot(){
+  closeAll();bootEl.innerHTML='';bootOv.classList.add('show');
+  var lines=[
+    '<span class="hi">AMIBIOS (C)2024 American Megatrends Inc.,</span>','','',
+    '<span class="hi">BIOS Date: 01/15/2024  Ver: 08.00.15</span>','',
+    'CPU: <span class="hi">INTEL(R) CORE(TM) i7-10750H @ 2.60GHz</span>','',
+    'Speed: <span class="hi">2600 MHz</span>   Cores: <span class="hi">6</span>','',
+    'Memory Test :  <span class="ok">16384 MB OK</span>','',
+    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 65536K','',
+    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 131072K','',
+    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 196608K','',
+    '<span class="ok">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</span> 262144K','',
+    'SATA AHCI 1.08  <span class="ok">[OK]</span>',
+    'WDC WD5000LPCX-22C6AH0    <span class="ok">[OK]</span>',
+    'TOSHIBA MK1059GSXP         <span class="ok">[OK]</span>',
+    'WDC WD5000AZRX-00HTKB0    <span class="ok">[OK]</span>',
+    'Apacer AS350 120GB          <span class="ok">[OK]</span>','',
+    'USB Device: Generic USB Hub  <span class="ok">[OK]</span>','',
+    '<span class="warn">Reboot and Select proper Boot device</span>',
+    '<span class="warn">or Insert Boot Media in selected Boot device and press a key</span><span class="blink">_</span>'
+  ];
+  var i=0;(function next(){if(i>=lines.length||!bootOv.classList.contains('show'))return;
+    bootEl.innerHTML+=lines[i]+'\\n';i++;setTimeout(next,i<6?40:120)})();
+}
+
+function openHelp(){closeAll();openPopup(helpOv)}
+function openF9(){closeAll();openPopup(f9Popup)}
+function openF10(){closeAll();openPopup(f10Popup)}
+
+var popupBtns={f9Popup:[],f10Popup:[]};
+['f9Popup','f10Popup'].forEach(function(id){
+  popupBtns[id]=[].slice.call(document.getElementById(id).querySelectorAll('button'));
+});
+function popupNav(id,dir){
+  var btns=popupBtns[id]||[];if(!btns.length)return;
+  var cur=btns.findIndex(function(b){return b.classList.contains('active')});
+  cur=(cur<0?0:cur)+dir;cur=(cur%btns.length+btns.length)%btns.length;
+  btns.forEach(function(b,k){b.classList.toggle('active',k===cur)});
+}
+function popupEnter(id){
+  var btns=popupBtns[id]||[];
+  var cur=btns.findIndex(function(b){return b.classList.contains('active')});
+  if(cur>=0)btns[cur].click();
+}
+
+document.getElementById('f9Yes').onclick=function(){f9Popup.classList.remove('show')};
+document.getElementById('f9No').onclick=function(){f9Popup.classList.remove('show')};
+document.getElementById('f10Yes').onclick=function(){runBoot()};
+document.getElementById('f10No').onclick=function(){f10Popup.classList.remove('show')};
+helpOv.onclick=function(){helpOv.classList.remove('show')};
+bootOv.onclick=function(){bootOv.classList.remove('show')};
+
 document.addEventListener('keydown',function(ev){
+  if(ev.key==='F1'){ev.preventDefault();openHelp();return}
+  if(ev.key==='F9'){ev.preventDefault();openF9();return}
+  if(ev.key==='F10'){ev.preventDefault();openF10();return}
+  if(ev.key==='Escape'){
+    ev.preventDefault();
+    if(bootOv.classList.contains('show')){bootOv.classList.remove('show');return}
+    if(helpOv.classList.contains('show')){helpOv.classList.remove('show');return}
+    if(f9Popup.classList.contains('show')){f9Popup.classList.remove('show');return}
+    if(f10Popup.classList.contains('show')){f10Popup.classList.remove('show');return}
+    return;
+  }
+  if(anyOpen()){
+    if(f9Popup.classList.contains('show')&&(ev.key==='ArrowLeft'||ev.key==='ArrowRight')){
+      ev.preventDefault();popupNav('f9Popup',ev.key==='ArrowRight'?1:-1);
+    }
+    if(f9Popup.classList.contains('show')&&ev.key==='Enter'){ev.preventDefault();popupEnter('f9Popup')}
+    if(f10Popup.classList.contains('show')&&(ev.key==='ArrowLeft'||ev.key==='ArrowRight')){
+      ev.preventDefault();popupNav('f10Popup',ev.key==='ArrowRight'?1:-1);
+    }
+    if(f10Popup.classList.contains('show')&&ev.key==='Enter'){ev.preventDefault();popupEnter('f10Popup')}
+    return;
+  }
   var p=curPane();var n=panes[p].querySelectorAll('.subit').length;
   switch(ev.key){
     case 'ArrowRight':ev.preventDefault();show((p+1)%panes.length);break;
     case 'ArrowLeft':ev.preventDefault();show((p-1+panes.length)%panes.length);break;
-    case 'ArrowDown':ev.preventDefault();if(n){showSub(p,(curSub(p)+1)%n);tabScroll++;}break;
-    case 'ArrowUp':ev.preventDefault();if(n){showSub(p,(curSub(p)-1+n)%n);tabScroll++;}break;
-    case 'Home':show(0);break;case 'End':show(panes.length-1);break;}});
+    case 'ArrowDown':ev.preventDefault();if(n)showSub(p,(curSub(p)+1)%n);break;
+    case 'ArrowUp':ev.preventDefault();if(n)showSub(p,(curSub(p)-1+n)%n);break;
+    case 'Home':ev.preventDefault();show(0);break;
+    case 'End':ev.preventDefault();show(panes.length-1);break;
+  }
+});
+show(0);
 })();
 </script>
-
 '''
 
 

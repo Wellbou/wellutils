@@ -86,13 +86,9 @@ no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
 
 ### Arch Linux (package)
 
-AUR helper install once the package is published, or build from this
-repo:
+Build from this repository:
 
 ```sh
-yay -S wellutils      # or another AUR helper
-
-# from the repository
 makepkg -si
 ```
 
@@ -279,8 +275,11 @@ wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
 All tools share the envelope `{ "tool", "version", "date", ... }`; tool-specific
 keys are documented by example in [SAMPLES.md](SAMPLES.md).
 
-## New in 1.4.0-39
+## New in 1.4.0-45
 
+- `whtml --ami` - AMI BIOS setup-utility mode: xb-16 palette, Perfect DOS VGA
+  font, F1/F9/F10/Esc hotkeys, boot POST animation on exit.
+- `whtml` - fully offline HTML report with CLI style or AMI BIOS look.
 - `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi
   SSID/signal, routes, listening ports, traffic counters and connection-type
   detection (VPN + endpoint, USB tethering, WWAN modem, WiMAX, Token Ring,
@@ -291,7 +290,9 @@ keys are documented by example in [SAMPLES.md](SAMPLES.md).
 - `whtml` / `wellutils html` - rich, fully offline HTML system report
   (CPU, GPU, board, RAM, disks + S.M.A.R.T., peripherals, temperatures/fans,
   health), styled like a terminal with full keyboard navigation (arrows,
-  digits, search `/`, theme toggle `t`, help `?`). One self-contained file,
+  digits, search `/`, theme toggle `t`, help `?`). `--ami` renders an
+  authentic AMI BIOS setup-utility look with F1/F9/F10 hotkeys, boot
+  POST animation, and xb-16 palette. One self-contained file,
   no external resources, no network.
 - `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
 - `wellup --pacnew` - list leftover config files.

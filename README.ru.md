@@ -81,12 +81,9 @@ curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh |
 
 ### Arch Linux (пакет)
 
-Из AUR после публикации либо сборкой из этого репозитория:
+Сборка из этого репозитория:
 
 ```sh
-yay -S wellutils      # или любой другой AUR-хелпер
-
-# из репозитория
 makepkg -si
 ```
 
@@ -192,6 +189,7 @@ wblock /dev/sdb
 | `wellnet`     | Офлайн-обзор сети: интерфейсы, Wi-Fi, маршруты, порты        |
 | `wellpower`   | Износ батареи, циклы, пороги заряда, профили питания         |
 | `welldoctor`  | Агрегатор здоровья для cron: SMART, температуры, юниты, диск |
+| `whtml`       | Офлайн HTML-отчёт о системе: CLI-стиль или AMI BIOS (`--ami`) |
 
 Короткие алиасы устанавливаются как команды: `wusb`, `wpci`,
 `wblock`, `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`,
@@ -257,12 +255,13 @@ wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
 Все тула используют общий конверт `{ "tool", "version", "date", ... }`;
 ключи каждого инструмента показаны на примерах в [SAMPLES.md](SAMPLES.md).
 
-## Новое в 1.4.0-39
+## Новое в 1.4.0-45
 
+- `whtml --ami` - режим AMI BIOS: палитра xb-16, шрифт Perfect DOS VGA,
+  горячие клавиши F1/F9/F10/Esc, boot-анимация POST при выходе.
+- `whtml` - полностью офлайн HTML-отчёт с CLI-стилем или AMI BIOS.
 - `wellnet` - полностью офлайн-обзор сети: интерфейсы, адреса, Wi-Fi,
-  маршруты, порты, счётчики трафика и определение типа подключения
-  (VPN + сервер, USB-раздача, WWAN-модем, WiMAX, Token Ring, FDDI,
-  IrDA, Zigbee/Thread...).
+  маршруты, порты, счётчики трафика и определение типа подключения.
 - `wellpower` - износ батареи, циклы, пороги заряда, профили питания.
 - `welldoctor` - агрегатор здоровья для cron (SMART, температуры,
   сбойные юниты, место на диске, pacnew-хвосты, сироты); код выхода 0/1/2.
