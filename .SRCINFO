@@ -1,7 +1,7 @@
 pkgbase = wellutils
 	pkgdesc = Suite of colourful system and peripheral reporting tools (wellper, wellusb, wellpci, wellhw, wellmem, wellsensors, wellblock, wellcpu, wellgpu, wellmod, wellfetch, wellup, whtml)
 	pkgver = 1.4.0
-	pkgrel = 45
+	pkgrel = 46
 	url = https://github.com/Wellbou/wellutils
 	arch = any
 	license = MIT
@@ -105,7 +105,7 @@ pkgbase = wellutils
 	sha256sums = 89eab1f9c247469d3194864e2eb90b28c6969714f8588e6a1c251b365ecfc0e8
 	sha256sums = 4cb6e71ce5e063efceb3a5ff8c41dd35768804628a7a044c46580207f5cdd1bb
 	sha256sums = ace6f6475da188dd03a997e78e1728a1262da84e3d57d917193822d6db8650e4
-	sha256sums = df80fb0b21e9c3f119ba12e5ef6bbc6794b06d5df87f3843bdc3a119e0e08499
+	sha256sums = 25ea3d400e8a64efc5062a87bcf448eebe21de669d7db7a3b5b9835210cdafd4
 	sha256sums = 257e2402b4c68c31f18512845f8e030beaf715e1047d2477fc0abe241e5a605b
 	sha256sums = f82235c4333a2a881b8151ef82180f2c8ba6001cbdcfd7bd812fa28db1df878e
 	sha256sums = 22726538a1aff9e16c89e397d7f3d2d1c01de4c0f189d7ad78286d2720e46d5c

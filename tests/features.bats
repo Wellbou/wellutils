@@ -124,6 +124,21 @@
     ! grep -q "https://" "$f"
 }
 
+@test "whtml: --ami contains no N/A in visible table cells" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    ! grep -oP '>[^<]*N/A[^<]*<' "$f" | grep -v 'data:' | grep -q "N/A"
+}
+
+@test "whtml: --ami freq is reasonable (not 3700 GHz)" {
+    local f="$(mktemp)"
+    run ./whtml --ami --no-open --output "$f"
+    [ "$status" -eq 0 ]
+    ! grep -qP '>3700\.0 GHz<' "$f"
+    ! grep -qP '>3300\.0 GHz<' "$f"
+}
+
 @test "whtml: --help shows --ami" {
     run ./whtml --help
     [ "$status" -eq 0 ]

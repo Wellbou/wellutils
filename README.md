@@ -275,10 +275,10 @@ wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
 All tools share the envelope `{ "tool", "version", "date", ... }`; tool-specific
 keys are documented by example in [SAMPLES.md](SAMPLES.md).
 
-## New in 1.4.0-45
+## New in 1.4.0-46
 
 - `whtml --ami` - AMI BIOS setup-utility mode: xb-16 palette, Perfect DOS VGA
-  font, F1/F9/F10/Esc hotkeys, boot POST animation on exit.
+  font, F1/F9/F10/Esc hotkeys.
 - `whtml` - fully offline HTML report with CLI style or AMI BIOS look.
 - `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi
   SSID/signal, routes, listening ports, traffic counters and connection-type
@@ -291,8 +291,8 @@ keys are documented by example in [SAMPLES.md](SAMPLES.md).
   (CPU, GPU, board, RAM, disks + S.M.A.R.T., peripherals, temperatures/fans,
   health), styled like a terminal with full keyboard navigation (arrows,
   digits, search `/`, theme toggle `t`, help `?`). `--ami` renders an
-  authentic AMI BIOS setup-utility look with F1/F9/F10 hotkeys, boot
-  POST animation, and xb-16 palette. One self-contained file,
+  authentic AMI BIOS setup-utility look with F1/F9/F10 hotkeys,
+  and xb-16 palette. One self-contained file,
   no external resources, no network.
 - `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
 - `wellup --pacnew` - list leftover config files.

@@ -243,10 +243,10 @@ def run():
     # ---- data ----
     cpu_max = gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz')
     if gv(cpu,'max_freq_khz') and not cpu_max:
-        cpu_max = '%.1f' % (int(gv(cpu,'max_freq_khz'))/1000.0) + U_GHZ
+        cpu_max = '%.1f' % (int(gv(cpu,'max_freq_khz'))/1e6) + U_GHZ
     cpu_base = gv(cpu,'base_freq_ghz') or gv(cpu,'base_freq_mhz')
     if gv(cpu,'base_freq_khz') and not cpu_base:
-        cpu_base = '%.1f' % (int(gv(cpu,'base_freq_khz'))/1000.0) + U_GHZ
+        cpu_base = '%.1f' % (int(gv(cpu,'base_freq_khz'))/1e6) + U_GHZ
 
     mem_type = gv(mem,'type') or ''
     slots = gv(mem,'slots') or []

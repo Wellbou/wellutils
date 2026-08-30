@@ -255,10 +255,10 @@ wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
 Все тула используют общий конверт `{ "tool", "version", "date", ... }`;
 ключи каждого инструмента показаны на примерах в [SAMPLES.md](SAMPLES.md).
 
-## Новое в 1.4.0-45
+## Новое в 1.4.0-46
 
 - `whtml --ami` - режим AMI BIOS: палитра xb-16, шрифт Perfect DOS VGA,
-  горячие клавиши F1/F9/F10/Esc, boot-анимация POST при выходе.
+  горячие клавиши F1/F9/F10/Esc.
 - `whtml` - полностью офлайн HTML-отчёт с CLI-стилем или AMI BIOS.
 - `wellnet` - полностью офлайн-обзор сети: интерфейсы, адреса, Wi-Fi,
   маршруты, порты, счётчики трафика и определение типа подключения.
