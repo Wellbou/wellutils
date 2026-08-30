@@ -10,7 +10,7 @@
   # wellutils
 
   System and peripheral reporting tools for any Linux (Arch, Fedora,
-  Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...), with a
+  Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...), plus a
   zero-dependency PowerShell port for Windows.
 
   [![Language: Bash](https://img.shields.io/badge/Language-Bash-4EAA25?logo=gnubash&logoColor=white)](wellutils)
@@ -26,23 +26,17 @@
 
 ## What it is
 
-Fifteen single-file tools that report on what your machine is doing:
-USB and PCI devices, block storage, memory, CPU topology, graphics,
-kernel modules, temperatures, peripherals, network, power and a health
+Fifteen single-file tools that tell you what your machine is doing: USB
+and PCI devices, block storage, memory, CPU topology, graphics, kernel
+modules, temperatures, peripherals, network, power and a health
 aggregator. Every tool shares the same CLI - same flags, same exit
 codes, same box-drawing output. A launcher (`wellutils`) ties them
 together, and short aliases (`wusb`, `wpci`, `wmem`, ...) are
 installed alongside.
 
-> **This toolkit makes no network requests. At all.**
->
-> Every report tool is read-only and offline - your data never leaves the
-> machine. The only exception is `wellup` / `wellutils self-update`, and only
-> when you run it. `whtml`, despite its nice HTML output, performs zero network
-> calls by default.
-
 The same interface ships as a single PowerShell file for Windows.
-No WSL, no admin rights, no installers - data comes from CIM/WMI.
+No WSL, no admin rights, no installers - data comes from CIM/WMI
+(which you don't really need, it's beyond raw):
 
 ```
 $ well fetch
@@ -63,6 +57,8 @@ $ well fetch
 - [Install](#install)
 - [Usage](#usage)
 - [Tools](#tools)
+- [Docs](#docs)
+- [Scripting with --json](#scripting-with---json)
 - [Features](#features)
 - [Dependencies](#dependencies)
 - [License](#license)
@@ -72,9 +68,9 @@ $ well fetch
 ### Any Linux (Arch, Fedora, Debian, Ubuntu, Bodhi, openSUSE, Alpine, ...)
 
 One command - the installer detects your package manager (pacman,
-dnf/yum, apt, zypper, apk, xbps, emerge), installs the optional
-dependencies (hwdata ID database, lm-sensors, smartmontools,
-dmidecode, ...) and drops the tools into `/usr/local/bin`:
+dnf/yum, apt, zypper, apk, xbps, emerge), installs the dependencies
+(hwdata ID database, lm-sensors, smartmontools, dmidecode, ...) and
+drops the tools into `/usr/local/bin`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
@@ -82,7 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh |
 
 Skip the dependency step with `--no-deps` (tools degrade gracefully:
 no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
-`--prefix=/path` for a rootless install into your home directory.
+`--prefix=/path` for a rootless install into your own directory.
 
 ### Arch Linux (package)
 
@@ -98,8 +94,8 @@ logo).
 
 ### Windows
 
-Uses the PowerShell that ships with Windows - nothing to download
-beyond a single file. Pick one:
+Uses the PowerShell that ships with Windows - exactly one file to
+download, nothing else. Pick one:
 
 ```powershell
 # PowerShell 5.1 or 7
@@ -112,8 +108,8 @@ curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/windows/inst
 ```
 
 This places `well.ps1` plus `well*.cmd` shims into
-`%USERPROFILE%\.wellutils\bin` and adds it to your user PATH. Open a
-new terminal, then:
+`%USERPROFILE%\.wellutils\bin` and adds the directory to your user
+PATH. Open a new terminal, then:
 
 ```
 well mem     | well fetch   | well hw
@@ -142,9 +138,9 @@ tool [options]
       --debug              shell tracing
 ```
 
-Every tool can emit JSON - pipe it into `jq`, or save for a backend
-service. Warnings and errors still go to stderr, so the JSON stream is
-always clean:
+Every tool can emit JSON - pipe it into `jq`, or save it for an
+integration service. Warnings and errors still go to stderr, so the
+JSON stream is always clean:
 
 ```sh
 wellhw --json | jq '.cpu.model'
@@ -152,7 +148,7 @@ wellsensors --json | jq -c '.summary'
 wellblock 0 --json | jq '.disk.partitions'
 ```
 
-Run a single tool directly, or go through the launcher:
+Run a tool directly, or go through the launcher:
 
 ```sh
 wellhw --plain
@@ -161,10 +157,9 @@ wmem -l en
 wellper --groups --json
 ```
 
-`wellper` adds `--groups`, `--sections`, `--strict`, `--terse` (and
-`--json`, now shared by every tool). `wellblock` takes an optional
-`[N|device]` for a per-disk detail view with a S.M.A.R.T. health
-report:
+`wellper` also has `--groups`, `--sections`, `--strict`, `--terse`. `wellblock`
+takes an optional `[N|device]` for a per-disk detail view with a
+S.M.A.R.T. health report:
 
 ```sh
 wblock 0          # first disk
@@ -179,9 +174,9 @@ Every tool has a man page (`man wellper`) and bash completion.
 | Tool          | Report                                                        |
 |---------------|---------------------------------------------------------------|
 | `wellper`     | Peripherals: USB devices, displays, audio                     |
-| `wellhw`      | Hardware: CPU, GPU, board, RAM with JEDEC-decoded vendors     |
+| `wellhw`      | Hardware: CPU, GPU, board, RAM with JEDEC decoding            |
 | `wellmem`     | Memory from `/proc/meminfo`, with zram                       |
-| `wellusb`     | USB device tree with hwdata IDS lookup                        |
+| `wellusb`     | USB device tree with hwdata ID lookup                         |
 | `wellpci`     | PCI devices with class descriptions                           |
 | `wellblock`   | Block devices, partitions, mount points, S.M.A.R.T. health    |
 | `wellcpu`     | CPU topology, frequencies, features, per-core load            |
@@ -192,8 +187,8 @@ Every tool has a man page (`man wellper`) and bash completion.
 | `wellup`      | Check for system updates and apply them automatically         |
 | `wellnet`     | Offline network overview: interfaces, Wi-Fi, routes, ports    |
 | `wellpower`   | Battery wear, cycles, charge thresholds, power profiles       |
-| `welldoctor`  | Health aggregator for cron: SMART, temps, units, disk, pacnew |
-| `whtml`       | Offline HTML system report, CLI-styled with keyboard nav (launcher: `wellutils html`) |
+| `welldoctor`  | Health aggregator for cron: SMART, temps, units, disk         |
+| `whtml`       | Offline HTML system report, CLI-styled.                       |
 
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
@@ -206,37 +201,26 @@ to skip the prompt (for scripts and cron). It can also update the
 suite itself from GitHub:
 
 ```sh
-wellup --check               # only list available updates
-wellup                       # list, then ask before applying
-wellup --yes                 # apply without confirmation
-wellup --self-update         # check and update wellutils
-wellup --self-update --check # only report the version difference
+wellup --check                # only list available updates
+wellup                        # list, then ask before applying
+wellup --yes                  # apply without confirmation
+wellup --self-update          # check and update wellutils
+wellup --self-update --check  # only report the version difference
 ```
 
-`wellutils` also ships **SAMPLES.md** - real output of every tool from the
-author's machine, so you can see exactly what you get before installing:
-[SAMPLES.md](SAMPLES.md).
+## Docs
 
-### AI enrichment (off by default)
-
-`whtml` ships without AI so it stays offline and read-only. If you want local
-AI commentary on the report, you can point it at *your own* LLM endpoint:
-
-```sh
-WHTML_AI_ENDPOINT=http://localhost:11434/v1/chat/completions \
-WHTML_AI_MODEL=qwen2.5 whtml --ai --output ~/report.html
-```
-
-This is bring-your-own: there is **no default endpoint**, so unless you set
-`WHTML_AI_ENDPOINT` and pass `--ai`, whtml makes zero network requests. When
-enabled, the context sent is sanitized - MAC addresses, hostnames, IPs,
-serials and UUIDs are stripped before anything leaves the machine - and any
-AI failure is ignored, so the HTML report is still produced.
+- [**docs/SCRIPTING.md**](docs/SCRIPTING.md) - the `--json` tutorial, built
+  around `whtml`; also covers per-core load, GPU temps, cron watchdogs and
+  inventory diffs.
+- [**SAMPLES.md**](SAMPLES.md) - real, unedited output of every tool from
+  the Wellbou machine (i.e. mine): you can look in advance at what each
+  command prints.
 
 ## Status-bar mode
 
-Every live tool prints a one-line status with `--short`, made for i3blocks,
-waybar, polybar and tmux:
+Every "live" (no idea what else to call it) tool prints one line with
+`--short`, made for i3blocks, waybar, polybar and tmux:
 
 ```sh
 wellcpu --short      # 17%
@@ -251,53 +235,49 @@ Example waybar snippet: `custom-cpu = { exec: "wellcpu --short"; interval: 3; }`
 ## Scripting with --json
 
 Every report tool can emit one machine-readable JSON document
-(`--json`), which makes the suite trivial to integrate:
+(`--json`) - and `whtml`, I hope, motivates you to learn the format. It
+doesn't read sysfs or `/proc` itself; it just runs the other tools with
+`--json`, joins their output, and makes one HTML page from it. Whatever
+you want to script, I think you'll manage with wellutils:
 
 ```sh
-# per-core load with jq
-wellcpu --json | jq -r '.load[] | "CPU\(.cpu)\t\(.usage_percent)%\t\(.freq_khz/1000) MHz"'
-
-# hottest GPU temperature, no jq required
-wellsensors --json | python3 -c \
-  'import json,sys; d=json.load(sys.stdin); print(max(g["temp_c"] for g in d["gpu"] or []))'
-
-# cron watchdog: page me when welldoctor sees something critical
-welldoctor --json | jq -e '.summary.critical == 0' >/dev/null \
-  || echo "$(hostname): welldoctor reports trouble" | mail -s "health" you@example.org
-
-# what kind of uplink am I on right now?
-wellnet --json | jq -r '.connection.kind'        # vpn / wifi / usb_tether / ethernet
-
-# hardware inventory diff for config management
-wellhw --snapshot /etc/wellutils/hw.json && wellhw --diff /etc/wellutils/hw.json
+# this is how whtml works - roughly, obviously, just showing the command
+whtml --output ~/report.html
 ```
 
-All tools share the envelope `{ "tool", "version", "date", ... }`; tool-specific
-keys are documented by example in [SAMPLES.md](SAMPLES.md).
+You can just use the same thing directly:
 
-## New in 1.4.0-46
+```sh
+wellhw --json | jq -r '.cpu.model'      # CPUs on this box
+wellcpu --json | jq -r '.load[].usage_percent'   # per-core load
+```
 
+All tools share the envelope `{ "tool", "version", "date", ... }`. The
+full tutorial - watchdogs, cron checks, inventory diffs - lives in
+[`docs/SCRIPTING.md`](docs/SCRIPTING.md), and the real output of every
+tool is in [SAMPLES.md](SAMPLES.md).
+
+## New in 1.4.0-47
+
+- `wellutils` launcher now lists `whtml` as a top-level command (it was
+  hiding behind the `report` alias).
+- New [**docs/SCRIPTING.md**](docs/SCRIPTING.md) - the `--json` contract
+  on the living `whtml` example.
 - `whtml --ami` - AMI BIOS setup-utility mode: xb-16 palette, Perfect DOS VGA
-  font, F1/F9/F10/Esc hotkeys.
-- `whtml` - fully offline HTML report with CLI style or AMI BIOS look.
-- `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi
-  SSID/signal, routes, listening ports, traffic counters and connection-type
-  detection (VPN + endpoint, USB tethering, WWAN modem, WiMAX, Token Ring,
-  FDDI, IrDA, Zigbee/Thread...).
-- `wellpower` - battery wear, cycle count, charge thresholds, power profiles.
+  font, F1/F9/F10/Esc hotkeys. It's a bit unneeded, but at least I no longer
+  have an unstoppable urge to build something like that. And it's cool, isn't
+  it?
+- `whtml` - fully offline HTML report with CLI style.
+- `wellnet` - fully offline network overview: interfaces, addresses, Wi-Fi,
+  routes, ports, traffic counters and connection-type detection.
+- `wellpower` - battery wear, cycles, charge thresholds, power profiles.
 - `welldoctor` - health aggregator for cron (SMART, temperatures, failed
   units, disk usage, pacnew leftovers, orphans); exit code 0/1/2.
-- `whtml` / `wellutils html` - rich, fully offline HTML system report
-  (CPU, GPU, board, RAM, disks + S.M.A.R.T., peripherals, temperatures/fans,
-  health), styled like a terminal with full keyboard navigation (arrows,
-  digits, search `/`, theme toggle `t`, help `?`). `--ami` renders an
-  authentic AMI BIOS setup-utility look with F1/F9/F10 hotkeys,
-  and xb-16 palette. One self-contained file,
-  no external resources, no network.
-- `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last week".
+- `wellhw --snapshot [file]` / `--diff [file]` - "what changed since last
+  week". It'll come in handy somewhere. I hope.
 - `wellup --pacnew` - list leftover config files.
-- `--html` on every report tool - standalone HTML page of the report.
-- Distro ASCII logos in wellfetch (`--png` restores the pixel logo).
+- `--html` on every report tool - ready-made HTML report page.
+- Distro ASCII logos in wellfetch (`--png` brings back the pixel logo).
 - zsh and fish completions alongside bash.
 
 Note: `wellutils sensors` works as an alias for `wellsensors`. Other
@@ -310,9 +290,9 @@ aliases: `wsensors`, `wtemp`. See wellutils(1) for the full list.
   webcam `0e`, network `02`, audio `01/04`, data `06`, hub `09`), so
   printers, webcams and gamepads are identified correctly even when
   `bDeviceClass` reports `0x00` or `0xEF`.
-- **JEDEC RAM vendor decoding.** `wellhw` resolves raw JEP106
-  manufacturer codes from dmidecode (e.g. `8313` -> Golden Empire).
-  The ID table ships as `/usr/share/wellutils/jedec.sh`.
+- **JEDEC RAM vendor decoding.** `wellhw` resolves raw JEP106 codes
+  from dmidecode (e.g. `8313` -> Golden Empire). The ID table ships as
+  `/usr/share/wellutils/jedec.sh`.
 - **No root required.** Everything is read from sysfs and `/proc`.
   dmidecode and decode-dimms are used only when passwordless sudo is
   available.
@@ -331,7 +311,7 @@ Debian/Ubuntu the package names differ: `procps`, `python3`).
 database), `smartmontools` (wellsensors and wellblock S.M.A.R.T.),
 `nvme-cli` (NVMe temperatures), `dmidecode` + `i2c-tools` (RAM detail
 via decode-dimms), `util-linux` (lscpu for wellcpu). The `install.sh`
-installer picks the correct package names for your distribution.
+installer picks the right package names for your distribution.
 
 ## License
 

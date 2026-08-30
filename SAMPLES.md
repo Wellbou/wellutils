@@ -1,11 +1,9 @@
 # Live output samples / Живые примеры вывода
 
 Реальный вывод с машины автора (Arch Linux, Xeon E3-1230 V2,
-GTX 1050 Ti, два монитора 20" 1600x900). Блоки ниже - ANSI:
-GitHub красит их прямо в браузере, в терминале выглядит так же.
+GTX 1050 Ti, два монитора 20" 1600x900). В терминале выглядит также.
 
-Real output from the author's machine. The blocks below are ANSI -
-GitHub renders the colors inline.
+Real output from the author's machine.
 
 ## wellcpu
 
