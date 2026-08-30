@@ -56,7 +56,7 @@ show_help() {
     printf '    %snet%s        -- %s\n' "$G" "$RESET" "$(t cmd_net)"
     printf '    %spower%s      -- %s\n' "$G" "$RESET" "$(t cmd_power)"
     printf '    %sdoctor%s     -- %s\n' "$G" "$RESET" "$(t cmd_doctor)"
-    printf '    %sreport%s     -- %s\n' "$G" "$RESET" "$(t cmd_report)"
+    printf '    %swhtml%s      -- %s\n' "$G" "$RESET" "$(t cmd_report)"
     printf '    %sself-update%s  -- %s\n' "$G" "$RESET" "$(t cmd_selfupdate)"
     printf '\n'
     printf '  %s%s:%s\n' "$BOLD" "$(t launcher_options)" "$RESET"
