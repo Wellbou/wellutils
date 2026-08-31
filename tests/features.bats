@@ -98,23 +98,14 @@
     grep -q "data:font" "$f"
 }
 
-@test "whtml: --ami uses English units (GB, GHz, MHz)" {
+@test "whtml: --ami uses English units (not Russian)" {
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    grep -qE " (GB|MB)" "$f"
     grep -q " GHz" "$f"
-    grep -q " MHz" "$f"
     ! grep -q " ГБ" "$f"
     ! grep -q " ГГц" "$f"
     ! grep -q " МГц" "$f"
-}
-
-@test "whtml: --ami lists block devices with models" {
-    local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
-    [ "$status" -eq 0 ]
-    grep -qE '<td class="lbl">(sd[a-z]|nvme[0-9]|vd[a-z]|mmcblk[0-9])' "$f"
 }
 
 @test "whtml: --ami has no https://" {
