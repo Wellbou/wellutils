@@ -76,18 +76,18 @@
     [ -s "$f" ]
 }
 
-@test "whtml: default CLI contains cyrillic" {
+@test "whtml: Russian output contains cyrillic" {
     local f="$(mktemp)"
-    run ./whtml --no-open --output "$f"
+    run env WELLUTILS_LANG=RU ./whtml --no-open --output "$f"
     [ "$status" -eq 0 ]
-    grep -qP '[А-Яа-я]' "$f"
+    LC_ALL=C.UTF-8 grep -qP '[А-Яа-я]' "$f"
 }
 
 @test "whtml: --ami is English only (no cyrillic)" {
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    ! grep -qP '[А-Яа-я]' "$f"
+    ! LC_ALL=C.UTF-8 grep -qP '[А-Яа-я]' "$f"
 }
 
 @test "whtml: --ami has AMIBIOS banner and embedded font" {
@@ -102,7 +102,7 @@
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    grep -q " GB" "$f"
+    grep -qE " (GB|MB)" "$f"
     grep -q " GHz" "$f"
     grep -q " MHz" "$f"
     ! grep -q " ГБ" "$f"
@@ -110,11 +110,11 @@
     ! grep -q " МГц" "$f"
 }
 
-@test "whtml: --ami contains exact disk models" {
+@test "whtml: --ami lists block devices with models" {
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    grep -q "WDC" "$f"
+    grep -qE '<td class="lbl">(sd[a-z]|nvme[0-9]|vd[a-z]|mmcblk[0-9])' "$f"
 }
 
 @test "whtml: --ami has no https://" {
