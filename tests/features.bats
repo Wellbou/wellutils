@@ -107,7 +107,9 @@ has_cyrillic() { LC_ALL=C grep -qE "$(printf '\320[\220-\277]|\321[\200-\217]')"
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    grep -q " GHz" "$f"
+    # Memory size is always present as a stable source of English units;
+    # CPU frequencies are machine-dependent and may be absent on CI runners.
+    grep -q " GB" "$f"
     ! grep -q " ГБ" "$f"
     ! grep -q " ГГц" "$f"
     ! grep -q " МГц" "$f"
