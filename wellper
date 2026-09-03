@@ -83,6 +83,7 @@ parse_args() {
             --json)   _WU_JSON=1; shift ;;
             --html)   _WU_HTML=1; shift ;;
             --debug)  _WU_DEBUG=1; shift ;;
+            --short)  printf 'wellper: --short is not supported by this tool\n' >&2; exit 2 ;;
             -*) printf 'wellper: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
             *)  printf 'wellper: unexpected argument %s\n' "$1" >&2; usage >&2; exit 2 ;;
         esac

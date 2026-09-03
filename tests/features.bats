@@ -76,18 +76,23 @@
     [ -s "$f" ]
 }
 
+# Portable cyrillic detector: raw UTF-8 byte ranges (U+0410-U+044F),
+# works with GNU and busybox grep under LC_ALL=C (no -P, no collation).
+# \320 = 0xD0 (А-п), \321 = 0xD1 (р-я).
+has_cyrillic() { LC_ALL=C grep -qE "$(printf '\320[\220-\277]|\321[\200-\217]')" "$1"; }
+
 @test "whtml: Russian output contains cyrillic" {
     local f="$(mktemp)"
     run env WELLUTILS_LANG=RU ./whtml --no-open --output "$f"
     [ "$status" -eq 0 ]
-    LC_ALL=C.UTF-8 grep -qP '[А-Яа-я]' "$f"
+    has_cyrillic "$f"
 }
 
 @test "whtml: --ami is English only (no cyrillic)" {
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    ! LC_ALL=C.UTF-8 grep -qP '[А-Яа-я]' "$f"
+    ! has_cyrillic "$f"
 }
 
 @test "whtml: --ami has AMIBIOS banner and embedded font" {
@@ -119,15 +124,15 @@
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    ! grep -oP '>[^<]*N/A[^<]*<' "$f" | grep -v 'data:' | grep -q "N/A"
+    ! grep -oE '>[^<]*N/A[^<]*<' "$f" | grep -v 'data:' | grep -q "N/A"
 }
 
 @test "whtml: --ami freq is reasonable (not 3700 GHz)" {
     local f="$(mktemp)"
     run ./whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
-    ! grep -qP '>3700\.0 GHz<' "$f"
-    ! grep -qP '>3300\.0 GHz<' "$f"
+    ! grep -qE '>3700\.0 GHz<' "$f"
+    ! grep -qE '>3300\.0 GHz<' "$f"
 }
 
 @test "whtml: --help shows --ami" {

@@ -14,6 +14,7 @@
 #                  _wu_plainify instead of native box() support.
 # The tool then calls:  wu_run main "$@"
 # Language/color/emoji flags are honoured; WELLUTILS_LANG is exported for t().
+# shellcheck shell=bash
 
 # bash 3.2-compatible lowercase (no ${var,,}; tr is in busybox/base too)
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
@@ -304,7 +305,10 @@ wu_json_num() {
 
 # Emoji emitters: strip VS16 (U+FE0F) so terminals that render the bare
 # codepoint narrow agree with our column math (no half-wide surprises).
-_emoji_clean() { local e="$1"; printf '%s' "${e//$'\uFE0F'/}"; }
+# Built as raw UTF-8 bytes (EF B8 8F) -- avoids bash's $'\uFE0F' multibyte
+# expansion which can crash older bash (bash 5.1 / macOS 3.2) in substitutions.
+_WU_VS16=$(printf '\357\270\217')
+_emoji_clean() { local e="$1"; printf '%s' "${e//$_WU_VS16/}"; }
 _emu() { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; return 0; }
 _ic()  { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; printf ' '; return 0; }
 

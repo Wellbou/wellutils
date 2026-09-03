@@ -1,6 +1,7 @@
 # box.sh -- shared adaptive box-drawing engine for wellutils
 # Part of wellutils by wellbou_
 # Depends on: lang.sh (source it first -- provides t())
+# shellcheck shell=bash
 
 # ─── Colors & Symbols ───────────────────────────────────────────
 R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'

@@ -226,34 +226,44 @@ pm_install() {
     local pkgs=("$@")
     [[ ${#pkgs[@]} -eq 0 ]] && return 0
     echo "==> $os: installing: ${pkgs[*]}"
-    case "$PM" in
-        pacman)      run pacman -S --noconfirm --needed "${pkgs[@]}" ;;
-        dnf)         run dnf install -y "${pkgs[@]}" ;;
-        yum)         run yum install -y "${pkgs[@]}" ;;
-        apt-get)     run apt-get install -y --no-install-recommends "${pkgs[@]}" ;;
-        apt)         run apt install -y --no-install-recommends "${pkgs[@]}" ;;
-        zypper)      run zypper --non-interactive install "${pkgs[@]}" ;;
-        apk)         run apk add "${pkgs[@]}" ;;
-        xbps-install) run xbps-install -y "${pkgs[@]}" ;;
-        emerge)      run emerge --noreplace "${pkgs[@]}" ;;
-        eopkg)       run eopkg install -y "${pkgs[@]}" ;;
-        nix-env)     run nix-env -iA nixpkgs."${pkgs[@]}" ;;
-        opkg)        run opkg install "${pkgs[@]}" ;;
-    esac
+    # Install one package at a time so a single unavailable/conflicting
+    # package (or one already installed) degrades to a warning instead of
+    # making the package manager abort the whole transaction -- otherwise
+    # one bad name silently blocks python3, dmidecode, etc., which leaves
+    # whtml/wellhw broken even though --no-deps promised graceful degrade.
+    local _rc=0 _p
+    for _p in "${pkgs[@]}"; do
+        case "$PM" in
+            pacman)      run pacman -S --noconfirm --needed "$_p" ;;
+            dnf)         run dnf install -y --allowerasing "$_p" ;;
+            yum)         run yum install -y --allowerasing "$_p" ;;
+            apt-get)     run apt-get install -y --no-install-recommends "$_p" ;;
+            apt)         run apt install -y --no-install-recommends "$_p" ;;
+            zypper)      run zypper --non-interactive install "$_p" ;;
+            apk)         run apk add "$_p" ;;
+            xbps-install) run xbps-install -y "$_p" ;;
+            emerge)      run emerge --noreplace "$_p" ;;
+            eopkg)       run eopkg install -y "$_p" ;;
+            nix-env)     run nix-env -iA "$_p" ;;
+            opkg)        run opkg install "$_p" ;;
+        esac || { echo "    warning: package manager failed for: $_p" >&2; _rc=1; }
+    done
+    unset _p
+    return "$_rc"
 }
 
 # ─── dependency sets per package manager ──────────────────────
 deps_for() {
     case "$1" in
-        pacman)        echo "bash coreutils util-linux procps-ng python hwdata lm_sensors smartmontools dmidecode" ;;
-        dnf|yum)       echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode" ;;
+        pacman)        echo "bash coreutils util-linux procps-ng python hwdata lm_sensors smartmontools dmidecode pciutils" ;;
+        dnf|yum)       echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode pciutils" ;;
         apt-get|apt)   echo "bash coreutils util-linux procps python3 hwdata pciutils lm-sensors smartmontools dmidecode" ;;
-        zypper)        echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
-        apk)           echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
-        xbps-install)  echo "bash coreutils util-linux procps-ng python3 hwdata lm_sensors smartmontools dmidecode" ;;
-        emerge)        echo "app-shells/bash sys-apps/coreutils sys-apps/util-linux sys-process/procps dev-lang/python sys-apps/hwdata sys-apps/lm-sensors sys-apps/smartmontools sys-apps/dmidecode" ;;
-        nix-env)       echo "" ;;
-        eopkg)         echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode" ;;
+        zypper)        echo "bash coreutils util-linux procps python3 hwdata sensors smartmontools dmidecode pciutils" ;;
+        apk)           echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode pciutils" ;;
+        xbps-install)  echo "bash coreutils util-linux procps-ng python3 lm_sensors smartmontools dmidecode pciutils" ;;
+        emerge)        echo "app-shells/bash sys-apps/coreutils sys-apps/util-linux sys-process/procps dev-lang/python sys-apps/hwdata sys-apps/lm-sensors sys-apps/smartmontools sys-apps/dmidecode sys-apps/pciutils" ;;
+        nix-env)       echo "nixpkgs.bash nixpkgs.coreutils nixpkgs.util-linux nixpkgs.procps nixpkgs.python3 nixpkgs.dmidecode nixpkgs.smartmontools nixpkgs.lm_sensors nixpkgs.pciutils" ;;
+        eopkg)         echo "bash coreutils util-linux procps python3 hwdata lm_sensors smartmontools dmidecode pciutils" ;;
         opkg)          echo "" ;;
     esac
 }
@@ -280,11 +290,10 @@ acquire_source() {
     echo "==> downloading wellutils source from GitHub..." >&2
     local tmp url ref
     tmp="$(mktemp -d)"
-    _WU_INST_TMP="$tmp"
-    trap '[[ -n "$_WU_INST_TMP" ]] && rm -rf -- "$_WU_INST_TMP"' EXIT
     ref="main"
     if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then :; else
         echo "error: need curl or wget to download the source" >&2
+        rm -rf -- "$tmp"
         exit 1
     fi
     if command -v curl >/dev/null 2>&1; then
@@ -296,14 +305,19 @@ acquire_source() {
     url="https://codeload.github.com/$REPO/tar.gz/refs/$([[ "$ref" == "main" ]] && echo heads/$ref || echo tags/$ref)"
     echo "==> fetching ref: $ref" >&2
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$tmp/wellutils.tar.gz"
+        curl -fsSL "$url" -o "$tmp/wellutils.tar.gz" || { rm -rf -- "$tmp"; exit 1; }
     else
-        wget -qO "$tmp/wellutils.tar.gz" "$url"
+        wget -qO "$tmp/wellutils.tar.gz" "$url" || { rm -rf -- "$tmp"; exit 1; }
     fi
-    tar -xzf "$tmp/wellutils.tar.gz" -C "$tmp"
+    tar -xzf "$tmp/wellutils.tar.gz" -C "$tmp" || { rm -rf -- "$tmp"; exit 1; }
+    # IMPORTANT: do NOT trap EXIT here -- this function is called via
+    # `SRC="$(acquire_source)"` (command substitution). An EXIT trap in the
+    # subshell would delete the unpacked tarball before the parent shell
+    # gets a chance to install it. Return the tarball dir on stdout; the
+    # parent re-computes $tmp = dirname($SRC) and sets the trap itself.
     local d
     d="$(find "$tmp" -maxdepth 1 -type d | tail -n1)"
-    echo "$d"
+    printf '%s\n' "$d"
 }
 
 # ─── completions directory ────────────────────────────────────
@@ -458,7 +472,14 @@ if [[ $DO_FILES -eq 0 ]]; then
     exit 0
 fi
 
+# acquire_source must NOT trap EXIT itself (it runs in a command subshell,
+# and the trap would delete the tarball before install begins). It returns
+# the tarball dir on stdout; recompute the tmpdir and clean it up here.
 SRC="$(acquire_source)"
+_WU_INST_TMP="$(dirname "$SRC")"
+if [[ "$_WU_INST_TMP" == "/tmp/"* || "$_WU_INST_TMP" == /tmp/tmp.* ]]; then
+    trap '[[ -n "$_WU_INST_TMP" && -d "$_WU_INST_TMP" ]] && rm -rf -- "$_WU_INST_TMP"' EXIT
+fi
 do_install "$SRC"
 
 echo

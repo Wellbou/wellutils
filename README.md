@@ -76,6 +76,10 @@ drops the tools into `/usr/local/bin`:
 curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
 ```
 
+> **Bare Alpine:** the base image ships neither `bash` nor `curl`, and
+> `install.sh` itself needs both. Install them first:
+> `apk add bash curl`.
+
 Skip the dependency step with `--no-deps` (tools degrade gracefully:
 no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
 `--prefix=/path` for a rootless install into your own directory.

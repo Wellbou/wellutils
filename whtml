@@ -12,6 +12,8 @@ set -o pipefail
 _WU_TOOLNAME="whtml" _WU_NAME="whtml" _WU_VERSION="1.2"
 _WU_TAGLINE="Rich, self-contained HTML system report (offline)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
 
@@ -1032,11 +1034,16 @@ main() {
     trap '[[ "${keep:-0}" -eq 0 ]] && rm -rf "$_WHTML_TMP"' EXIT
 
     _whtml_log "collecting data..."
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "whtml: error: python3 is required to build the report (not found on PATH)" >&2
+        echo "       install python3, or choose another tool (wellhw/wellcpu --json)" >&2
+        exit 3
+    fi
     printf '%s' "$(_whtml_host)" > "$_WHTML_TMP/host.json"
 
-    _whtml_collect_json "$_WHTML_TMP/hw.json" wellhw
-    if command -v wellcpu >/dev/null 2>&1; then
-        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" wellcpu
+    _whtml_collect_json "$_WHTML_TMP/hw.json" "$_WU_BOOT_DIR/wellhw"
+    if [[ -x "$_WU_BOOT_DIR/wellcpu" ]] || command -v wellcpu >/dev/null 2>&1; then
+        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" "$_WU_BOOT_DIR/wellcpu"
     fi
     python3 - "$_WHTML_TMP" << 'PYEOF'
 import json, os
@@ -1072,12 +1079,12 @@ except Exception:
     pass
 PYEOF
 
-    _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem
-    _whtml_collect_json "$_WHTML_TMP/net.json"     wellnet
-    _whtml_collect_json "$_WHTML_TMP/per.json"     wellper
-    _whtml_collect_json "$_WHTML_TMP/sensors.json" wellsensors
-    _whtml_collect_json "$_WHTML_TMP/doctor.json"  welldoctor
-    _whtml_collect_json "$_WHTML_TMP/block.json"   wellblock
+    _whtml_collect_json "$_WHTML_TMP/memraw.json" "$_WU_BOOT_DIR/wellmem"
+    _whtml_collect_json "$_WHTML_TMP/net.json"     "$_WU_BOOT_DIR/wellnet"
+    _whtml_collect_json "$_WHTML_TMP/per.json"     "$_WU_BOOT_DIR/wellper"
+    _whtml_collect_json "$_WHTML_TMP/sensors.json" "$_WU_BOOT_DIR/wellsensors"
+    _whtml_collect_json "$_WHTML_TMP/doctor.json"  "$_WU_BOOT_DIR/welldoctor"
+    _whtml_collect_json "$_WHTML_TMP/block.json"   "$_WU_BOOT_DIR/wellblock"
 
     if [[ "$_WHTML_AI" == 1 ]]; then
         _whtml_ai_enrich

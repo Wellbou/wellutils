@@ -1,4 +1,4 @@
-# well.ps1 — wellutils for Windows (single-file port)
+﻿# well.ps1 — wellutils for Windows (single-file port)
 # One file, zero dependencies: Windows PowerShell 5.1+, data via CIM/WMI.
 # Dispatch:  well.ps1 <tool> [options]     (shims wellusb.cmd … call this)
 #           well.ps1 --lang RU|EN          persist language
@@ -8,7 +8,7 @@
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WU_VERSION = '1.3.0'
+$script:WU_VERSION = '1.4.0-47'
 
 # tool key → display name / version / tagline
 $script:TOOLS = @{
@@ -232,7 +232,14 @@ function Write-WuRow { param([string]$Label, [string]$Value, [int]$Pad = 16)
 }
 function Write-WuSep { param([string]$Title = '')
     $c = $script:C
-    if ($script:WU_PLAIN) { Write-Wu ''; return }
+    if ($script:WU_PLAIN) {
+        # Keep the section header in plain mode too -- otherwise wellblock
+        # drops the disk model and wellhw loses the board/BIOS Vendor labels
+        # (same behaviour as the bash port, whose --plain keeps titles).
+        if ($Title -eq '') { Write-Wu ''; return }
+        Write-Wu $Title
+        return
+    }
     if ($Title -eq '') { Write-Wu ("{0}────────────────────{1}" -f $c.DIM, $c.RESET); return }
     Write-Wu ("{0}── {1} ──{2}" -f $c.DIM, $Title, $c.RESET)
 }
@@ -705,7 +712,7 @@ if ($MyInvocation.InvocationName -eq '.') {
         [Console]::Error.WriteLine(("unknown command {0}" -f $cmd))
         exit 2
     }
-    $rest = @($argsArr[1..($argsArr.Count - 1)])
+    if ($argsArr.Count -gt 1) { $rest = @($argsArr[1..($argsArr.Count - 1)]) } else { $rest = @() }
     switch ($tool) {
         'mem'     { Show-WuMem -RawArgs $rest }
         'hw'      { Show-WuHw -RawArgs $rest }

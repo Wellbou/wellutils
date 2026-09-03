@@ -5,6 +5,7 @@
 # Copyright (c) 1999-2024 the i2c-tools authors (Jean Delvare et al.),
 # GPL-2.0: https://i2c-tools.sourceforge.net/
 # wellutils wrapper code is MIT; see LICENSE.
+# shellcheck shell=bash
 wu_jedec_decode() {
     local raw="$1" cnt cde idx
     raw=${raw// /}
