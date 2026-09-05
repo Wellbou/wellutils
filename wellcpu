@@ -130,27 +130,46 @@ cpu_topology() {
 }
 
 # ─── Sections ───────────────────────────────────────────────────
-print_cpu_info() {
-    local model arch sockets cores threads freq_base freq_max gov virt hv
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+
+# Shared CPU-model detection so --plain and --json agree on non-x86 too.
+# Covers x86 ("model name"), LoongArch ("Model Name"), POWER, IBM Z, MIPS
+# and ARM (incl. unknown implementers -> "HiSilicon part 0x.."/"CPU part 0x").
+wu_cpu_model() {
+    local model arm_hw arm_part arm_impl arm_name="" _pu _s390_type
+    # Case-insensitive first field: x86 "model name" and LoongArch "Model Name".
+    # cpuinfo field names carry a trailing tab before ':', so strip it before
+    # comparing ($1 would otherwise be "model name\t").
+    model=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="model name"{print $2; exit}' /proc/cpuinfo)
 
     # Non-x86 cpuinfo has no "model name". Fall back to arch-specific fields so
-    # POWER / IBM Z / ARM boxes still show a model when lscpu is unavailable.
+    # POWER / IBM Z / ARM / MIPS boxes still show a model when lscpu is unavailable.
     if [[ -z "$model" ]]; then
-        local _pu _s390_type arm_hw arm_part arm_impl arm_name=""
-        _pu=$(awk -F': *' '/^cpu :/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+        # POWER (ppc64) anchors fields with tabs, not spaces: "cpu\t\t: POWER9".
+        _pu=$(awk -F': *' '/^cpu[[:space:]]*:/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
         if [[ -n "$_pu" ]]; then
             # "POWER9 (architected), altivec supported" -> "POWER9 (architected)"
             model="${_pu%%,*}"
         elif grep -q '^vendor_id.*IBM/S390' /proc/cpuinfo 2>/dev/null; then
             model="IBM S/390"
-            _s390_type=$(awk -F': *' '/^Type/{print $2; exit}' /proc/sysinfo 2>/dev/null)
+            if [[ -f /proc/sysinfo ]]; then
+                _s390_type=$(awk -F': *' '/^Type/{print $2; exit}' /proc/sysinfo)
+            fi
+            _s390_type="${_s390_type:-}"
             [[ -n "$_s390_type" ]] && model="IBM Z (${_s390_type})"
+        elif grep -Eq '^cpu model|^system type' /proc/cpuinfo 2>/dev/null; then
+            # MIPS (Baikal-T1: "cpu model : MIPS P5600 V0.1  FPU V0.1");
+            # "system type" is MIPS-specific too, used as fallback on boards
+            # that only print the SoC name (no cpu model field).
+            model=$(awk -F': *' '/^cpu model/{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            if [[ -z "$model" ]]; then
+                model=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="system type"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            fi
+            model="$(printf '%s' "$model" | awk '{$1=$1}1')"
         else
-            arm_hw=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
-            arm_part=$(awk -F': *' '/^CPU part/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
-            arm_impl=$(awk -F': *' '/^CPU implementer/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
-            case "${arm_impl:-0x41}/${arm_part:-}" in
+            arm_hw=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            arm_part=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="cpu part"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            arm_impl=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="cpu implementer"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            case "${arm_impl:-0x41}/${arm_part}" in
                 0x41/0xc05) arm_name="Cortex-A5"  ;;
                 0x41/0xc07) arm_name="Cortex-A7"  ;;
                 0x41/0xc08) arm_name="Cortex-A8"  ;;
@@ -167,7 +186,7 @@ print_cpu_info() {
                 0x41/0xd09) arm_name="Cortex-A73" ;;
                 0x41/0xd0a) arm_name="Cortex-A75" ;;
                 0x41/0xd0b) arm_name="Cortex-A76" ;;
-                0x41/0xd0c) arm_name="Cortex-A55" ;;
+                0x41/0xd0c) arm_name="Neoverse-N1" ;;
                 0x41/0xd0d) arm_name="Cortex-A77" ;;
                 0x41/0xd0e) arm_name="Cortex-A76AE" ;;
                 0x41/0xd40) arm_name="Cortex-A78" ;;
@@ -175,7 +194,26 @@ print_cpu_info() {
                 0x41/0xd44) arm_name="Cortex-X1" ;;
                 0x41/0xd46) arm_name="Cortex-A78C" ;;
                 0x41/0xd47) arm_name="Cortex-A710" ;;
+                0x41/0xd49) arm_name="Neoverse-N2" ;;
+                0x48/0xd01) arm_name="Kunpeng 920 (TaiShan v110)" ;;
+                0x48/0xd40) arm_name="Kunpeng 930 (TaiShan v200)" ;;
+                0x70/0x663) arm_name="Phytium FT-2000" ;;
             esac
+            if [[ -z "$arm_name" && -n "${arm_impl:-}" ]]; then
+                case "$arm_impl" in
+                    0x41) arm_name="ARM part ${arm_part:-?}" ;;
+                    0x42) arm_name="Broadcom part ${arm_part:-?}" ;;
+                    0x43) arm_name="Cavium part ${arm_part:-?}" ;;
+                    0x48) arm_name="HiSilicon part ${arm_part:-?}" ;;
+                    0x4e) arm_name="NVIDIA part ${arm_part:-?}" ;;
+                    0x50) arm_name="Ampere part ${arm_part:-?}" ;;
+                    0x51) arm_name="Qualcomm part ${arm_part:-?}" ;;
+                    0x70) arm_name="Phytium part ${arm_part:-?}" ;;
+                    *)    arm_name="CPU part ${arm_part:-?}" ;;
+                esac
+            elif [[ -z "$arm_name" && -n "${arm_part:-}" ]]; then
+                arm_name="CPU part ${arm_part}"
+            fi
             if [[ -n "$arm_name" ]]; then
                 model="$arm_name"
                 [[ -n "$arm_hw" ]] && model="${arm_hw} (${arm_name})"
@@ -184,6 +222,12 @@ print_cpu_info() {
             fi
         fi
     fi
+    printf '%s' "$model"
+}
+
+print_cpu_info() {
+    local model arch sockets cores threads freq_base freq_max gov virt hv
+    model=$(wu_cpu_model)
 
     local lscpu_out
     lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
@@ -196,11 +240,21 @@ print_cpu_info() {
     [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
     [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
     [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
+    # Non-x86 cpuinfo (POWER/MIPS/ARM/LoongArch/s390) has no physical id /
+    # cpu cores / siblings fields, so the lscpu-less fallback used to report
+    # 1/1/1. Count the processor lines instead and default to 1 thread per
+    # core when no SMT info exists.
+    local _proc_n
+    _proc_n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
+    [[ "$_proc_n" =~ ^[0-9]+$ && "$_proc_n" -gt 0 ]] || _proc_n=1
+    if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
+    if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
+    [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
     [[ -z "$arch" ]] && arch=$(uname -m)
     # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
-    # Treat any non-numeric value (including "-") as unknown -> 1.
+    # Treat any non-numeric value (including "-") as unknown -> safe default.
     [[ "$_sockets" =~ ^[0-9]+$ ]] || _sockets=1
-    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=1
+    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=$_proc_n
     [[ "$_threads" =~ ^[0-9]+$ ]] || _threads=1
     [[ "$_sockets" -lt 1 ]] && _sockets=1
     [[ "$_cores" -lt 1 ]] && _cores=1
@@ -336,7 +390,7 @@ print_cpu_load() {
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
     local model arch sockets cores threads freq_base gov
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
+    model=$(wu_cpu_model)
 
     local lscpu_out
     lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
@@ -349,11 +403,21 @@ json_out() {
     [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
     [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
     [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
+    # Non-x86 cpuinfo (POWER/MIPS/ARM/LoongArch/s390) has no physical id /
+    # cpu cores / siblings fields, so the lscpu-less fallback used to report
+    # 1/1/1. Count the processor lines instead and default to 1 thread per
+    # core when no SMT info exists.
+    local _proc_n
+    _proc_n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
+    [[ "$_proc_n" =~ ^[0-9]+$ && "$_proc_n" -gt 0 ]] || _proc_n=1
+    if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
+    if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
+    [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
     [[ -z "$arch" ]] && arch=$(uname -m)
     # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
-    # Treat any non-numeric value (including "-") as unknown -> 1.
+    # Treat any non-numeric value (including "-") as unknown -> safe default.
     [[ "$_sockets" =~ ^[0-9]+$ ]] || _sockets=1
-    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=1
+    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=$_proc_n
     [[ "$_threads" =~ ^[0-9]+$ ]] || _threads=1
     [[ "$_sockets" -lt 1 ]] && _sockets=1
     [[ "$_cores" -lt 1 ]] && _cores=1

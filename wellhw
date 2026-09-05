@@ -227,7 +227,13 @@ print_ram() {
                 *[Mm]emory\ [Dd]evice*) flush_slot; in_slot=1 ;;
                 *Size:\ *)              s_size="${line#*: }"; s_size="${s_size%%$_HT*}"
                     s_size="$(printf '%s' "$s_size" | awk '{$1=$1}1')"
-                    [[ "$s_size" == *No* ]] && s_empty=1 ;;
+                    [[ "$s_size" == *No* ]] && s_empty=1
+                    # dmidecode sizes arrive as "64 GB" / "128 MB"; normalize to
+                    # GiB/MiB so the total aggregator and slot lines agree.
+                    s_size="$(printf '%s' "$s_size" | awk '
+                        /GB/  { gsub(/[^0-9]/, "", $1); if ($1+0 > 0) { print $1 " GiB"; next } }
+                        /MB/  { gsub(/[^0-9]/, "", $1); if ($1+0 > 0) { print $1 " MiB"; next } }
+                        { print }')" ;;
                 *Type:\ *)              s_type="${line#*: }"; s_type="${s_type%%$_HT*}"
                     s_type="$(printf '%s' "$s_type" | awk '{$1=$1}1')" ;;
                 *Speed:\ *MT/*)         s_speed="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
@@ -304,12 +310,15 @@ print_ram() {
         [[ "${slot_type[$i]}" == "$first_t" && "${slot_speed[$i]}" == "$first_s" && "${slot_size[$i]}" == "$first_sz" ]] || { uniform=0; break; }
     done
 
-    # Aggregate total installed memory (slot_size values are normalized "N GiB").
+    # Aggregate total installed memory (slot_size values are normalized "N GiB"
+    # or "N MiB"; accept GB/MB suffixes defensively, e.g. custom fixtures).
     local total_mb=0 _sz=""
     for (( i=0; i<modules; i++ )); do
         _sz="${slot_size[$i]:-}"
         if [[ "$_sz" == *GiB ]]; then total_mb=$(( total_mb + ${_sz% GiB} * 1024 ));
-        elif [[ "$_sz" == *MiB ]]; then total_mb=$(( total_mb + ${_sz% MiB} )); fi
+        elif [[ "$_sz" == *MiB ]]; then total_mb=$(( total_mb + ${_sz% MiB} ));
+        elif [[ "$_sz" == *GB ]]; then total_mb=$(( total_mb + ${_sz% GB} * 1024 ));
+        elif [[ "$_sz" == *MB ]]; then total_mb=$(( total_mb + ${_sz% MB} )); fi
     done
     local total_txt=""
     if (( total_mb >= 1024 )); then total_txt="$(t hw_ram_total): $(( total_mb / 1024 )) GiB"
@@ -317,10 +326,9 @@ print_ram() {
 
     local ram_line ram_sub=""
     if (( uniform )); then
-        local type_label="DDR"
-        case "$first_t" in
-            DDR2|DDR3|DDR4|DDR5) type_label="$first_t" ;;
-        esac
+        # Keep the dmidecode type verbatim (SDRAM/LPDDR4/Flash/RAM …) instead
+        # of collapsing everything non-DDR2-5 into a wrong "DDR" label.
+        local type_label="$first_t"
         local speed_txt=""
         [[ -n "$first_s" ]] && speed_txt="-$first_s"
         ram_line="${modules}× ${first_sz} ${type_label}${speed_txt}"
@@ -340,10 +348,8 @@ print_ram() {
         ram_line="${modules} slots"
         pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
         for (( i=0; i<modules; i++ )); do
-            local t2="DDR"
-            case "${slot_type[$i]}" in
-                DDR2|DDR3|DDR4|DDR5) t2="${slot_type[$i]}" ;;
-            esac
+            # Keep slot type verbatim (SDRAM/LPDDR4/Flash/RAM …), no "DDR" collapse.
+            local t2="${slot_type[$i]}"
             local sp2=""
             [[ -n "${slot_speed[$i]}" ]] && sp2="-${slot_speed[$i]}"
             local detail="  ${slot_locator[$i]:-DIMM $(( i + 1 ))}: ${slot_size[$i]} ${t2}${sp2}"
