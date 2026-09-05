@@ -78,9 +78,9 @@ old,new=json.loads(lines[0]),json.loads(lines[1])
 def flat(o,p=""):
     r={}
     if isinstance(o,dict):
-        for k,v in o.items(): r.update(flat(v,f"{p}.{k}" if p else k))
+        for k,v in o.items(): r.update(flat(v,"%s.%s" % (p,k) if p else k))
     elif isinstance(o,list):
-        for i,v in enumerate(o): r.update(flat(v,f"{p}[{i}]"))
+        for i,v in enumerate(o): r.update(flat(v,"%s[%d]" % (p,i)))
     else: r[p]=o
     return r
 fo,fn_=flat(old),flat(new)
@@ -88,11 +88,11 @@ changes=[]
 for k in sorted(set(fo)|set(fn_)):
     a,b=fo.get(k,"\u2205"),fn_.get(k,"\u2205")
     if a!=b:
-        changes.append(L("~ ","~ ")+f"{k}: {a} -> {b}")
+        changes.append(L("~ ","~ ")+("%s: %s -> %s" % (k,a,b)))
 if not changes:
-    print(L("Нет изменений железа.","No hardware changes."))
+    print(L("\u041d\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439 \u0436\u0435\u043b\u0435\u0437\u0430.","No hardware changes."))
 else:
-    print(L(f"Изменений: {len(changes)}",f"Changes: {len(changes)}"))
+    print(L("\u0418\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439: %d" % len(changes),"Changes: %d" % len(changes)))
     for c in changes: print(" "+c)
     sys.exit(2)
 '
