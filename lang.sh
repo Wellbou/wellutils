@@ -40,7 +40,10 @@ case "$WELLUTILS_LANG" in
     *)  WELLUTILS_LANG="EN" ;;
 esac
 
-declare -gA _T_EN _T_RU
+# Top-level associative arrays. NOT `declare -gA`: -g is bash 4.2+ only, and
+# this file is sourced at top level so plain `-A` is already global. Using -gA
+# crashes every tool on bash 4.1 (Debian 6 squeeze).
+declare -A _T_EN _T_RU
 
 # --- EN translations ---
 _T_EN[loaded]="loaded"
@@ -1020,12 +1023,15 @@ t_plural() {
 t() {
     local _key="$1" _val=""
     if [[ "$WELLUTILS_LANG" == "RU" ]]; then
-        if [[ -v "_T_RU[$_key]" ]]; then _val="${_T_RU[$_key]}"; fi
+        # Portable set-ness check: [[ -v arr[key] ]] needs bash 4.3+, so use
+        # the ${arr[key]+x} form which works on bash 4.0+ (CentOS/RHEL 7,
+        # Debian 7 ship 4.2 where -v silently fails and drops all i18n).
+        if [[ -n ${_T_RU[$_key]+x} ]]; then _val="${_T_RU[$_key]}"; fi
     else
-        if [[ -v "_T_EN[$_key]" ]]; then _val="${_T_EN[$_key]}"; fi
+        if [[ -n ${_T_EN[$_key]+x} ]]; then _val="${_T_EN[$_key]}"; fi
     fi
     if [[ -z "$_val" ]]; then
-        if [[ -v "_T_EN[$_key]" ]]; then _val="${_T_EN[$_key]}"; fi
+        if [[ -n ${_T_EN[$_key]+x} ]]; then _val="${_T_EN[$_key]}"; fi
     fi
     if [[ -z "$_val" ]]; then
         case "$WELLUTILS_LANG" in

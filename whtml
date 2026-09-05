@@ -73,10 +73,25 @@ EOF
 # ─── Helpers ────────────────────────────────────────────────────
 _whtml_log() { [[ "${WHTML_DEBUG:-0}" == 1 ]] && printf '  [whtml] %s\n' "$*" >&2 || true; }
 
+# Resolve a sibling tool to a runnable path. Consumers may be running from
+# a checkout (tools adjacent to whtml), from an installation (tools in
+# ../bin relative to the LIBDIR), or purely via PATH.
+_whtml_tool() {
+    local name="$1" cand
+    for cand in "$_WU_BOOT_DIR/$name" "$(dirname "$_WU_BOOT_DIR")/bin/$name" "$(dirname "$_WU_BOOT_DIR")/$name"; do
+        [[ -x "$cand" ]] && { printf '%s' "$cand"; return 0; }
+    done
+    if command -v "$name" >/dev/null 2>&1; then
+        printf '%s' "$(command -v "$name")"
+        return 0
+    fi
+    return 1
+}
+
 _whtml_collect_json() {
-    local path="${1:-}"; shift || true
-    local out
-    out="$("$@" --json 2>/dev/null || true)"
+    local path="$1" name="$2" tool out
+    tool=$(_whtml_tool "$name") || return 0
+    out="$("$tool" --json 2>/dev/null || true)"
     if [[ -z "$out" ]] || ! printf '%s' "$out" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
         out='{}'
     fi
@@ -1041,9 +1056,9 @@ main() {
     fi
     printf '%s' "$(_whtml_host)" > "$_WHTML_TMP/host.json"
 
-    _whtml_collect_json "$_WHTML_TMP/hw.json" "$_WU_BOOT_DIR/wellhw"
-    if [[ -x "$_WU_BOOT_DIR/wellcpu" ]] || command -v wellcpu >/dev/null 2>&1; then
-        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" "$_WU_BOOT_DIR/wellcpu"
+    _whtml_collect_json "$_WHTML_TMP/hw.json" wellhw
+    if _whtml_tool wellcpu >/dev/null 2>&1; then
+        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" wellcpu
     fi
     python3 - "$_WHTML_TMP" << 'PYEOF'
 import json, os
@@ -1079,12 +1094,12 @@ except Exception:
     pass
 PYEOF
 
-    _whtml_collect_json "$_WHTML_TMP/memraw.json" "$_WU_BOOT_DIR/wellmem"
-    _whtml_collect_json "$_WHTML_TMP/net.json"     "$_WU_BOOT_DIR/wellnet"
-    _whtml_collect_json "$_WHTML_TMP/per.json"     "$_WU_BOOT_DIR/wellper"
-    _whtml_collect_json "$_WHTML_TMP/sensors.json" "$_WU_BOOT_DIR/wellsensors"
-    _whtml_collect_json "$_WHTML_TMP/doctor.json"  "$_WU_BOOT_DIR/welldoctor"
-    _whtml_collect_json "$_WHTML_TMP/block.json"   "$_WU_BOOT_DIR/wellblock"
+    _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem
+    _whtml_collect_json "$_WHTML_TMP/net.json"     wellnet
+    _whtml_collect_json "$_WHTML_TMP/per.json"     wellper
+    _whtml_collect_json "$_WHTML_TMP/sensors.json" wellsensors
+    _whtml_collect_json "$_WHTML_TMP/doctor.json"  welldoctor
+    _whtml_collect_json "$_WHTML_TMP/block.json"   wellblock
 
     if [[ "$_WHTML_AI" == 1 ]]; then
         _whtml_ai_enrich

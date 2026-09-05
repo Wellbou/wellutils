@@ -3,8 +3,8 @@
 # Part of wellutils by wellbou_
 set -euo pipefail
 
-declare -g -A _CPU_PCT=() _CPU_SOCKET=() _CPU_CORE=() _SOCKETS=()
-declare -g -i _CPU_COUNT=0
+declare -A _CPU_PCT=() _CPU_SOCKET=() _CPU_CORE=() _SOCKETS=()
+declare -i _CPU_COUNT=0
 
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellcpu" _WU_NAME="WellCPU" _WU_VERSION="1.0"
