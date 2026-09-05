@@ -14,7 +14,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box
+source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box parse
 
 fmt_bytes() {
     [[ "$1" =~ ^[0-9]+$ ]] || { printf '0 B'; return; }
@@ -134,7 +134,7 @@ wn_vpn_endpoint() {
             fi ;;
         tailscale*)
             if command -v tailscale &>/dev/null; then
-                ep=$(tailscale status 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -1)
+                ep=$(tailscale status 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -1) || ep=""
                 [[ -n "$ep" ]] && { printf '%s|tailscaled' "$ep"; return 0; }
             fi ;;
     esac
@@ -144,7 +144,7 @@ wn_vpn_endpoint() {
     local -A cnt=() info=()
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"')
+        proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"') || proc=""
         [[ -z "$proc" ]] && continue
         peer=$(awk '{print $4}' <<< "$line")
         peer="${peer%%%*}"
@@ -235,7 +235,7 @@ print_connection() {
         pline_sub "$(_ic '🚪') $line_out"
     fi
     # DNS resolvers from /etc/resolv.conf (max 3).
-    dns_list=$(awk '$1 == "nameserver" && $2 !~ /:/ {print $2} $1 == "nameserver" && $2 ~ /:/ {print "["$2"]"}' /etc/resolv.conf 2>/dev/null | head -3 | tr '\n' ' ')
+    dns_list=$(awk '$1 == "nameserver" && $2 !~ /:/ {print $2} $1 == "nameserver" && $2 ~ /:/ {print "["$2"]"}' /etc/resolv.conf 2>/dev/null | head -3 | tr '\n' ' ') || dns_list=""
     dns_list="${dns_list% }"
     [[ -n "$dns_list" ]] && pline_sub "$(_ic '🧭') $(t dns_servers): $dns_list"
     # Wi-Fi SSID on the primary interface.
@@ -383,7 +383,7 @@ print_ports() {
         local_ep="${local_ep%%%*}"
         proc="-"
         if [[ "$line" == *"users:(("* ]]; then
-            proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"')
+            proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"') || proc="-"
         fi
         pline_sub "$(_ic '🔗') ${BOLD}${proto}${RESET} ${local_ep}  ${DIM}(${proc})${RESET}"
         shown=$(( shown + 1 ))

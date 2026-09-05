@@ -10,7 +10,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 _WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, /dev/sda)"
 _WU_EXTRA_PARSE="_wblock_arg"
 

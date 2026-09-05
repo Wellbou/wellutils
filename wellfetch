@@ -26,9 +26,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     # wellfetch runs without `set -e` (unlike the other tools), so bootstrap's
     # bash-3.2 guard must be paired with an explicit exit here or the script
     # would continue and die with rc=127 ("wu_run: command not found").
-    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli || exit 1
+    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse || exit 1
 else
-    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli || return 1 2>/dev/null || exit 1
+    source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse || return 1 2>/dev/null || exit 1
     return 0 2>/dev/null || exit 0
 fi
 
@@ -192,10 +192,10 @@ wfv_font() {
 
 wfv_cpu() {
     local m cores threads freq load
-    m=$(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null | sed 's/  */ /g')
-    cores=$(awk -F': ' '/^cpu cores/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+    m=$(wu_kv /proc/cpuinfo "model name" | sed 's/  */ /g')
+    cores=$(wu_kv /proc/cpuinfo "cpu cores")
     threads=$(nproc 2>/dev/null)
-    freq=$(awk -F': ' '/^cpu MHz/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+    freq=$(wu_kv /proc/cpuinfo "cpu MHz")
     load=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
     wf_push cpu "$(t wf_cpu)" "${m:--}"
     local detail=""
@@ -333,6 +333,22 @@ wfv_resolution() {
         if [[ -n "$r" ]]; then wf_push resolution "$(t wf_resolution)" "$r"; return; fi
     fi
     wf_push resolution "$(t wf_resolution)" "-"
+}
+
+# F3: backlight brightness as percent (used on laptops, ignored on headless).
+wfv_backlight() {
+    local bl found=0 max b pct
+    for bl in /sys/class/backlight/*; do
+        [[ -d "$bl" ]] || continue
+        max=$(cat "$bl/max_brightness" 2>/dev/null) || continue
+        b=$(cat "$bl/brightness" 2>/dev/null) || continue
+        [[ "$max" =~ ^[0-9]+$ && "$max" -gt 0 ]] || continue
+        [[ "$b" =~ ^[0-9]+$ ]] || continue
+        pct=$(awk -v b="$b" -v m="$max" 'BEGIN{ printf "%d", b*100/m }')
+        wf_push backlight "$(t wf_backlight)" "${pct}%"
+        found=1
+    done
+    (( found )) || wf_push backlight "$(t wf_backlight)" "-"
 }
 
 wfv_audio() {
@@ -619,9 +635,10 @@ wf_custom() { :; }
 # --- collection ---------------------------------------------------------------
 
 # Default set: essentials only -- user@host, system, kernel, uptime, cpu,
-# gpu, memory, screen. Everything else stays available via --all/--full.
-WF_SECTIONS="user os kernel uptime cpu gpu mem resolution"
-WF_ALL_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale audio resolution peripherals battery date"
+# gpu, memory, screen, storage, brightness. Everything else stays available
+# via --all/--full.
+WF_SECTIONS="user os kernel uptime cpu gpu mem resolution disks backlight"
+WF_ALL_SECTIONS="user os kernel uptime shell desktop wm terminal theme icons font cpu gpu mem swap disk disks monitors packages locale audio resolution peripherals battery date backlight"
 
 wf_collect() {
     WF_SECS=() WF_LABELS=() WF_VALUES=()

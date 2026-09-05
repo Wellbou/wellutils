@@ -11,7 +11,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 # bash-4 arrays must live below bootstrap: on bash < 4 bootstrap exits with a
 # clear message, but `declare -A` above it would die with an obscure error first.
 declare -A _CPU_PCT=() _CPU_SOCKET=() _CPU_CORE=() _SOCKETS=()
@@ -136,10 +136,9 @@ cpu_topology() {
 # and ARM (incl. unknown implementers -> "HiSilicon part 0x.."/"CPU part 0x").
 wu_cpu_model() {
     local model arm_hw arm_part arm_impl arm_name="" _pu _s390_type
-    # Case-insensitive first field: x86 "model name" and LoongArch "Model Name".
-    # cpuinfo field names carry a trailing tab before ':', so strip it before
-    # comparing ($1 would otherwise be "model name\t").
-    model=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="model name"{print $2; exit}' /proc/cpuinfo)
+    # wu_kv is case-insensitive and tolerates the kernel's tab between the
+    # field name and ':' (U6 fix; was a separate hand-rolled awk here).
+    model=$(wu_kv /proc/cpuinfo "model name")
 
     # Non-x86 cpuinfo has no "model name". Fall back to arch-specific fields so
     # POWER / IBM Z / ARM / MIPS boxes still show a model when lscpu is unavailable.
@@ -162,13 +161,35 @@ wu_cpu_model() {
             # that only print the SoC name (no cpu model field).
             model=$(awk -F': *' '/^cpu model/{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
             if [[ -z "$model" ]]; then
-                model=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="system type"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+                model=$(wu_kv /proc/cpuinfo "system type") || true
             fi
             model="$(printf '%s' "$model" | awk '{$1=$1}1')"
+        elif grep -q '^isa' /proc/cpuinfo 2>/dev/null && grep -q '^uarch' /proc/cpuinfo 2>/dev/null; then
+            # RISC-V (SiFive VisionFive, StarFive, Banana Pi F3, ...).
+            # cpuinfo has `isa`, `uarch`, `mmu`, `mvendorid`; no model/implementer.
+            local _uarch _hart_n
+            _uarch=$(wu_kv /proc/cpuinfo "uarch") || _uarch=""
+            _hart_n=$(grep -c '^hart\b' /proc/cpuinfo 2>/dev/null) || _hart_n=0
+            if [[ -n "$_uarch" ]]; then
+                # "sifive,u74-mc" -> "SiFive U74-MC" (best-effort, falls back to raw)
+                local _v _p="${_uarch%%,*}" _chip="${_uarch##*,}"
+                _v="${_p%%:*}"
+                case "${_v,,}" in
+                    sifive)    model="SiFive ${_chip^^}" ;;
+                    starfive)  model="StarFive ${_chip^^}" ;;
+                    bananapi|bpi) model="Banana Pi ${_chip^^}" ;;
+                    spacemit)  model="SpacemiT ${_chip^^}" ;;
+                    tenstorrent) model="Tenstorrent ${_chip^^}" ;;
+                    *)         model="${_uarch}" ;;
+                esac
+            else
+                model="RISC-V"
+            fi
+            [[ "$_hart_n" -gt 0 ]] && model="$model ($_hart_n harts)"
         else
-            arm_hw=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
-            arm_part=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="cpu part"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
-            arm_impl=$(awk -F': *' '{sub(/[[:space:]]+$/, "", $1)} tolower($1)=="cpu implementer"{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
+            arm_hw=$(wu_kv /proc/cpuinfo "Hardware") || true
+            arm_part=$(wu_kv /proc/cpuinfo "CPU part") || true
+            arm_impl=$(wu_kv /proc/cpuinfo "CPU implementer") || true
             case "${arm_impl:-0x41}/${arm_part}" in
                 0x41/0xc05) arm_name="Cortex-A5"  ;;
                 0x41/0xc07) arm_name="Cortex-A7"  ;;
@@ -195,8 +216,25 @@ wu_cpu_model() {
                 0x41/0xd46) arm_name="Cortex-A78C" ;;
                 0x41/0xd47) arm_name="Cortex-A710" ;;
                 0x41/0xd49) arm_name="Neoverse-N2" ;;
+                0x41/0xd4a) arm_name="Neoverse-E1" ;;
+                0x41/0xd4c) arm_name="Neoverse-V1" ;;
+                0x46/0x001) arm_name="Fujitsu A64FX" ;;
                 0x48/0xd01) arm_name="Kunpeng 920 (TaiShan v110)" ;;
                 0x48/0xd40) arm_name="Kunpeng 930 (TaiShan v200)" ;;
+                0x50/0xac3) arm_name="Ampere Altra" ;;
+                0x50/0xac4) arm_name="Ampere AmpereOne" ;;
+                0x51/0x800) arm_name="Qualcomm Kryo 4xx/5xx" ;;
+                0x51/0xc00) arm_name="Qualcomm Kryo 6xx/7xx" ;;
+                0x4e/0x004) arm_name="NVIDIA Grace" ;;
+                0x61/0x022) arm_name="Apple M1"  ;;
+                0x61/0x023) arm_name="Apple M1 Pro"  ;;
+                0x61/0x024) arm_name="Apple M1 Max"  ;;
+                0x61/0x025) arm_name="Apple M1 Ultra" ;;
+                0x61/0x028) arm_name="Apple M2"      ;;
+                0x61/0x032) arm_name="Apple M2 Pro"   ;;
+                0x61/0x033) arm_name="Apple M2 Max"   ;;
+                0x61/0x034) arm_name="Apple M2 Ultra" ;;
+                0x61/0x038) arm_name="Apple M4"      ;;
                 0x70/0x663) arm_name="Phytium FT-2000" ;;
             esac
             if [[ -z "$arm_name" && -n "${arm_impl:-}" ]]; then
@@ -204,15 +242,53 @@ wu_cpu_model() {
                     0x41) arm_name="ARM part ${arm_part:-?}" ;;
                     0x42) arm_name="Broadcom part ${arm_part:-?}" ;;
                     0x43) arm_name="Cavium part ${arm_part:-?}" ;;
+                    0x46) arm_name="Fujitsu part ${arm_part:-?}" ;;
                     0x48) arm_name="HiSilicon part ${arm_part:-?}" ;;
                     0x4e) arm_name="NVIDIA part ${arm_part:-?}" ;;
                     0x50) arm_name="Ampere part ${arm_part:-?}" ;;
                     0x51) arm_name="Qualcomm part ${arm_part:-?}" ;;
+                    0x61) arm_name="Apple part ${arm_part:-?}" ;;
                     0x70) arm_name="Phytium part ${arm_part:-?}" ;;
                     *)    arm_name="CPU part ${arm_part:-?}" ;;
                 esac
             elif [[ -z "$arm_name" && -n "${arm_part:-}" ]]; then
                 arm_name="CPU part ${arm_part}"
+            fi
+            # big.LITTLE: if multiple distinct CPU parts exist, show a grouped
+            # breakdown instead of just the first one. Counts processors per
+            # impl/part combination and renders "4×A55 + 4×A76".
+            if [[ -n "$arm_part" ]]; then
+                local _parts _pcounts _pline=""
+                eval "_parts=($(wu_kv_all /proc/cpuinfo 'CPU part' | sort -u | sed "s/'/'\\\\''/g" | awk '{printf "'\''%s'\'' ", $0}'))"
+                if (( ${#_parts[@]} > 1 )); then
+                    local _p
+                    for _p in "${_parts[@]}"; do
+                        [[ -z "$_p" ]] && continue
+                        local _n
+                        _n=$(grep -cE "^CPU part[[:space:]]*:[[:space:]]*${_p}\$" /proc/cpuinfo 2>/dev/null) || _n=0
+                        local _lab
+                        case "$_p" in
+                            0xc05) _lab=Cortex-A5;; 0xc07) _lab=Cortex-A7;;
+                            0xc08) _lab=Cortex-A8;; 0xc09) _lab=Cortex-A9;;
+                            0xc0a) _lab=Cortex-A15;;0xc0c) _lab=Cortex-A12;;
+                            0xc0e) _lab=Cortex-A17;;0xd02) _lab=Cortex-A32;;
+                            0xd03) _lab=Cortex-A53;;0xd04) _lab=Cortex-A35;;
+                            0xd05) _lab=Cortex-A55;;0xd07) _lab=Cortex-A57;;
+                            0xd08) _lab=Cortex-A72;;0xd09) _lab=Cortex-A73;;
+                            0xd0a) _lab=Cortex-A75;;0xd0b) _lab=Cortex-A76;;
+                            0xd0c) _lab=Neoverse-N1;;0xd0d) _lab=Cortex-A77;;
+                            0xd0e) _lab=Cortex-A76AE;;0xd40) _lab=Cortex-A78;;
+                            0xd41) _lab=Cortex-A78AE;;0xd44) _lab=Cortex-X1;;
+                            0xd46) _lab=Cortex-A78C;;0xd47) _lab=Cortex-A710;;
+                            0xd49) _lab=Neoverse-N2;;0xd4a) _lab=Neoverse-E1;;
+                            0xd4c) _lab=Neoverse-V1;;
+                            *) _lab="${_p}";;
+                        esac
+                        [[ -n "$_pline" ]] && _pline+=" + "
+                        _pline+="${_n}×${_lab}"
+                    done
+                    arm_name="$_pline"
+                fi
             fi
             if [[ -n "$arm_name" ]]; then
                 model="$arm_name"
@@ -250,6 +326,15 @@ print_cpu_info() {
     if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
     if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
     [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
+    # x86 cpuinfo `siblings` is logical CPUs per *socket*; lscpu's Thread(s) per
+    # core is already per-core, but the cpuinfo fallback must divide by cpu_cores
+    # to keep semantics consistent. Without this, 2x EPYC 9754 (siblings=128,
+    # cpu cores=64) reported 128*64*2 = 16384 threads instead of 256.
+    if [[ "$_threads" =~ ^[0-9]+$ && "$_cores" =~ ^[0-9]+$ && "$_cores" -gt 0 \
+          && "$_threads" -gt "$_cores" ]]; then
+        _threads=$(( _threads / _cores ))
+        (( _threads < 1 )) && _threads=1
+    fi
     [[ -z "$arch" ]] && arch=$(uname -m)
     # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
     # Treat any non-numeric value (including "-") as unknown -> safe default.
@@ -413,6 +498,15 @@ json_out() {
     if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
     if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
     [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
+    # x86 cpuinfo `siblings` is logical CPUs per *socket*; lscpu's Thread(s) per
+    # core is already per-core, but the cpuinfo fallback must divide by cpu_cores
+    # to keep semantics consistent. Without this, 2x EPYC 9754 (siblings=128,
+    # cpu cores=64) reported 128*64*2 = 16384 threads instead of 256.
+    if [[ "$_threads" =~ ^[0-9]+$ && "$_cores" =~ ^[0-9]+$ && "$_cores" -gt 0 \
+          && "$_threads" -gt "$_cores" ]]; then
+        _threads=$(( _threads / _cores ))
+        (( _threads < 1 )) && _threads=1
+    fi
     [[ -z "$arch" ]] && arch=$(uname -m)
     # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
     # Treat any non-numeric value (including "-") as unknown -> safe default.

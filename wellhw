@@ -10,7 +10,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 
 # ─── Snapshot / diff ─────────────────────────────────────────────
 _HW_SNAPSHOT=0 _HW_DIFF=0 _HW_SNAP_FILE=""
@@ -228,15 +228,18 @@ print_ram() {
                 *Size:\ *)              s_size="${line#*: }"; s_size="${s_size%%$_HT*}"
                     s_size="$(printf '%s' "$s_size" | awk '{$1=$1}1')"
                     [[ "$s_size" == *No* ]] && s_empty=1
-                    # dmidecode sizes arrive as "64 GB" / "128 MB"; normalize to
-                    # GiB/MiB so the total aggregator and slot lines agree.
-                    s_size="$(printf '%s' "$s_size" | awk '
-                        /GB/  { gsub(/[^0-9]/, "", $1); if ($1+0 > 0) { print $1 " GiB"; next } }
-                        /MB/  { gsub(/[^0-9]/, "", $1); if ($1+0 > 0) { print $1 " MiB"; next } }
-                        { print }')" ;;
+                    # dmidecode sizes arrive as "64 GB" / "128 MB"; normalize via
+                    # wu_size_mb so the total aggregator and slot lines agree.
+                    if [[ "$s_size" != *No* && -n "$s_size" ]]; then
+                        local _mb
+                        _mb=$(wu_size_mb "$s_size")
+                        if (( _mb >= 1024 )); then s_size="$(( _mb / 1024 )) GiB"
+                        elif (( _mb > 0 )); then s_size="${_mb} MiB"
+                        fi
+                    fi ;;
                 *Type:\ *)              s_type="${line#*: }"; s_type="${s_type%%$_HT*}"
                     s_type="$(printf '%s' "$s_type" | awk '{$1=$1}1')" ;;
-                *Speed:\ *MT/*)         s_speed="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
+                *Speed:\ *MT/*|*Speed:\ *MHz*) s_speed="$(wu_speed "$line")" ;;
                 *Manufacturer:\ *)     s_manuf="${line#*: }"; s_manuf="${s_manuf%%$_HT*}"
                     s_manuf="$(printf '%s' "$s_manuf" | awk '{$1=$1}1' | tr -d '\r')" ;;
                 *Part\ Number:\ *)     s_pn="${line#*: }"; s_pn="${s_pn%%$_HT*}"
@@ -305,24 +308,38 @@ print_ram() {
         fi
     done
 
-    local uniform=1 first_t="${slot_type[0]}" first_s="${slot_speed[0]}" first_sz="${slot_size[0]}"
+    local uniform=1 first_t="${slot_type[0]}" first_s="${slot_speed[0]}" first_sz="${slot_size[0]}" first_form="${slot_form[0]}"
+    # Capture "non-uniform dimensions" for downgrade warnings: distinct speeds
+    # or types in a multi-slot board mean the platform drops to the slowest
+    # module; the user benefits from a one-liner rather than spot the mismatch.
+    local distinct_speeds=1 distinct_types=1 distinct_sizes=1 distinct_forms=1
+    local i
     for (( i=1; i<modules; i++ )); do
-        [[ "${slot_type[$i]}" == "$first_t" && "${slot_speed[$i]}" == "$first_s" && "${slot_size[$i]}" == "$first_sz" ]] || { uniform=0; break; }
+        [[ "${slot_type[$i]}" == "$first_t" ]] || distinct_types=0
+        [[ "${slot_speed[$i]}" == "$first_s" ]] || distinct_speeds=0
+        [[ "${slot_size[$i]}" == "$first_sz" ]] || distinct_sizes=0
+        [[ "${slot_form[$i]:-}" == "${first_form:-}" ]] || distinct_forms=0
+        [[ $distinct_speeds == 1 && $distinct_types == 1 && $distinct_sizes == 1 && $distinct_forms == 1 ]] || uniform=0
     done
 
-    # Aggregate total installed memory (slot_size values are normalized "N GiB"
-    # or "N MiB"; accept GB/MB suffixes defensively, e.g. custom fixtures).
+    # Aggregate total installed memory. slot_size is "N GiB" or "N MiB"
+    # (post-normalization), but the unified wu_size_mb handles raw "64 GB"
+    # too in case a future code path skips the parser above.
     local total_mb=0 _sz=""
     for (( i=0; i<modules; i++ )); do
-        _sz="${slot_size[$i]:-}"
-        if [[ "$_sz" == *GiB ]]; then total_mb=$(( total_mb + ${_sz% GiB} * 1024 ));
-        elif [[ "$_sz" == *MiB ]]; then total_mb=$(( total_mb + ${_sz% MiB} ));
-        elif [[ "$_sz" == *GB ]]; then total_mb=$(( total_mb + ${_sz% GB} * 1024 ));
-        elif [[ "$_sz" == *MB ]]; then total_mb=$(( total_mb + ${_sz% MB} )); fi
+        total_mb=$(( total_mb + $(wu_size_mb "${slot_size[$i]:-}") ))
     done
     local total_txt=""
     if (( total_mb >= 1024 )); then total_txt="$(t hw_ram_total): $(( total_mb / 1024 )) GiB"
     else total_txt="$(t hw_ram_total): ${total_mb} MiB"; fi
+
+    # Channel count from dmidecode Locator pattern (DIMM_A1, ChannelA-DIMM0, ...).
+    # A single populated channel is a perf warning on multi-channel boards.
+    local channel_count
+    channel_count=$(printf '%s\n' "${slot_locator[@]:-}" | grep -oE 'Channel[A-Z]|DIMM_[A-Z]' | sort -u | wc -l) || channel_count=0
+    # Single-channel warning only meaningful when total populated > 1 and only one channel
+    local single_channel=0
+    if (( modules > 1 && channel_count == 1 )); then single_channel=1; fi
 
     local ram_line ram_sub=""
     if (( uniform )); then
@@ -332,7 +349,15 @@ print_ram() {
         local speed_txt=""
         [[ -n "$first_s" ]] && speed_txt="-$first_s"
         ram_line="${modules}× ${first_sz} ${type_label}${speed_txt}"
+        # F4: form factor (DIMM/SODIMM/Row Of Chips) in the uniform line.
+        if [[ -n "$first_form" && "$first_form" != "DIMM" ]]; then
+            ram_line+=" ${first_form}"
+        fi
         [[ -n "$total_txt" ]] && ram_line+=" · ${DIM}${total_txt}${RESET}"
+        # Single-channel warning on uniform modules: signal in the main line.
+        if (( single_channel )); then
+            ram_line+=" ${Y}⚠ single-channel (пропускная способность вдвое ниже)${RESET}"
+        fi
         local sub_parts=()
         [[ -n "${slot_manuf[0]}" ]] && sub_parts+=("${slot_manuf[0]}")
         [[ -n "${slot_pn[0]}" ]]   && sub_parts+=("$(t hw_pn): ${slot_pn[0]}")
@@ -347,12 +372,37 @@ print_ram() {
     else
         ram_line="${modules} slots"
         pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
+        # F4 warnings: downclock, single channel, mixed types.
+        local warn=""
+        if (( distinct_speeds == 0 )); then
+            # Slowest speed: walk the array and pick the smallest numeric speed.
+            local slowest="" s_val _min=-1
+            for (( i=0; i<modules; i++ )); do
+                s_val=$(wu_speed "${slot_speed[$i]:-}")
+                [[ -z "$s_val" ]] && continue
+                if (( _min < 0 || s_val < _min )); then _min=$s_val; slowest="${slot_speed[$i]}"; fi
+            done
+            [[ -n "$slowest" ]] &&             warn+="${Y}⚠ downclock: все модули работают на ${slowest} (самый медленный)${RESET}"
+        fi
+        if (( distinct_types == 0 )); then
+            [[ -n "$warn" ]] && warn+=" · "
+            warn+="${Y}⚠ mixed: $(printf '%s\n' "${slot_type[@]}" | sort -u | paste -sd ' / ' -)${RESET}"
+        fi
+        if (( single_channel )); then
+            [[ -n "$warn" ]] && warn+=" · "
+            warn+="${Y}⚠ single-channel (многоканальная плата — пропускная способность вдвое ниже)${RESET}"
+        fi
+        [[ -n "$warn" ]] && pline_sub "$warn"
         for (( i=0; i<modules; i++ )); do
             # Keep slot type verbatim (SDRAM/LPDDR4/Flash/RAM …), no "DDR" collapse.
             local t2="${slot_type[$i]}"
             local sp2=""
             [[ -n "${slot_speed[$i]}" ]] && sp2="-${slot_speed[$i]}"
             local detail="  ${slot_locator[$i]:-DIMM $(( i + 1 ))}: ${slot_size[$i]} ${t2}${sp2}"
+            # Form factor in per-slot line (F4: useful for mixed DIMM/SODIMM).
+            if [[ -n "${slot_form[$i]:-}" && "${slot_form[$i]}" != "DIMM" ]]; then
+                detail+=" ${slot_form[$i]}"
+            fi
             local extra=""
             [[ -n "${slot_manuf[$i]}" ]] && extra+="${slot_manuf[$i]} "
             [[ -n "${slot_pn[$i]}" ]]   && extra+="${slot_pn[$i]}"

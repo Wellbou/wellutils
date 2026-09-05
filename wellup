@@ -12,7 +12,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 
 # ─── Flags ─────────────────────────────────────────────────────
 _UP_CHECK=0
