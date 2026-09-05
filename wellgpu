@@ -70,39 +70,41 @@ print_gpu_list() {
         local disp_name="${device}"
         [[ -n "$aib" ]] && disp_name="${aib} ${device}"
 
-        if (( i == 0 )); then
-            pline_hw "$(_emu '🎮')" "$(t gpu_bus) 0" "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
-        else
-            pline_sub "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
-        fi
-        [[ -n "$drv" ]] && pline_sub "$(t gpu_driver): ${W}${drv}${RESET}  ${DIM}${bus}${RESET}" || true
+        # Explicit per-adapter index (GPU1, GPU2, ...) so a multi-GPU box
+        # is readable; the PCI bus is shown for unambiguous identification.
+        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) $((i + 1))" "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
+        pline_sub "${DIM}${bus}${RESET}  $(t gpu_driver): ${W}${drv:-$(t blk_smart_unknown)}${RESET}"
     done
 }
 
 print_nvidia() {
     local out line
-    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed \
+    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed,pci.bus_id \
         --format=csv,noheader,nounits 2>/dev/null) || out=""
     [[ -z "$out" ]] && { pline "${DIM}$(t gpu_nvidia_none)${RESET}"; return; }
 
-    # resolve AIB partner name from sysfs subsystem_vendor
-    local _aib_name="" _aib_hex=""
+    # Map every NVIDIA PCI bus (0000:dd:bb.f) to its AIB partner name from
+    # sysfs subsystem_vendor. With multiple cards each bus is resolved
+    # independently so two cards from different vendors keep distinct names.
+    local -A _nvaib=()
     for _aib_dir in /sys/bus/pci/devices/*/; do
         [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
         local _class
         _class=$(cat "${_aib_dir}class" 2>/dev/null || echo "")
         [[ "$_class" == "0x030000" || "$_class" == "0x030200" ]] || continue
-        _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
-        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir")")
-        break
+        local _aibb=$(basename "$_aib_dir")
+        _nvaib[$_aibb]=$(gpu_aib_vendor "$_aibb")
     done
 
-    local idx name drv memtot memused temp util clk_sm clk_mem pow fan
+    local idx name drv memtot memused temp util clk_sm clk_mem pow fan bus
     local n=0
     while IFS= read -r line; do
-        IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
+        IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan bus <<< "$line"
         name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
-        [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
+        bus=$(printf '%s' "$bus" | tr -d ' ')
+        # nvidia-smi reports 00000000:01:00.0; sysfs uses 0000:01:00.0
+        local _nb="${bus/00000000:/0000:}"
+        [[ -n "${_nvaib[$_nb]:-}" ]] && name="${_nvaib[$_nb]} ${name#NVIDIA }"
         drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
         memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
         memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
@@ -113,7 +115,7 @@ print_nvidia() {
         pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
         fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
 
-        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name"
+        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name ${DIM}[${_nb}]${RESET}"
         pline_hw "$(_emu '💾')" "$(t gpu_driver)" "$drv"
 
         local temp_txt=""
@@ -185,26 +187,27 @@ json_out() {
 
     printf '  "nvidia": [\n'
     local out line
-    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed \
+    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed,pci.bus_id \
         --format=csv,noheader,nounits 2>/dev/null) || out=""
     first=1
     if [[ -n "$out" ]]; then
-        # resolve AIB partner for NVIDIA JSON
-        local _nvaib="" _nvhex=""
+        # Map every NVIDIA PCI bus to its own AIB partner (multi-GPU safe)
+        local -A _nvaib=()
         for _nvdir in /sys/bus/pci/devices/*/; do
             [[ "$(cat "${_nvdir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
             local _nvclass
             _nvclass=$(cat "${_nvdir}class" 2>/dev/null || echo "")
             [[ "$_nvclass" == "0x030000" || "$_nvclass" == "0x030200" ]] || continue
-            _nvhex=$(cat "${_nvdir}subsystem_vendor" 2>/dev/null || true)
-            _nvaib=$(gpu_aib_vendor "$(basename "$_nvdir")")
-            break
+            local _nvbb=$(basename "$_nvdir")
+            _nvaib[$_nvbb]=$(gpu_aib_vendor "$_nvbb")
         done
-        local idx name drv memtot memused temp util clk_sm clk_mem pow fan
+        local idx name drv memtot memused temp util clk_sm clk_mem pow fan bus nvb
         while IFS= read -r line; do
-            IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan <<< "$line"
+            IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan bus <<< "$line"
             name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
-            [[ -n "$_nvaib" ]] && name="${_nvaib} ${name#NVIDIA }"
+            bus=$(printf '%s' "$bus" | tr -d ' ')
+            nvb="${bus/00000000:/0000:}"
+            [[ -n "${_nvaib[$nvb]:-}" ]] && name="${_nvaib[$nvb]} ${name#NVIDIA }"
             drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
             memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
             memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
@@ -215,8 +218,8 @@ json_out() {
             pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
             fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
             (( first )) && first=0 || printf ',\n'
-            printf '    { "index": %s, "name": "%s", "driver": "%s", "subsystem_vendor": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
-                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" "$(json_esc "${_nvhex#0x}")" \
+            printf '    { "index": %s, "name": "%s", "driver": "%s", "subsystem_vendor": "%s", "bus": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
+                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" "$(json_esc "${_nvaib[$nvb]:-}")" "$(json_esc "$nvb")" \
                 "$(wu_json_num "$memtot")" "$(wu_json_num "$memused")" "$(wu_json_num "$temp")" \
                 "$(wu_json_num "$util")" "$(wu_json_num "$clk_sm")" "$(wu_json_num "$clk_mem")" \
                 "$(wu_json_num "$pow")" "$(wu_json_num "$fan")"
@@ -229,11 +232,29 @@ json_out() {
 # ─── Main ────────────────────────────────────────────────────────
 short_out() {
     local out temp util
+    # Aggregate across ALL GPUs: max temperature + max utilization, and
+    # expose the card count when more than one is present. This is a
+    # per-processor tool, so a machine with two GPUs reports the hottest
+    # one rather than silently picking the first.
     if command -v nvidia-smi &>/dev/null; then
-        out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1) || out=""
-        if [[ "$out" =~ ^[0-9]+,\ ?[0-9]+$ ]]; then
-            printf '%s°C %d%%\n' "${out%,*}" "$(( 10#$(printf '%s' "${out#*,}" | xargs) ))"
-            return 0
+        out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || out=""
+        if [[ -n "$out" ]]; then
+            local maxt=0 maxu=0 cnt=0
+            while IFS=',' read -r temp util; do
+                temp=$(printf '%s' "$temp" | tr -d ' ')
+                util=$(printf '%s' "$util" | tr -d ' ')
+                cnt=$((cnt + 1))
+                [[ "$temp" =~ ^[0-9]+$ ]] && (( temp > maxt )) && maxt=$temp
+                [[ "$util" =~ ^[0-9]+$ ]] && (( util > maxu )) && maxu=$util
+            done <<< "$out"
+            if (( cnt > 0 )); then
+                if (( cnt > 1 )); then
+                    printf '%dx  %s°C  %d%%\n' "$cnt" "$maxt" "$maxu"
+                else
+                    printf '%s°C %d%%\n' "$maxt" "$maxu"
+                fi
+                return 0
+            fi
         fi
     fi
     local d name f t maxt=0 hdir

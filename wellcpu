@@ -3,6 +3,9 @@
 # Part of wellutils by wellbou_
 set -euo pipefail
 
+declare -g -A _CPU_PCT=() _CPU_SOCKET=() _CPU_CORE=() _SOCKETS=()
+declare -g -i _CPU_COUNT=0
+
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellcpu" _WU_NAME="WellCPU" _WU_VERSION="1.0"
 _WU_SHORT_OK=1
@@ -93,6 +96,36 @@ core_loads() {
         esac
     done < /proc/stat
     _CPU_COUNT=$n
+}
+
+# Build processor -> (socket, core) topology from /proc/cpuinfo so multi-socket
+# (and multi-CCX / hybrid) machines can group the per-core load by NUMA socket.
+# Populates global assoc arrays: _CPU_SOCKET[], _CPU_CORE[] and _SOCKETS[].
+cpu_topology() {
+    local proc="" phys="" coreid=""
+    while IFS= read -r line; do
+        case "$line" in
+            processor*) proc=$(awk -F': *' '{print $2}' <<< "$line") ;;
+            "physical id"*) phys=$(awk -F': *' '{print $2}' <<< "$line") ;;
+            "core id"*) coreid=$(awk -F': *' '{print $2}' <<< "$line") ;;
+        esac
+        if [[ -n "$proc" && -n "$phys" && -n "$coreid" ]]; then
+            [[ "$phys" =~ ^[0-9]+$ ]] || phys=0
+            [[ "$coreid" =~ ^[0-9]+$ ]] || coreid=$proc
+            _CPU_SOCKET[$proc]=$phys
+            _CPU_CORE[$proc]=$coreid
+            _SOCKETS[$phys]=1
+            proc=""; phys=""; coreid=""
+        fi
+    done < /proc/cpuinfo
+    if (( ${#_CPU_SOCKET[@]} == 0 )); then
+        local _i
+        for (( _i = 0; _i < _CPU_COUNT; _i++ )); do
+            _CPU_SOCKET[$_i]=0
+            _CPU_CORE[$_i]=$_i
+        done
+        _SOCKETS[0]=1
+    fi
 }
 
 # ─── Sections ───────────────────────────────────────────────────
@@ -210,14 +243,27 @@ print_cpu_info() {
 
 print_cpu_load() {
     core_loads
+    cpu_topology
 
     if (( _CPU_COUNT == 0 )); then
         pline "${DIM}$(t blk_smart_unknown)${RESET}"
         return
     fi
 
-    local i freq gov pct
+    local i freq gov pct cur_sock=""
     for (( i = 0; i < _CPU_COUNT; i++ )); do
+        # Group per-core lines under their socket so multi-socket machines
+        # (dual-socket Xeons, etc.) read topologically instead of by Linux
+        # enumeration order.
+        local sock=${_CPU_SOCKET[$i]:-0}
+        if [[ "$sock" != "$cur_sock" ]]; then
+            cur_sock="$sock"
+            if (( ${#_SOCKETS[@]} > 1 )); then
+                _LINES+=( "" )
+                _LINES+=( "  ${BOLD}${W}$(t cpu_socket) ${sock}${RESET}" )
+            fi
+        fi
+
         pct=${_CPU_PCT[$i]:-0}
         freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
         gov=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
@@ -298,6 +344,7 @@ json_out() {
     fi
 
     core_loads
+    cpu_topology
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "info": {\n'
@@ -330,8 +377,10 @@ json_out() {
         freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
         gov_c=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
         (( first )) && first=0 || printf ',\n'
-        printf '    { "cpu": %d, "usage_percent": %d, "freq_khz": %s, "governor": "%s" }' \
-            "$i" "$pct" "$(wu_json_num "$freq")" "$(json_esc "$gov_c")"
+        # socket/core come from /proc/cpuinfo topology; omit when unknown (0/0
+        # is still emitted so consumers can group even on single-socket boxes).
+        printf '    { "cpu": %d, "socket": %d, "core": %d, "usage_percent": %d, "freq_khz": %s, "governor": "%s" }' \
+            "$i" "${_CPU_SOCKET[$i]:-0}" "${_CPU_CORE[$i]:-0}" "$pct" "$(wu_json_num "$freq")" "$(json_esc "$gov_c")"
     done
     printf '\n  ]\n'
     wu_json_end
