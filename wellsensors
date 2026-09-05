@@ -20,6 +20,32 @@ command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
 
+# `uptime -p` needs procps-ng >= 3.3.4 (absent on Debian 7 / wheezy); there
+# `uptime -p` fails with rc=1 and, under `set -eou pipefail`, would kill the
+# whole tool via the command-substitution rc. Probe support once and fall back
+# to the classic "up X days" form; empty string when even that is missing.
+ws_uptime() {
+    if LC_ALL=C uptime -p >/dev/null 2>&1; then
+        LC_ALL=C uptime -p 2>/dev/null | sed 's/up //'
+    else
+        LC_ALL=C uptime 2>/dev/null | sed -n 's/.* up //;s/,.*//p'
+    fi
+}
+
+# hwmon dedupe: /sys/class/hwmon/hwmonN is a symlink into the device tree, and
+# several drivers (f71882fg …) also shadow the very same attrs on the parent
+# device node. Iterating both bases can therefore surface one temp/fan file
+# twice; the zoo of devices caught exactly that. Track normalized paths and
+# only ever process a file once.
+_WS_SEEN=()
+_ws_seen_input() {
+    local p
+    p=$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")
+    [[ " ${_WS_SEEN[*]-} " == *" $p "* ]] && return 1
+    _WS_SEEN+=("$p")
+    return 0
+}
+
 
 RED_BG=$'\033[1;97;41m'
 ORANGE=$'\033[1;38;5;208m'
@@ -375,12 +401,18 @@ print_thermal_zones() {
 
 print_network_temp() {
     local found=0
+    _WS_SEEN=()
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         local hname=""
         [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
+        # Chips covered by the dedicated CPU/GPU sections are skipped here so
+        # they surface exactly once overall.
         [[ "$hname" == "coretemp" ]] && continue
+        [[ "$hname" == "k10temp" ]] && continue
         [[ "$hname" == "acpitz" ]] && continue
+        [[ "$hname" == "amdgpu" ]] && continue
+        [[ "$hname" == "i915" ]] && continue
 
         # У старых драйверов (f71882fg и др.) атрибуты лежат на platform-устройстве,
         # а не в каталоге hwmon -- резолвим родительский device-каталог
@@ -394,6 +426,7 @@ print_network_temp() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for input_file in "$base"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
+                _ws_seen_input "$input_file" || continue
                 local raw_t
                 raw_t=$(cat "$input_file" 2>/dev/null) || continue
                 [[ "$raw_t" =~ ^-?[0-9]+$ ]] || continue
@@ -530,12 +563,18 @@ print_cooling() {
     # straight from molex/PSU have no tachometer at all and never show up
     # here -- that is correct, we must not invent them.
     local real_fan=0
+    _WS_SEEN=()
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
         local hname=""
         [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
+        # CPU/GPU chwmon chips carry no fan*_input, but keep the skip list in
+        # sync with print_network_temp for consistency.
         [[ "$hname" == "coretemp" ]] && continue
+        [[ "$hname" == "k10temp" ]] && continue
         [[ "$hname" == "acpitz" ]] && continue
+        [[ "$hname" == "amdgpu" ]] && continue
+        [[ "$hname" == "i915" ]] && continue
 
         local dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then
@@ -547,6 +586,7 @@ print_cooling() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for fan_file in "$base"/fan*_input; do
                 [[ -f "$fan_file" ]] || continue
+                _ws_seen_input "$fan_file" || continue
                 local fidx rpm color
                 fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
                 rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
@@ -575,7 +615,7 @@ print_cooling() {
 
 print_system() {
     local uptime_str
-    uptime_str=$(LC_ALL=C uptime -p 2>/dev/null | sed 's/up //')
+    uptime_str=$(ws_uptime || true)
     local load
     load=$(cut -d' ' -f1-3 /proc/loadavg)
     local cores
@@ -608,6 +648,7 @@ print_system() {
 
 print_summary() {
     local temps=()
+    _WS_SEEN=()
 
     for hwmon_dir in /sys/class/hwmon/hwmon*/; do
         [[ -d "$hwmon_dir" ]] || continue
@@ -618,6 +659,7 @@ print_summary() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for f in "$base"/temp*_input; do
                 [[ -f "$f" ]] || continue
+                _ws_seen_input "$f" || continue
                 local _rv
                 _rv=$(cat "$f" 2>/dev/null) || continue
                 [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue
@@ -675,10 +717,11 @@ root_or_sudo() {
 json_out() {
     local first=1 input_file idx label raw_temp temp high crit hname dev_dir \
           base model bn name2 ztype zone_dir dev model2
+    _WS_SEEN=()
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
 
     local uptime_str load cores mem_total mem_used mem_pct model
-    uptime_str=$(LC_ALL=C uptime -p 2>/dev/null | sed 's/up //')
+    uptime_str=$(ws_uptime || true)
     load=$(cut -d' ' -f1-3 /proc/loadavg)
     cores=$(nproc)
     read -r mem_total mem_used _ <<< "$(LC_ALL=C free -m | awk '/^Mem:/ {print $2, $3}')"
@@ -846,6 +889,8 @@ json_out() {
         [[ -d "$hwmon_dir" ]] || continue
         hname=""
         [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
+        # Same policy as the terminal view: temp*_input of coretemp/acpitz
+        # duplicates the dedicated CPU/ACPI sections, so they are skipped here.
         [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
         dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then
@@ -856,6 +901,7 @@ json_out() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for input_file in "$base"/temp*_input; do
                 [[ -f "$input_file" ]] || continue
+                _ws_seen_input "$input_file" || continue
                 local _cv3
                 _cv3=$(cat "$input_file" 2>/dev/null) || continue
                 [[ "$_cv3" =~ ^-?[0-9]+$ ]] || continue
@@ -923,6 +969,8 @@ json_out() {
         [[ -d "$hwmon_dir" ]] || continue
         hname=""
         [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
+        # As in the chips section: coretemp/acpitz fans are covered elsewhere
+        # and their hwmon entries only duplicate the count.
         [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
         dev_dir="$hwmon_dir"
         if [[ -e "${hwmon_dir}device" ]]; then
@@ -933,6 +981,7 @@ json_out() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for fan_file in "$base"/fan*_input; do
                 [[ -f "$fan_file" ]] || continue
+                _ws_seen_input "$fan_file" || continue
                 local fidx rpm
                 fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
                 rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
@@ -971,6 +1020,7 @@ json_out() {
         for base in "$hwmon_dir" "$dev_dir"; do
             for f in "$base"/temp*_input; do
                 [[ -f "$f" ]] || continue
+                _ws_seen_input "$f" || continue
                 local _rv
                 _rv=$(cat "$f" 2>/dev/null) || continue
                 [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue

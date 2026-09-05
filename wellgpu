@@ -104,16 +104,20 @@ print_nvidia() {
         bus=$(printf '%s' "$bus" | tr -d ' ')
         # nvidia-smi reports 00000000:01:00.0; sysfs uses 0000:01:00.0
         local _nb="${bus/00000000:/0000:}"
-        [[ -n "${_nvaib[$_nb]:-}" ]] && name="${_nvaib[$_nb]} ${name#NVIDIA }"
+        # bus can be empty on truncated/odd nvidia-smi output; indexing the
+        # map with "" would abort the whole tool (bad array subscript).
+        [[ -n "$_nb" && -n "${_nvaib[$_nb]:-}" ]] && name="${_nvaib[$_nb]} ${name#NVIDIA }"
         drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
         memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
         memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
         temp=$(printf '%s' "$temp" | sed 's/^ *//;s/ *$//')
-        util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//')
-        clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//')
-        clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//')
-        pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
-        fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
+        # nvidia-smi CSV keeps units ("1605 MHz", "355 W", "45 %"); strip them
+        # so the numeric checks below don't always degrade to "unknown".
+        util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//;s/ %$//')
+        clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//;s/ MHz$//')
+        clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//;s/ MHz$//')
+        pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//;s/ W$//')
+        fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//;s/ %$//')
 
         pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name ${DIM}[${_nb}]${RESET}"
         pline_hw "$(_emu '💾')" "$(t gpu_driver)" "$drv"

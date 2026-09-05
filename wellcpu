@@ -134,6 +134,57 @@ print_cpu_info() {
     local model arch sockets cores threads freq_base freq_max gov virt hv
     model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
 
+    # Non-x86 cpuinfo has no "model name". Fall back to arch-specific fields so
+    # POWER / IBM Z / ARM boxes still show a model when lscpu is unavailable.
+    if [[ -z "$model" ]]; then
+        local _pu _s390_type arm_hw arm_part arm_impl arm_name=""
+        _pu=$(awk -F': *' '/^cpu :/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+        if [[ -n "$_pu" ]]; then
+            # "POWER9 (architected), altivec supported" -> "POWER9 (architected)"
+            model="${_pu%%,*}"
+        elif grep -q '^vendor_id.*IBM/S390' /proc/cpuinfo 2>/dev/null; then
+            model="IBM S/390"
+            _s390_type=$(awk -F': *' '/^Type/{print $2; exit}' /proc/sysinfo 2>/dev/null)
+            [[ -n "$_s390_type" ]] && model="IBM Z (${_s390_type})"
+        else
+            arm_hw=$(awk -F': *' '/^Hardware/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+            arm_part=$(awk -F': *' '/^CPU part/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+            arm_impl=$(awk -F': *' '/^CPU implementer/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+            case "${arm_impl:-0x41}/${arm_part:-}" in
+                0x41/0xc05) arm_name="Cortex-A5"  ;;
+                0x41/0xc07) arm_name="Cortex-A7"  ;;
+                0x41/0xc08) arm_name="Cortex-A8"  ;;
+                0x41/0xc09) arm_name="Cortex-A9"  ;;
+                0x41/0xc0a) arm_name="Cortex-A15" ;;
+                0x41/0xc0c) arm_name="Cortex-A12" ;;
+                0x41/0xc0e) arm_name="Cortex-A17" ;;
+                0x41/0xd02) arm_name="Cortex-A32" ;;
+                0x41/0xd03) arm_name="Cortex-A53" ;;
+                0x41/0xd04) arm_name="Cortex-A35" ;;
+                0x41/0xd05) arm_name="Cortex-A55" ;;
+                0x41/0xd07) arm_name="Cortex-A57" ;;
+                0x41/0xd08) arm_name="Cortex-A72" ;;
+                0x41/0xd09) arm_name="Cortex-A73" ;;
+                0x41/0xd0a) arm_name="Cortex-A75" ;;
+                0x41/0xd0b) arm_name="Cortex-A76" ;;
+                0x41/0xd0c) arm_name="Cortex-A55" ;;
+                0x41/0xd0d) arm_name="Cortex-A77" ;;
+                0x41/0xd0e) arm_name="Cortex-A76AE" ;;
+                0x41/0xd40) arm_name="Cortex-A78" ;;
+                0x41/0xd41) arm_name="Cortex-A78AE" ;;
+                0x41/0xd44) arm_name="Cortex-X1" ;;
+                0x41/0xd46) arm_name="Cortex-A78C" ;;
+                0x41/0xd47) arm_name="Cortex-A710" ;;
+            esac
+            if [[ -n "$arm_name" ]]; then
+                model="$arm_name"
+                [[ -n "$arm_hw" ]] && model="${arm_hw} (${arm_name})"
+            else
+                model="$arm_hw"
+            fi
+        fi
+    fi
+
     local lscpu_out
     lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
 

@@ -53,6 +53,23 @@ iface_classes() {
     printf '%s' "$out"
 }
 
+# Interface class/subclass pairs: "02:02 0a:00 …"
+# Subclass disambiguates CDC: 02=ACM (serial/UART) vs 06/0d=Ethernet.
+iface_pairs() {
+    local base="$1" f c s out="" v
+    for f in /sys/bus/usb/devices/${base}:*/bInterfaceClass; do
+        [[ -r "$f" ]] || continue
+        c=$(cat "$f" 2>/dev/null || true)
+        s=$(cat "${f%Class}SubClass" 2>/dev/null || true)
+        c=$(printf '%s' "$c" | tr -d ' \t\r\n')
+        s=$(printf '%s' "$s" | tr -d ' \t\r\n')
+        [[ "$c" =~ ^[0-9a-fA-F]{2}$ || "$s" =~ ^[0-9a-fA-F]{2}$ ]] || continue
+        v="${c:-00}:${s:-00}"
+        [[ " $out " != *" $v "* ]] && out+=" $v"
+    done
+    printf '%s' "$out"
+}
+
 # ─── Speed helpers ───────────────────────────────────────────────
 speed_color() {
     case "$1" in
@@ -87,12 +104,51 @@ speed_bar() {
 }
 
 # ─── Device classification ──────────────────────────────────────
+# HID name refinement; used for class 03 devices and for class 00/ef/ff
+# composites that expose a 03 (HID) interface.
+hid_type() {
+    local plow=$1 mfglow=$2
+    if echo "$plow $mfglow" | grep -qi "keyboard\|k63\|k55\|k70\|gaming.*key"; then
+        t usb_type_keyboard
+    elif echo "$plow $mfglow" | grep -qi "mouse\|gaming.*mouse\|logitech.*g\|razer"; then
+        t usb_type_mouse
+    elif echo "$plow $mfglow" | grep -qi "tablet\|pen\|star\|xp-pen\|wacom\|huion"; then
+        t usb_type_tablet
+    elif echo "$plow $mfglow" | grep -qi "headset\|headphone\|audio"; then
+        t usb_type_audio
+    else
+        t usb_type_hid
+    fi
+}
+
 classify_device() {
-    local bclass=$1 product=$2 mfg=$3 vid=$4 pid=$5 ifaces=$6
+    local bclass=$1 product=$2 mfg=$3 vid=$4 pid=$5 ifaces=$6 ipairs=$7
     local plow mfglow
     plow=$(echo "$product" | tr '[:upper:]' '[:lower:]')
     mfglow=$(echo "$mfg" | tr '[:upper:]' '[:lower:]')
 
+    # ── byte-based pre-classification (no product-string matching) ───
+    # CDC subclass 02 (ACM) = serial/UART (Arduino, Teensy, modems,
+    # board UARTs); Ethernet subclasses (06=RNDIS/CDC-ECM, 0d/0e=NCM).
+    if [[ " $ipairs " == *" 02:02 "* ]]; then
+        t usb_type_serial; return
+    fi
+    if [[ " $ipairs " == *" 02:06 "* || " $ipairs " == *" 02:0d "* || " $ipairs " == *" 02:0e "* ]]; then
+        t usb_type_network; return
+    fi
+    # Video: subclass 02 = live video stream (webcam), 01 = still capture.
+    if [[ " $ipairs " == *" 0e:02 "* ]]; then t usb_type_webcam; return; fi
+    if [[ " $ipairs " == *" 0e:01 "* ]]; then t usb_type_video;  return; fi
+    # Known UART silicon identified by vendor ID (bytes, no name matching).
+    case "${vid:-}" in
+        1a86|0403|067b|10c4|12d1|1eab|0fe6|2341|2a03)
+            if [[ "$bclass" == "ff" || " $ifaces " == *" 0a "* || " $ifaces " == *" 02 "* ]]; then
+                t usb_type_serial; return
+            fi
+            ;;
+    esac
+
+    # ── string-based refinement for HID classes ─────────────────────
     # Gamepad by name first (composite HID pads usually report 03)
     if echo "$plow $mfglow" | grep -qi 'gamepad\|joystick\|fightstick\|arcade.*stick\|x-box\|xbox\|360.*pad\|dualshock\|dualsense\|switch.*pro\|joy-con\|joycon\|8bitdo\|steam.*controller\|pro.*controller\|wireless.*controller\|wolverine\|gamesir\|gulikit\|flydigi'; then
         t usb_type_gamepad
@@ -101,25 +157,9 @@ classify_device() {
 
     case "$bclass" in
         09)  t usb_type_hub ;;
-        0e)
-            if echo "$plow$mfglow" | grep -qi "cam\|webcam\|c210\|c270\|c920\|logitech"; then
-                t usb_type_webcam
-            else
-                t usb_type_video
-            fi
-            ;;
+        0e)  t usb_type_video ;;
         03)
-            if echo "$plow$mfglow" | grep -qi "keyboard\|k63\|k55\|k70\|gaming.*key"; then
-                t usb_type_keyboard
-            elif echo "$plow$mfglow" | grep -qi "mouse\|gaming.*mouse\|logitech.*g\|razer"; then
-                t usb_type_mouse
-            elif echo "$plow$mfglow" | grep -qi "tablet\|pen\|star\|xp-pen\|wacom\|huion"; then
-                t usb_type_tablet
-            elif echo "$plow$mfglow" | grep -qi "headset\|headphone\|audio"; then
-                t usb_type_audio
-            else
-                t usb_type_hid
-            fi
+            hid_type "$plow" "$mfglow"
             ;;
         08)  t usb_type_storage ;;
         07)  t usb_type_printer ;;
@@ -144,6 +184,7 @@ classify_device() {
                     *" 08 "*) t usb_type_storage ;;
                     *" 0e "*) t usb_type_webcam ;;
                     *" 02 "*) t usb_type_network ;;
+                    *" 03 "*) hid_type "$plow" "$mfglow" ;;
                     *" 01 "*|*" 04 "*) t usb_type_audio ;;
                     *" 06 "*) t usb_type_data ;;
                     *" 09 "*) t usb_type_hub ;;
@@ -169,6 +210,7 @@ device_icon() {
         Phone|Телефон)         printf ''"$(_emu "📱")"'' ;;
         Audio|Аудио)           printf ''"$(_emu "🔊")"'' ;;
         Network|Сеть)          printf ''"$(_emu "🌐")"'' ;;
+        Serial/UART|"Последовательный порт") printf ''"$(_ic "🔗")"'' ;;
         WiFi)                  printf ''"$(_emu "📡")"'' ;;
         HID*)                  printf ''"$(_ic "⚙")"'' ;;
         Gamepad|Геймпад)       printf ''"$(_emu "🎮")"'' ;;
@@ -266,7 +308,7 @@ json_out() {
 
         local ifaces utype sname
         ifaces=$(iface_classes "${devbase:-${bus}-0}")
-        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces")
+        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces" "$(iface_pairs "${devbase:-${bus}-0}")")
         sname=$(speed_name "$spd")
 
         (( first )) && first=0 || printf ',\n'
@@ -351,7 +393,7 @@ main() {
         local ifaces
         ifaces=$(iface_classes "${devbase:-${bus}-0}")
         local utype
-        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces")
+        utype=$(classify_device "$bclass" "$device_name" "$vendor_name" "$vid" "$pid" "$ifaces" "$(iface_pairs "${devbase:-${bus}-0}")")
         local icon
         icon=$(device_icon "$bclass" "$utype")
         local sc

@@ -32,7 +32,7 @@ print_batteries() {
         status=$(wp_read "$d/status")
         cap=$(wp_pct "$(wp_read "$d/capacity")" || echo "?")
         energy_full=$(wp_read "$d/energy_full")
-        energy_full_design=$(wp_read "$d/energy_design")
+        energy_full_design=$(wp_read "$d/energy_full_design")
         # Some drivers expose charge_* (uAh) instead of energy_* (uWh).
         if [[ ! "$energy_full" =~ ^[0-9]+$ ]]; then
             energy_full=$(wp_read "$d/charge_full")
@@ -150,7 +150,7 @@ json_out() {
         [[ -d "$d" ]] || continue
         name=$(basename "$d"); status=$(wp_read "$d/status")
         cap=$(wp_read "$d/capacity"); cycles=$(wp_read "$d/cycle_count")
-        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_design")
+        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_full_design")
         [[ "$efull" =~ ^[0-9]+$ ]] || { efull=$(wp_read "$d/charge_full"); edes=$(wp_read "$d/charge_full_design"); }
         local wear_j=null
         if [[ "$efull" =~ ^[0-9]+$ && "$edes" =~ ^[0-9]+$ && "$edes" -gt 0 && "$efull" -gt 0 ]]; then
@@ -196,7 +196,7 @@ short_out() {
         status=$(wp_read "$d/status")
         local out="${cap}%"
         [[ "$status" == "Discharging" ]] || out+="+"
-        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_design")
+        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_full_design")
         [[ "$efull" =~ ^[0-9]+$ ]] || { efull=$(wp_read "$d/charge_full"); edes=$(wp_read "$d/charge_full_design"); }
         if [[ "$efull" =~ ^[0-9]+$ && "$edes" =~ ^[0-9]+$ && "$edes" -gt 0 && "$efull" -gt 0 ]]; then
             wear=$(( 100 - efull * 100 / edes )); (( wear < 0 )) && wear=0

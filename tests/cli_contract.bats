@@ -25,7 +25,10 @@ setup() {
 @test "every tool: --json emits valid JSON (where supported)" {
     for t in wellcpu wellmem wellgpu wellblock wellhw wellsensors wellfetch wellup wellnet wellpower; do
         if ! ./"$t" --json >/dev/null 2>&1; then continue; fi
-        "./$t" --json 2>/dev/null | "$PY" -m json.tool >/dev/null
+        # json.tool reads stdin as ASCII on python < 3.7 under C/POSIX
+        # locales and chokes on the emoji/frame bytes the tools legitimately
+        # emit. Decode stdin as UTF-8 instead (py2: plain stdin has no .buffer).
+        "./$t" --json 2>/dev/null | "$PY" -c "import json,sys,io; s = sys.stdin if not hasattr(sys.stdin,'buffer') else io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8'); json.load(s)"
     done
 }
 

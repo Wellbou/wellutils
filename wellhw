@@ -304,6 +304,17 @@ print_ram() {
         [[ "${slot_type[$i]}" == "$first_t" && "${slot_speed[$i]}" == "$first_s" && "${slot_size[$i]}" == "$first_sz" ]] || { uniform=0; break; }
     done
 
+    # Aggregate total installed memory (slot_size values are normalized "N GiB").
+    local total_mb=0 _sz=""
+    for (( i=0; i<modules; i++ )); do
+        _sz="${slot_size[$i]:-}"
+        if [[ "$_sz" == *GiB ]]; then total_mb=$(( total_mb + ${_sz% GiB} * 1024 ));
+        elif [[ "$_sz" == *MiB ]]; then total_mb=$(( total_mb + ${_sz% MiB} )); fi
+    done
+    local total_txt=""
+    if (( total_mb >= 1024 )); then total_txt="$(t hw_ram_total): $(( total_mb / 1024 )) GiB"
+    else total_txt="$(t hw_ram_total): ${total_mb} MiB"; fi
+
     local ram_line ram_sub=""
     if (( uniform )); then
         local type_label="DDR"
@@ -313,6 +324,7 @@ print_ram() {
         local speed_txt=""
         [[ -n "$first_s" ]] && speed_txt="-$first_s"
         ram_line="${modules}× ${first_sz} ${type_label}${speed_txt}"
+        [[ -n "$total_txt" ]] && ram_line+=" · ${DIM}${total_txt}${RESET}"
         local sub_parts=()
         [[ -n "${slot_manuf[0]}" ]] && sub_parts+=("${slot_manuf[0]}")
         [[ -n "${slot_pn[0]}" ]]   && sub_parts+=("$(t hw_pn): ${slot_pn[0]}")
@@ -341,6 +353,7 @@ print_ram() {
             [[ -n "$extra" ]] && detail+=" ${DIM}(${extra})${RESET}"
             pline_sub "$detail"
         done
+        [[ -n "$total_txt" ]] && pline_sub "$total_txt"
         return
     fi
 
