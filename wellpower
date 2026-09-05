@@ -47,8 +47,8 @@ print_batteries() {
         tech=$(wp_read "$d/technology")
 
         local ccolor="$G"
-        (( cap != "?" && cap <= 20 )) && ccolor="$R"
-        (( cap != "?" && cap > 20 && cap <= 45 )) && ccolor="$Y"
+        [[ "$cap" != "?" ]] && (( cap <= 20 )) && ccolor="$R"
+        [[ "$cap" != "?" ]] && (( cap > 20 && cap <= 45 )) && ccolor="$Y"
 
         local line_out="$(_emu '🔋') ${BOLD}${name}${RESET}: ${ccolor}${cap}%${RESET} (${status})"
         [[ -n "$tech" ]] && line_out+="${DIM} · ${tech}${RESET}"

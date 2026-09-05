@@ -166,7 +166,7 @@ local zram_dev zram_size zram_kb zram_h zram_algorithm
 
     if [[ -f /proc/zoneinfo ]]; then
         local numa_nodes
-        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { print length(nodes) + 0 }' /proc/zoneinfo)
+        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { c = 0; for (n in nodes) c++; print c }' /proc/zoneinfo)
         if (( numa_nodes > 1 )); then
             _LINES+=( "" )
             _LINES+=( "  ${BOLD}${W}$(_ic '🔢')$(t mem_numa)${RESET} ${numa_nodes}" )
@@ -202,7 +202,7 @@ json_out() {
 
     local numa_nodes=1
     if [[ -f /proc/zoneinfo ]]; then
-        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { print length(nodes) + 0 }' /proc/zoneinfo)
+        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { c = 0; for (n in nodes) c++; print c }' /proc/zoneinfo)
     fi
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"

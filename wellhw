@@ -38,7 +38,7 @@ _WU_EXTRA_HELP="      --snapshot [FILE]       save stable hardware identity to F
 
 # Stable-identity projection of --json (volatile fields dropped).
 _hw_filter_py() {
-    python3 -c '
+PYTHONIOENCODING=utf-8 python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 out={}
@@ -68,7 +68,7 @@ print(json.dumps(out,ensure_ascii=False,sort_keys=True))
 }
 
 _hw_diff_py() {
-    WELLUTILS_LANG="${WELLUTILS_LANG:-EN}" python3 -c '
+    WELLUTILS_LANG="${WELLUTILS_LANG:-EN}" PYTHONIOENCODING=utf-8 python3 -c '
 import json,sys,os
 ru=os.environ.get("WELLUTILS_LANG")=="RU"
 def L(ru_s,en_s): return ru_s if ru else en_s

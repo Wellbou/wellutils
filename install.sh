@@ -316,7 +316,8 @@ acquire_source() {
     # gets a chance to install it. Return the tarball dir on stdout; the
     # parent re-computes $tmp = dirname($SRC) and sets the trap itself.
     local d
-    d="$(find "$tmp" -maxdepth 1 -type d | tail -n1)"
+    d="$(for e in "$tmp"/*/; do [[ -d "$e" ]] && printf '%s\n' "${e%/}" && break; done)"
+    [[ -n "$d" ]] || d="$tmp"
     printf '%s\n' "$d"
 }
 

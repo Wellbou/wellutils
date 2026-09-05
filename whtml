@@ -188,7 +188,7 @@ try:
         resp = json.loads(r.read().decode())
     content = resp["choices"][0]["message"]["content"]
     ai = json.loads(content)
-    json.dump(ai, open(os.path.join(tmp, "ai.json"), "w"), ensure_ascii=False)
+    json.dump(ai, open(os.path.join(tmp, "ai.json"), "w", encoding="utf-8"), ensure_ascii=False)
 except Exception as ex:
     sys.stderr.write("whtml: AI enrichment failed (%s); continuing without it.\n" % ex)
 PYEOF
@@ -196,9 +196,10 @@ PYEOF
 
 # ─── HTML generation ────────────────────────────────────────────
 _whtml_generate() {
-    WHTML_FONT_B64="$_WHTML_FONT_B64" python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" "$_WHTML_AMI" << 'PYEOF'
+    WHTML_FONT_B64="$_WHTML_FONT_B64" PYTHONIOENCODING=utf-8 python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" "$_WHTML_AMI" << 'PYEOF'
 # whtml generator (self-contained)
-import json, os, html as h, sys, re
+import json, os, html as h, sys, re, io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 tmpdir, ts, wu_ver, lang, ami = sys.argv[1:6]
 ami = str(ami) == '1'
@@ -1060,7 +1061,7 @@ main() {
     if _whtml_tool wellcpu >/dev/null 2>&1; then
         _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" wellcpu
     fi
-    python3 - "$_WHTML_TMP" << 'PYEOF'
+    PYTHONIOENCODING=utf-8 python3 - "$_WHTML_TMP" << 'PYEOF'
 import json, os
 t=os.sys.argv[1]
 def split(src, dst):
@@ -1071,7 +1072,7 @@ def split(src, dst):
     for key, out in dst.items():
         v=d.get(key)
         if v is None: v={}
-        json.dump(v, open(os.path.join(t, out),'w'), ensure_ascii=False)
+        json.dump(v, open(os.path.join(t, out),'w',encoding='utf-8'), ensure_ascii=False)
 split('hw.json', {'cpu':'cpu.json','gpu':'gpu.json','board':'board.json','storage':'storage.json'})
 mem={}
 try:
@@ -1083,13 +1084,13 @@ if not mem:
         mem=json.load(open(os.path.join(t,'memraw.json'))).get('memory') or {}
     except Exception:
         pass
-json.dump(mem, open(os.path.join(t,'mem.json'),'w'), ensure_ascii=False)
+json.dump(mem, open(os.path.join(t,'mem.json'),'w',encoding='utf-8'), ensure_ascii=False)
 try:
     ci=json.load(open(os.path.join(t,'cpuinfo.json'))).get('info') or {}
     cpu=json.load(open(os.path.join(t,'cpu.json')))
     for k in ('sockets','max_freq_khz','base_freq_khz'):
         if k in ci: cpu[k]=ci[k]
-    json.dump(cpu, open(os.path.join(t,'cpu.json'),'w'), ensure_ascii=False)
+    json.dump(cpu, open(os.path.join(t,'cpu.json'),'w',encoding='utf-8'), ensure_ascii=False)
 except Exception:
     pass
 PYEOF
