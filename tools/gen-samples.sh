@@ -13,7 +13,9 @@ strip_noise() {
 
 gen() {  # gen <title> <command-line-for-$-line> <command-to-run>
     printf '\n## %s\n\n```sh\n$ %s\n```\n\n```ansi\n' "$1" "$2"
-    script -qec "$3" /dev/null | strip_noise
+    # Some tools (welldoctor) exit non-zero by contract; the sample is the
+    # output, not the code, so swallow it.
+    script -qec "$3" /dev/null | strip_noise || true
     echo '```'
 }
 
