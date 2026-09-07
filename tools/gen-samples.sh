@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # gen-samples.sh -- regenerate SAMPLES.md from live tool output.
 # Box mode via a pty (script -qec) so every tool renders its real frame,
-# wrapped in GitHub-flavored ```ansi fences. OSC sequences (terminal
-# session fingerprints: machine-id, boot-id, cwd) are stripped.
+# wrapped in plain ```text fences. ALL ANSI is stripped (SGR colors, OSC
+# terminal fingerprints, 7-bit save/restore) so the frames keep their box
+# glyphs but render cleanly in any Markdown viewer (GitHub does not paint
+# ANSI, bare escapes look like noise).
 # Run from the repo root:  tools/gen-samples.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 strip_noise() {
-    tr -d '\r' | sed 's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)//g'
+    tr -d '\r' | sed \
+        's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)//g; s/\x1b\[[?;0-9]*[a-zA-Z]//g; s/\x1b[78]//g'
 }
 
 gen() {  # gen <title> <command-line-for-$-line> <command-to-run>
-    printf '\n## %s\n\n```sh\n$ %s\n```\n\n```ansi\n' "$1" "$2"
+    printf '\n## %s\n\n```sh\n$ %s\n```\n\n```text\n' "$1" "$2"
     # Some tools (welldoctor) exit non-zero by contract; the sample is the
     # output, not the code, so swallow it.
     script -qec "$3" /dev/null | strip_noise || true
@@ -23,11 +26,13 @@ gen() {  # gen <title> <command-line-for-$-line> <command-to-run>
 echo "# Live output samples / Живые примеры вывода"
 echo
 echo "Реальный вывод с машины автора (Arch Linux, Xeon E3-1230 V2,"
-echo "GTX 1050 Ti, два монитора 20\" 1600x900). Блоки ниже - ANSI:"
-echo "GitHub красит их прямо в браузере, в терминале выглядит так же."
+echo "GTX 1050 Ti, два монитора 20\" 1600x900). Цвета сняты, чтобы блоки"
+echo "одинаково читались в любом просмотрщике - рамки и выравнивание"
+echo "сохранены, как в терминале."
 echo
-echo "Real output from the author's machine. The blocks below are ANSI -"
-echo "GitHub renders the colors inline."
+echo "Real output from the author's machine. Colors are stripped so the"
+echo "blocks render the same way in every Markdown viewer; the frames and"
+echo "alignment are kept exactly as they appear in a terminal."
 gen "wellcpu" "wellcpu" "sudo -n wellcpu"
 gen "wellmem" "wellmem" "wellmem"
 gen "wellgpu" "wellgpu" "wellgpu"
@@ -44,7 +49,7 @@ gen "wellup" "wellup --check" "wellup --check"
 gen "wellfetch" "wellfetch" "wellfetch"
 gen "статус-бары (status bars)" \
     "wellcpu --short && wmem --short && wsensors --short && wgpu --short && wnet --short && wdoc --short" \
-    "for c in 'wellcpu --short' 'wmem --short' 'wsensors --short' 'wgpu --short' 'wnet --short' 'wdoc --short'; do script -qec \"\$c\" /dev/null | tr -d '\r'; done"
+    "for c in 'wellcpu --short' 'wmem --short' 'wsensors --short' 'wgpu --short' 'wnet --short' 'wdoc --short'; do script -qec \"\$c\" /dev/null; done"
 } > SAMPLES.md
 
-echo "SAMPLES.md regenerated ($(wc -l < SAMPLES.md) lines, OSC stripped)"
+echo "SAMPLES.md regenerated ($(wc -l < SAMPLES.md) lines, ANSI stripped)"
