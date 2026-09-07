@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # welldoctor v1 -- System health aggregator.
 # Runs read-only checks (SMART, temperatures, failed units, disk space,
-# pacnew leftovers, orphan packages) and exits:
-#   0 = healthy, 1 = warnings, 2 = critical findings, 3 = runtime error.
+# config leftovers and orphan packages). The last two are distro-aware:
+# the packaging family (pacman/dpkg/rpm/apk/gentoo) is picked from
+# /etc/os-release and each distro's own conventions are applied.
+# Exits: 0 = healthy, 1 = warnings, 2 = critical findings, 3 = runtime error.
 # Part of wellutils by wellbou_
 set -euo pipefail
 
@@ -21,6 +23,103 @@ wd_warn() { _WD_WARN=$(( _WD_WARN + 1 )); printf '  %s⚠%s %s\n' "$Y" "$RESET" 
 wd_crit() { _WD_CRIT=$(( _WD_CRIT + 1 )); printf '  %s✘%s %s\n' "$R" "$RESET" "$*"; }
 wd_ok()   { printf '  %s✔%s %s\n' "$G" "$RESET" "$*"; }
 wd_info() { printf '  %s·%s %s\n' "$DIM" "$RESET" "$*"; }
+
+# ─── Packaging family (distro-aware helpers) ────────────────────
+# Read ID/ID_LIKE from /etc/os-release (override with _WU_OS_RELEASE for
+# tests). Tokens are matched inside " $id $like " so a space-separated
+# ID_LIKE="debian ubuntu" hits every relevant family.
+_os_release="${_WU_OS_RELEASE:-/etc/os-release}"
+
+wd_family() {
+    local id like
+    id=$(awk -F= '/^ID=/{gsub(/["'"'"']/, ""); print tolower($2)}' "$_os_release" 2>/dev/null)
+    like=$(awk -F= '/^ID_LIKE=/{gsub(/["'"'"']/, ""); print tolower($2)}' "$_os_release" 2>/dev/null)
+    case " $id $like " in
+        *" arch "*)                                            echo pacman ;;
+        *" debian "*|*" ubuntu "*|*" raspbian "*)              echo deb ;;
+        *" fedora "*|*" rhel "*|*" suse "*|*opensuse*|*" centos "*|*" almalinux "*|*" rocky "*|*" amzn "*|*" ol "*) echo rpm ;;
+        *" alpine "*|*" postmarketos "*)                      echo apk ;;
+        *" gentoo "*)                                         echo gentoo ;;
+    esac
+}
+
+wd_conf_globs() {  # config-leftover globs per family; rc=1 = unknown family
+    case "$(wd_family)" in
+        pacman) printf '%s\n' '*.pacnew' '*.pacsave' ;;
+        deb)    printf '%s\n' '*.dpkg-dist' '*.dpkg-old' '*.dpkg-new' '*.dpkg-tmp' ;;
+        rpm)    printf '%s\n' '*.rpmnew' '*.rpmsave' '*.rpmorig' ;;
+        apk)    printf '%s\n' '*.apk-new' ;;
+        gentoo) printf '%s\n' '._cfg*' ;;
+        *)      return 1 ;;
+    esac
+}
+
+wd_conf_label() {  # short id shown in the count/ok line
+    case "$(wd_family)" in
+        pacman) echo "pacnew/pacsave" ;;
+        deb)    echo "dpkg-*" ;;
+        rpm)    echo "rpmnew/rpmsave" ;;
+        apk)    echo "apk-new" ;;
+        gentoo) echo "_cfg*" ;;
+    esac
+}
+
+wd_conf_tool() {  # merge/cleanup tool to suggest per family
+    case "$(wd_family)" in
+        pacman) echo "pacdiff" ;;
+        deb)    echo "dpkg --audit" ;;
+        rpm)    echo "rpmconf" ;;
+        apk)    echo "apk fix" ;;
+        gentoo) echo "etc-update" ;;
+    esac
+}
+
+wd_confleft_file() {  # list leftover config files under /etc; rc=1 = unknown family
+    local -a args=(/etc \( ) first=1 globs g
+    globs=$(wd_conf_globs) || return 1
+    while IFS= read -r g; do
+        [[ -z "$g" ]] && continue
+        (( first )) && first=0 || args+=(-o)
+        args+=(-name "$g")
+    done <<< "$globs"
+    (( first )) && return 1
+    args+=(\) -print)
+    # find returns 1 on unreadable subdirs (permission denied); a scan
+    # that simply found nothing is still a successful scan.
+    find "${args[@]}" 2>/dev/null || true
+}
+
+wd_orphan_count() {  # prints N (0 when clean); rc=1 = family has no orphan query
+    local n=0 out
+    case "$(wd_family)" in
+        pacman)
+            n=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0) ;;
+        deb)
+            out=$(LC_ALL=C apt-get -s autoremove 2>/dev/null || true)
+            n=$(awk '/^The following packages *will be REMOVED:$/{f=1; next}
+                     /^[0-9]+ (upgraded|installed), /{f=0}
+                     f{c++}
+                     END{print c+0}' <<< "$out") ;;
+        rpm)
+            if command -v dnf &>/dev/null; then
+                out=$(LC_ALL=C dnf list autoremove 2>/dev/null || true)
+                n=$(awk 'BEGIN{IGNORECASE=1}
+                         /No autoremovable packages found/{print 0; exit}
+                         /Autoremove Packages/{f=1; next}
+                         f && /^ *$/{f=0}
+                         f && $1 ~ /\./ && NF>=2{c++}
+                         END{print c+0}' <<< "$out")
+            elif command -v zypper &>/dev/null; then
+                out=$(LC_ALL=C zypper packages --orphaned 2>/dev/null || true)
+                n=$(awk '/^--/{f=1; next} f && /\|/{c++} END{print c+0}' <<< "$out")
+            else
+                return 1
+            fi ;;
+        *) return 1 ;;
+    esac
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    printf '%s' "$n"
+}
 
 # ─── Checks ─────────────────────────────────────────────────────
 chk_smart() {
@@ -118,29 +217,29 @@ chk_disk() {
     fi
 }
 
-chk_pacnew() {
-    local n=0 f
+chk_confleft() {
+    local n=0 f fam list
+    list=$(mktemp)
+    wd_confleft_file > "$list" || { rm -f "$list"; wd_info "$(t doc_confleft_na)"; return; }
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
         n=$(( n + 1 ))
-        (( n <= 5 )) && wd_info "$(t doc_pacnew): $f"
-    done < <(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null || true)
+        (( n <= 5 )) && wd_info "$(t doc_confleft): $f"
+    done < "$list"
+    rm -f "$list"
     if (( n > 5 )); then
-        wd_info "$(t doc_pacnew_more): +$(( n - 5 ))"
+        wd_info "$(t doc_confleft_more): +$(( n - 5 ))"
     fi
     if (( n > 0 )); then
-        wd_warn "$(t doc_pacnew_count): $n ($(t doc_pacnew_hint))"
+        wd_warn "$(t doc_confleft_count) ($(wd_conf_label)): $n ($(t doc_confleft_hint): $(wd_conf_tool))"
     else
-        wd_ok "$(t doc_pacnew_ok)"
+        wd_ok "$(t doc_confleft_ok) ($(wd_conf_label))"
     fi
 }
 
 chk_orphans() {
-    command -v pacman &>/dev/null || { wd_info "$(t doc_orphan_na)"; return; }
-    local n=0
-    n=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0)
-    n=$(printf '%s' "$n" | tr -d '[:space:]')
-    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    local n
+    n=$(wd_orphan_count) || { wd_info "$(t doc_orphan_na)"; return; }
     if (( n > 0 )); then
         wd_warn "$(t doc_orphan_count): $n"
     else
@@ -155,7 +254,7 @@ print_report() {
     chk_temp
     chk_disk
     chk_units
-    chk_pacnew
+    chk_confleft
     chk_orphans
     printf '\n'
 }
@@ -258,16 +357,23 @@ wd_checks_machine() {
         fi
     fi
 
-    if command -v pacman &>/dev/null; then
-        local pn on
-        pn=$(find /etc -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null | wc -l || echo 0)
-        pn=$(printf '%s' "$pn" | tr -d '[:space:]'); [[ "$pn" =~ ^[0-9]+$ ]] || pn=0
-        if (( pn > 0 )); then printf 'pacnew|warning|%d\n' "$pn"; _WD_WARN=$(( _WD_WARN + 1 ))
-        else printf 'pacnew|ok|0\n'; fi
-        on=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0)
-        on=$(printf '%s' "$on" | tr -d '[:space:]'); [[ "$on" =~ ^[0-9]+$ ]] || on=0
-        if (( on > 0 )); then printf 'orphans|warning|%d\n' "$on"; _WD_WARN=$(( _WD_WARN + 1 ))
-        else printf 'orphans|ok|0\n'; fi
+    local fam pn on cf
+    fam=$(wd_family)
+    if [[ -n "$fam" ]]; then
+        cf=$(mktemp)
+        if wd_confleft_file > "$cf" 2>/dev/null; then
+            pn=$(wc -l < "$cf" || echo 0)
+            pn=$(printf '%s' "$pn" | tr -d '[:space:]'); [[ "$pn" =~ ^[0-9]+$ ]] || pn=0
+            if (( pn > 0 )); then printf 'confleft|warning|%d\n' "$pn"; _WD_WARN=$(( _WD_WARN + 1 ))
+            else printf 'confleft|ok|0\n'; fi
+        else
+            printf 'confleft|na|unknown family\n'
+        fi
+        rm -f "$cf"
+        on=$(wd_orphan_count) || on=""
+        if   [[ -z "$on" ]]; then  printf 'orphans|na|unsupported on %s\n' "$fam"
+        elif (( on > 0 ));    then printf 'orphans|warning|%d\n' "$on"; _WD_WARN=$(( _WD_WARN + 1 ))
+        else                       printf 'orphans|ok|0\n'; fi
     fi
 }
 
