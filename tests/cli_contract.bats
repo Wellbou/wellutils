@@ -10,35 +10,35 @@ setup() {
 
 @test "every tool: --help exits 0" {
     for t in "${TOOLS[@]}"; do
-        run "./$t" --help
+        run "./src/$t" --help
         [ "$status" -eq 0 ]
     done
 }
 
 @test "every tool: unknown flag exits 2" {
     for t in "${TOOLS[@]}"; do
-        run "./$t" --definitely-not-a-flag
+        run "./src/$t" --definitely-not-a-flag
         [ "$status" -eq 2 ]
     done
 }
 
 @test "every tool: --json emits valid JSON (where supported)" {
     for t in wellcpu wellmem wellgpu wellblock wellhw wellsensors wellfetch wellup wellnet wellpower; do
-        if ! ./"$t" --json >/dev/null 2>&1; then continue; fi
+        if ! ./src/"$t" --json >/dev/null 2>&1; then continue; fi
         # json.tool reads stdin as ASCII on python < 3.7 under C/POSIX
         # locales and chokes on the emoji/frame bytes the tools legitimately
         # emit. Decode stdin as UTF-8 instead (py2: plain stdin has no .buffer).
-        "./$t" --json 2>/dev/null | "$PY" -c "import json,sys,io; s = sys.stdin if not hasattr(sys.stdin,'buffer') else io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8'); json.load(s)"
+        "./src/$t" --json 2>/dev/null | "$PY" -c "import json,sys,io; s = sys.stdin if not hasattr(sys.stdin,'buffer') else io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8'); json.load(s)"
     done
 }
 
 @test "every tool: --plain exits 0" {
     for t in "${TOOLS[@]}"; do
         if [[ "$t" == "wellup" ]]; then
-            run "./$t" --check --plain
+            run "./src/$t" --check --plain
         elif [[ "$t" == "welldoctor" ]]; then
             # Documented contract: exit reflects findings (0 ok / 1 warn / 2 crit).
-            run ./welldoctor --plain
+            run ./src/welldoctor --plain
             if [ "$status" -gt 2 ]; then
                 echo "welldoctor rc=$status (must be 0,1 or 2)"
                 false
@@ -46,9 +46,9 @@ setup() {
             continue
         elif [[ "$t" == "whtml" ]]; then
             # No --plain: emits an offline HTML file to a temp path.
-            run ./whtml --no-open --output /tmp/contract_whtml.html
+            run ./src/whtml --no-open --output /tmp/contract_whtml.html
         else
-            run "./$t" --plain
+            run "./src/$t" --plain
         fi
         if [ "$status" -ne 0 ]; then
             echo "--plain FAILED for $t (rc=$status)"
@@ -59,12 +59,12 @@ setup() {
 }
 
 @test "--json and --short are mutually exclusive" {
-    run ./wellcpu --json --short
+    run ./src/wellcpu --json --short
     [ "$status" -eq 2 ]
 }
 
 @test "--html produces an HTML document" {
-    run ./wellcpu --html
+    run ./src/wellcpu --html
     [ "$status" -eq 0 ]
     [[ "$output" == *"<!DOCTYPE html>"* ]]
 }

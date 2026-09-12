@@ -2,38 +2,38 @@
 # Part of wellutils by wellbou_
 
 @test "wellcpu --short is a percentage or dash" {
-    run ./wellcpu --short
+    run ./src/wellcpu --short
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^[0-9]+%$ ]] || [[ "$output" == "-" ]]
 }
 
 @test "wellmem --short matches N/N format" {
-    run ./wellmem --short
+    run ./src/wellmem --short
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^[0-9.]+/[0-9.]+GiB$|^-$ ]]
 }
 
 @test "wellsensors --short is a temperature or dash" {
-    run ./wellsensors --short
+    run ./src/wellsensors --short
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^[0-9]+°C$|^-$ ]]
 }
 
 @test "wellnet --json has connection object" {
     if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
-    run bash -c "./wellnet --json 2>/dev/null | $PY -c \"import json,sys; d=json.load(sys.stdin); assert 'connection' in d\""
+    run bash -c "./src/wellnet --json 2>/dev/null | $PY -c \"import json,sys; d=json.load(sys.stdin); assert 'connection' in d\""
     [ "$status" -eq 0 ]
 }
 
 @test "welldoctor exit code is 0/1/2" {
-    run ./welldoctor --plain
+    run ./src/welldoctor --plain
     [[ "$status" -le 2 && "$status" -ge 0 ]]
 }
 
 @test "wellhw snapshot+diff roundtrip reports no changes" {
     local f="$(mktemp)"
-    ./wellhw --snapshot "$f"
-    run ./wellhw --diff "$f"
+    ./src/wellhw --snapshot "$f"
+    run ./src/wellhw --diff "$f"
     if [ "$status" -ne 0 ]; then
         echo "diff said: $output"
         false
@@ -42,7 +42,7 @@
 }
 
 @test "wellup --pacnew lists leftovers or none" {
-    run ./wellup --pacnew --plain
+    run ./src/wellup --pacnew --plain
     [ "$status" -eq 0 ]
 }
 
@@ -50,7 +50,7 @@
     local rundir="$(mktemp -d)"
     printf '#!/bin/sh\nexit 127\n' > "$rundir/curl"; chmod +x "$rundir/curl"
     # Hide curl; whtml must not need it (no network by default).
-    run env PATH="$rundir:/usr/bin:/bin" ./whtml --no-open --output "$rundir/report.html"
+    run env PATH="$rundir:/usr/bin:/bin" ./src/whtml --no-open --output "$rundir/report.html"
     [ "$status" -eq 0 ]
     [ -s "$rundir/report.html" ]
     head -1 "$rundir/report.html" | grep -q "<!DOCTYPE html>"
@@ -63,7 +63,7 @@
 
 @test "whtml: report contains SMART" {
     local f="$(mktemp)"
-    run ./whtml --no-open --output "$f"
+    run ./src/whtml --no-open --output "$f"
     [ "$status" -eq 0 ]
     grep -qi "S.M.A.R.T." "$f"
 }
@@ -71,7 +71,7 @@
 @test "whtml: --ai without an endpoint stays offline and succeeds" {
     local f="$(mktemp)"
     unset WHTML_AI_ENDPOINT
-    run ./whtml --ai --no-open --output "$f"
+    run ./src/whtml --ai --no-open --output "$f"
     [ "$status" -eq 0 ]
     [ -s "$f" ]
 }
@@ -83,21 +83,21 @@ has_cyrillic() { LC_ALL=C grep -qE "$(printf '\320[\220-\277]|\321[\200-\217]')"
 
 @test "whtml: Russian output contains cyrillic" {
     local f="$(mktemp)"
-    run env WELLUTILS_LANG=RU ./whtml --no-open --output "$f"
+    run env WELLUTILS_LANG=RU ./src/whtml --no-open --output "$f"
     [ "$status" -eq 0 ]
     has_cyrillic "$f"
 }
 
 @test "whtml: --ami is English only (no cyrillic)" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     ! has_cyrillic "$f"
 }
 
 @test "whtml: --ami has AMIBIOS banner and embedded font" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     grep -q "AMIBIOS SETUP UTILITY" "$f"
     grep -q "data:font" "$f"
@@ -105,7 +105,7 @@ has_cyrillic() { LC_ALL=C grep -qE "$(printf '\320[\220-\277]|\321[\200-\217]')"
 
 @test "whtml: --ami uses English units (not Russian)" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     # Memory size is always present as a stable source of English units;
     # CPU frequencies are machine-dependent and may be absent on CI runners.
@@ -117,28 +117,28 @@ has_cyrillic() { LC_ALL=C grep -qE "$(printf '\320[\220-\277]|\321[\200-\217]')"
 
 @test "whtml: --ami has no https://" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     ! grep -q "https://" "$f"
 }
 
 @test "whtml: --ami contains no N/A in visible table cells" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     ! grep -oE '>[^<]*N/A[^<]*<' "$f" | grep -v 'data:' | grep -q "N/A"
 }
 
 @test "whtml: --ami freq is reasonable (not 3700 GHz)" {
     local f="$(mktemp)"
-    run ./whtml --ami --no-open --output "$f"
+    run ./src/whtml --ami --no-open --output "$f"
     [ "$status" -eq 0 ]
     ! grep -qE '>3700\.0 GHz<' "$f"
     ! grep -qE '>3300\.0 GHz<' "$f"
 }
 
 @test "whtml: --help shows --ami" {
-    run ./whtml --help
+    run ./src/whtml --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"--ami"* ]]
 }

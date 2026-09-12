@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Always sample the repo's own tools, not whatever is installed in PATH.
-export PATH="$PWD${PATH:+:$PATH}"
+export PATH="$PWD/src${PATH:+:$PATH}"
 
 strip_noise() {
     tr -d '\r' | sed \
@@ -35,18 +35,18 @@ echo
 echo "Real output from the author's machine. Colors are stripped so the"
 echo "blocks render the same way in every Markdown viewer; the frames and"
 echo "alignment are kept exactly as they appear in a terminal."
-gen "wellcpu" "wellcpu" "sudo -n ./wellcpu"
+gen "wellcpu" "wellcpu" "sudo -n ./src/wellcpu"
 gen "wellmem" "wellmem" "wellmem"
 gen "wellgpu" "wellgpu" "wellgpu"
-gen "wellsensors" "wellsensors" "sudo -n ./wellsensors"
-gen "wellhw" "wellhw" "sudo -n ./wellhw"
+gen "wellsensors" "wellsensors" "sudo -n ./src/wellsensors"
+gen "wellhw" "wellhw" "sudo -n ./src/wellhw"
 gen "wellusb" "wellusb" "wellusb"
 gen "wellpci" "wellpci" "wellpci"
 gen "wellblock" "wellblock" "wellblock"
 gen "wellper" "wellper" "wellper"
 gen "wellnet" "wellnet" "wellnet"
 gen "wellpower" "wellpower" "wellpower"
-gen "welldoctor" "welldoctor" "sudo -n ./welldoctor"
+gen "welldoctor" "welldoctor" "sudo -n ./src/welldoctor"
 gen "wellup" "wellup --check" "wellup --check"
 gen "wellfetch" "wellfetch" "wellfetch"
 gen "статус-бары (status bars)" \

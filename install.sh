@@ -277,8 +277,8 @@ acquire_source() {
     # current sources -- otherwise a stale clone would shadow the fresh
     # installer and mix versions.
     if [[ "${WELLUTILS_LOCAL:-0}" == "1" || -t 0 ]] \
-       && [[ -f "$here/wellmem" && -f "$here/lang.sh" && -f "$here/wellutils" ]]; then
-        if ! grep -q -- '--json' "$here/cli.sh" 2>/dev/null || ! grep -q 'json_out' "$here/wellmem" 2>/dev/null; then
+       && [[ -f "$here/src/wellmem" && -f "$here/src/lang.sh" && -f "$here/src/wellutils" ]]; then
+        if ! grep -q -- '--json' "$here/src/cli.sh" 2>/dev/null || ! grep -q 'json_out' "$here/src/wellmem" 2>/dev/null; then
             echo "warning: local checkout looks outdated (no --json support)." >&2
             echo "         Run 'git pull', or just use the GitHub one-liner." >&2
         fi
@@ -481,7 +481,7 @@ _WU_INST_TMP="$(dirname "$SRC")"
 if [[ "$_WU_INST_TMP" == "/tmp/"* || "$_WU_INST_TMP" == /tmp/tmp.* ]]; then
     trap '[[ -n "$_WU_INST_TMP" && -d "$_WU_INST_TMP" ]] && rm -rf -- "$_WU_INST_TMP"' EXIT
 fi
-do_install "$SRC"
+do_install "$SRC/src"
 
 echo
 echo "==> wellutils installed."

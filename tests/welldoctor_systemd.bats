@@ -22,7 +22,7 @@ teardown() { rm -rf "$FAKEBIN"; }
     export PATH="$FAKEBIN:$PATH"
     export FAKE_STATE=degraded
     export FAKE_UNITS="nginx.service loaded failed failed nginx - high performance web server"
-    run env -u HOME ./welldoctor --plain
+    run env -u HOME ./src/welldoctor --plain
     [[ "$output" == *"nginx.service"* ]]
     [[ "$output" != *"systemd unavailable"* ]]
     [[ "$output" != *"systemd недоступен"* ]]
@@ -34,7 +34,7 @@ teardown() { rm -rf "$FAKEBIN"; }
     export PATH="$FAKEBIN:$PATH"
     export FAKE_STATE=degraded
     export FAKE_UNITS="nginx.service loaded failed failed nginx"
-    run env -u HOME ./welldoctor --short
+    run env -u HOME ./src/welldoctor --short
     [[ "$output" != *"100/100"* ]]
     [[ "$output" =~ W[0-9]+ ]]
 }
@@ -43,7 +43,7 @@ teardown() { rm -rf "$FAKEBIN"; }
     export PATH="$FAKEBIN:$PATH"
     export FAKE_STATE=offline
     export FAKE_UNITS="nginx.service loaded failed failed nginx"
-    run env -u HOME ./welldoctor --plain
+    run env -u HOME ./src/welldoctor --plain
     [[ "$output" != *"nginx.service"* ]]
     [[ "$output" == *"unavailable"* || "$output" == *"недоступен"* ]]
 }
@@ -52,7 +52,7 @@ teardown() { rm -rf "$FAKEBIN"; }
     export PATH="$FAKEBIN:$PATH"
     export FAKE_STATE=running
     export FAKE_UNITS=""
-    run env -u HOME ./welldoctor --plain
+    run env -u HOME ./src/welldoctor --plain
     [[ "$output" != *"nginx.service"* ]]
     [[ "$output" != *"Сбойный юнит"* ]]
 }
@@ -63,7 +63,7 @@ teardown() { rm -rf "$FAKEBIN"; }
     export FAKE_STATE=degraded
     export FAKE_UNITS="nginx.service loaded failed failed nginx"
     out="$(mktemp)"
-    run bash -c "./welldoctor --json > '$out'; echo \$?"
+    run bash -c "./src/welldoctor --json > '$out'; echo \$?"
     [ "$status" -eq 0 ]
     # Contract: rc 1 (warn) or 2 (crit from real hardware) - never 0 with W>=1.
     [ "$output" -ge 1 ] && [ "$output" -le 2 ]

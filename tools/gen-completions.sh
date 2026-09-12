@@ -103,7 +103,7 @@ EOF
     printf 'complete -c %s -l debug -d "shell tracing"\n' "$tool"
 }
 
-mkdir -p completions/zsh completions/fish
+mkdir -p src/completions/zsh src/completions/fish
 while IFS='|' read -r tool name extra; do
     [[ -z "$tool" || "$tool" == \#* ]] && continue
     base_opts="--json --short --html --plain --box --no-emoji --emoji"
@@ -113,14 +113,14 @@ while IFS='|' read -r tool name extra; do
         case " $base_opts " in *" $o "*) ;; *) row_opts+="$o " ;; esac
     done
     all="$row_opts$base_opts"
-    gen_bash  "$tool" "$all"   > "$tool.bash"
-    gen_zsh   "$tool" "$name" "$all" > "completions/zsh/_$tool"
-    gen_fish  "$tool" "$name" "$all" > "completions/fish/$tool.fish"
-    echo "generated: $tool (.bash, zsh, fish)"
+    gen_bash  "$tool" "$all"   > "src/$tool.bash"
+    gen_zsh   "$tool" "$name" "$all" > "src/completions/zsh/_$tool"
+    gen_fish  "$tool" "$name" "$all" > "src/completions/fish/$tool.fish"
+    echo "generated: $tool ($tool.bash, zsh, fish)"
 done <<< "$TABLE"
 
 # launcher completion lists subcommands
-cat > wellutils.bash <<'EOF'
+cat > src/wellutils.bash <<'EOF'
 # bash completion for wellutils
 # Part of wellutils by wellbou_
 
@@ -134,4 +134,4 @@ _wellutils() {
 }
 complete -F _wellutils wellutils
 EOF
-echo "generated: wellutils (.bash)"
+echo "generated: wellutils (wellutils.bash)"

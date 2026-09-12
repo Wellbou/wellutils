@@ -42,7 +42,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          for f in bootstrap.sh lang.sh box.sh cli.sh jedec.sh wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsensors wellper wellfetch wellup wellnet wellpower welldoctor whtml wellutils; do
+          for f in src/bootstrap.sh src/lang.sh src/box.sh src/cli.sh src/jedec.sh src/wellcpu src/wellmem src/wellgpu src/wellmod src/wellblock src/wellhw src/wellusb src/wellpci src/wellsensors src/wellper src/wellfetch src/wellup src/wellnet src/wellpower src/welldoctor src/whtml src/wellutils; do
             bash -n "$f"
           done
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: System bash 3.2 fails with a clear message
         run: |
-          out=$(/bin/bash ./wellcpu --plain 2>&1) || true
+          out=$(/bin/bash ./src/wellcpu --plain 2>&1) || true
           echo "$out"
           echo "$out" | grep -q "bash >= 4.0 required"
 
@@ -67,9 +67,9 @@ jobs:
           export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
           B=/opt/homebrew/bin/bash
           [ -x "$B" ] || B=/usr/local/bin/bash
-          for f in bootstrap.sh lang.sh box.sh cli.sh wellcpu wellmem wellnet wellpower welldoctor whtml wellutils; do
+          for f in src/bootstrap.sh src/lang.sh src/box.sh src/cli.sh src/wellcpu src/wellmem src/wellnet src/wellpower src/welldoctor src/whtml src/wellutils; do
             "$B" -n "$f"
           done
-          "$B" ./wellcpu --help > /dev/null
-          "$B" ./wellmem --short
-          "$B" ./wellnet --short
+          "$B" ./src/wellcpu --help > /dev/null
+          "$B" ./src/wellmem --short
+          "$B" ./src/wellnet --short
