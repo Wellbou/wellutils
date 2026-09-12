@@ -8,9 +8,9 @@
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-# Keep $script:WU_VERSION in sync with the root VERSION file of the repo
+# Keep $script:WU_VERSION in sync with the VERSION file in the repo's src/ the
 # (use the same pkgrel as the bash suite). BUGREPORT round 3: drift T9.
-$script:WU_VERSION = '1.4.0-52'
+$script:WU_VERSION = '1.4.0-53'
 
 # tool key → display name / version / tagline
 $script:TOOLS = @{

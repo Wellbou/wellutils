@@ -80,6 +80,24 @@ curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh |
 датчиков, без имён вендоров по ID). Для установки без root в свой
 каталог используйте `--prefix=/path`.
 
+### Из исходников (git clone)
+
+Склонируйте репозиторий и запустите тот же установщик из клона:
+
+```sh
+git clone https://github.com/Wellbou/wellutils.git
+cd wellutils
+./install.sh
+```
+
+Все скрипты лежат в `src/`, так что инструменты можно запускать прямо
+из клона без установки:
+
+```sh
+./src/wellcpu --short
+./src/welldoctor --json
+```
+
 ### Arch Linux (пакет)
 
 Сборка из этого репозитория:

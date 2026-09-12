@@ -84,6 +84,24 @@ Skip the dependency step with `--no-deps` (tools degrade gracefully:
 no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
 `--prefix=/path` for a rootless install into your own directory.
 
+### From source (git clone)
+
+Clone the repository and run the same installer against the clone:
+
+```sh
+git clone https://github.com/Wellbou/wellutils.git
+cd wellutils
+./install.sh
+```
+
+All scripts live in `src/`, so you can also run a tool straight from
+the clone without installing it:
+
+```sh
+./src/wellcpu --short
+./src/welldoctor --json
+```
+
 ### Arch Linux (package)
 
 Build from this repository:
