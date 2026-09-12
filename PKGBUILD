@@ -21,7 +21,7 @@ optdepends=(
     'iw: Wi-Fi SSID and signal info (wellnet)'
 )
 # This package builds from a full git checkout (packaging reads files out of
-# ./src and ./completions via ${startdir}). makepkg cannot resolve local
+# ./src and ./src/completions via ${startdir}). makepkg cannot resolve local
 # source() entries that live in subdirectories, so there is no source/checksum
 # array here; the pkgfile is inherently checkout-only (see also compdir globs).
 

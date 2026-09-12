@@ -14,11 +14,11 @@
   zero-dependency PowerShell port for Windows.
 
   [![Language: Bash](https://img.shields.io/badge/Language-Bash-4EAA25?logo=gnubash&logoColor=white)](wellutils)
-  [![Language: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](wfetch_art.py)
+  [![Language: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](src/wfetch_art.py)
   [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
   [![Version: 1.4.0](https://img.shields.io/badge/Version-1.4.0-22272E)](PKGBUILD)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](LICENSE)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](src/LICENSE)
 
 </div>
 

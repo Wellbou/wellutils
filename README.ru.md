@@ -14,11 +14,11 @@
   плюс порт на PowerShell для Windows без единой зависимости.
 
   [![Язык: Bash](https://img.shields.io/badge/Language-Bash-4EAA25?logo=gnubash&logoColor=white)](wellutils)
-  [![Язык: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](wfetch_art.py)
+  [![Язык: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](src/wfetch_art.py)
   [![Платформа: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Платформа: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
   [![Версия: 1.4.0](https://img.shields.io/badge/Version-1.4.0-22272E)](PKGBUILD)
-  [![Лицензия: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](LICENSE)
+  [![Лицензия: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](src/LICENSE)
 
 </div>
 
