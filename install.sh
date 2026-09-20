@@ -297,9 +297,12 @@ acquire_source() {
         exit 1
     fi
     if command -v curl >/dev/null 2>&1; then
-        tag="$(curl -fsSL "$API/releases/latest" 2>/dev/null | grep -o '"tag_name"[^,]*' | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || true
-    else
-        tag=""
+        # Prefer the newest tag over /releases/latest: a stale GitHub Release
+        # can be much older than the repo and deliver a tarball whose layout
+        # (flat vs src/) does not match this installer.
+        tag="$(curl -fsSL "$API/tags" 2>/dev/null \
+            | grep -o '"name"[[:space:]]*:[[:space:]]*"v[0-9][^"]*"' \
+            | sed 's/.*:[[:space:]]*"//; s/"$//' | sort -V | tail -1)" || true
     fi
     [[ -n "$tag" ]] && ref="$tag"
     url="https://codeload.github.com/$REPO/tar.gz/refs/$([[ "$ref" == "main" ]] && echo heads/$ref || echo tags/$ref)"
@@ -342,27 +345,27 @@ pick_compdir() {
 
 # ─── install files ─────────────────────────────────────────────
 do_install() {
-    local src="$1" t f compdir
+    local src="$1" t f compdir fail=0
     echo "==> $os: installing wellutils to $PREFIX"
     need_root
-    run install -d "$BINDIR" "$LIBDIR" "$MANDIR"
+    run install -d "$BINDIR" "$LIBDIR" "$MANDIR" || return 1
     for t in $TOOLS; do
-        run install -m755 "$src/$t" "$BINDIR/$t"
+        run install -m755 "$src/$t" "$BINDIR/$t" || { echo "error: could not install $BINDIR/$t (missing $src/$t?)" >&2; fail=1; }
     done
     local base
     for a in $ALIASES; do
         base="${a%%=*}"
-        run ln -sf "$BINDIR/$base" "$BINDIR/${a#*=}"
+        run ln -sf "$BINDIR/$base" "$BINDIR/${a#*=}" || { echo "error: could not link ${a#*=}" >&2; fail=1; }
     done
     for f in $LIBS; do
-        run install -m644 "$src/$f" "$LIBDIR/$f"
+        run install -m644 "$src/$f" "$LIBDIR/$f" || { echo "error: could not install $LIBDIR/$f (missing $src/$f?)" >&2; fail=1; }
     done
     for f in $MANPAGES; do
-        run install -m644 "$src/$f" "$MANDIR/$f"
+        run install -m644 "$src/$f" "$MANDIR/$f" || { echo "error: could not install $MANDIR/$f (missing $src/$f?)" >&2; fail=1; }
     done
     if [[ -f "$src/LICENSE" ]]; then
         run install -d "$LICDIR"
-        run install -m644 "$src/LICENSE" "$LICDIR/LICENSE"
+        run install -m644 "$src/LICENSE" "$LICDIR/LICENSE" || { echo "error: could not install $LICDIR/LICENSE" >&2; fail=1; }
     fi
     compdir="$(pick_compdir)"
     run install -d "$compdir"
@@ -405,8 +408,25 @@ do_install() {
         for f in "$src"/*.bash; do
             echo "$compdir/$(basename "${f%.bash}")"
         done
+        # same conditions as the install blocks above; rm -f of a never-written
+        # file is a no-op, but keep the manifest truthful anyway.
+        if [[ -d /usr/share/zsh/site-functions && -d "$src/completions/zsh" ]]; then
+            for f in "$src"/completions/zsh/_*; do
+                [[ -f "$f" ]] || continue
+                echo "/usr/share/zsh/site-functions/$(basename "$f")"
+            done
+        fi
+        if [[ -d /usr/share/fish/vendor_completions.d && -d "$src/completions/fish" ]]; then
+            for f in "$src"/completions/fish/*.fish; do
+                [[ -f "$f" ]] || continue
+                echo "/usr/share/fish/vendor_completions.d/$(basename "$f")"
+            done
+        fi
         echo "$MANIFEST"
     } | run tee "$MANIFEST" >/dev/null
+
+    (( fail )) && { echo "error: one or more files under $src/ are missing or could not be written" >&2; return 1; }
+    return 0
 }
 
 # ─── uninstall ────────────────────────────────────────────────
@@ -419,9 +439,9 @@ do_uninstall() {
     fi
     echo "==> removing files listed in $MANIFEST"
     while IFS= read -r f; do
-        [[ -n "$f" ]] && run rm -f "$f"
+        [[ -n "$f" ]] && { run rm -f "$f" || echo "    warning: could not remove $f" >&2; }
     done < "$MANIFEST"
-    run rm -f "$MANIFEST"
+    run rm -f "$MANIFEST" || true
     run rmdir "$BINDIR" "$LIBDIR" "$MANDIR" "$LICDIR" 2>/dev/null || true
 }
 
@@ -481,10 +501,22 @@ _WU_INST_TMP="$(dirname "$SRC")"
 if [[ "$_WU_INST_TMP" == "/tmp/"* || "$_WU_INST_TMP" == /tmp/tmp.* ]]; then
     trap '[[ -n "$_WU_INST_TMP" && -d "$_WU_INST_TMP" ]] && rm -rf -- "$_WU_INST_TMP"' EXIT
 fi
-do_install "$SRC/src"
+# Tolerate both the src/ layout and the legacy flat tarballs, so the curl|bash
+# one-liner keeps working against any released tag regardless of its age.
+if [[ -d "$SRC/src" ]]; then
+    SRC_W="$SRC/src"
+else
+    SRC_W="$SRC"
+fi
+do_install "$SRC_W" || {
+    echo
+    echo "==> FAILED: some files could not be installed (see errors above)." >&2
+    exit 2
+}
 
 echo
 echo "==> wellutils installed."
+echo "    version:  $(cat "$SRC_W/VERSION" 2>/dev/null || echo '?')"
 echo "    binaries:  $BINDIR"
 echo "    data:      $LIBDIR"
 echo "    man:       $MANDIR"
