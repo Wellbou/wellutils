@@ -1,4 +1,4 @@
-.TH WHTML 1 "August 2026" "whtml 1.1" "wellutils"
+.TH WHTML 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
 .SH NAME
 whtml \- rich, self-contained HTML system report (offline)
 .SH SYNOPSIS
@@ -35,6 +35,19 @@ Force opening the report in a browser after generation.
 Render the report in a classic AMI BIOS setup-utility style (English only,
 font and colors taken from the xb-16 BIOS emulator), instead of the default
 flat CLI style.
+.TP
+.BR \-\-ai
+Optional AI analysis, see
+.B AI ENRICHMENT
+below.
+.TP
+.BR \-l ", " \-\-lang " ru|en|auto"
+Report language (auto = from the locale).
+.B \-\-ami
+is always English.
+.TP
+.B \-\-debug
+Shell tracing plus progress messages on stderr.
 .TP
 .BR \-h ", " \-\-help
 Show usage and exit.
@@ -78,6 +91,30 @@ otherwise the locale is used.
 Set to
 .B 1
 to print collection progress to stderr.
+.TP
+.B WHTML_KEEP_TMP
+Set to
+.B 1
+to keep the temporary work directory (its path is printed on stderr).
+.TP
+.B TMPDIR
+Where the work directory is created (fallbacks: /tmp, $PREFIX/tmp on Termux,
+/var/tmp, $HOME).
+.SH EXIT STATUS
+.TP
+.B 0
+Report written.
+.TP
+.B 2
+Invalid command-line usage.
+.TP
+.B 3
+Runtime error: python3 missing, no writable temporary directory, report
+generation failed, or the output file could not be written.
+.SH REQUIREMENTS
+.B python3
+is required by this tool (and only by this tool and the PNG logo of
+.BR wellfetch (1)).
 .SH SEE ALSO
 .BR wellutils (1),
 .BR wellhw (1),

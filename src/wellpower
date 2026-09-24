@@ -5,7 +5,6 @@ set -euo pipefail
 
 _WU_TOOLNAME="wellpower" _WU_NAME="WellPower" _WU_VERSION="1.0"
 _WU_SHORT_OK=1
-_WU_SHORT_OK=1
 _WU_TAGLINE="battery health and power profiles"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
@@ -16,33 +15,71 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box parse
 PS_DIR=/sys/class/power_supply
 
 # ─── Helpers ────────────────────────────────────────────────────
-wp_read() { cat "$1" 2>/dev/null | head -1 | tr -d '\r' || true; }
+# Supplies are classified by type (wu_batteries / wu_ac_adapters), not by
+# name: CMB0, macsmc-battery, axp20x-battery, ADP1, ACAD ... all count.
+_WP_BATS=() _WP_ACS=()
+_wp_scan() {
+    local d
+    _WP_BATS=() _WP_ACS=()
+    while IFS= read -r d; do [[ -n "$d" ]] && _WP_BATS+=("$d"); done < <(wu_batteries)
+    while IFS= read -r d; do [[ -n "$d" ]] && _WP_ACS+=("$d"); done < <(wu_ac_adapters)
+    return 0
+}
+
+wp_read() { local _v=""; wu_read "$1" _v || true; printf '%s' "$_v"; }
 wp_pct() {
     local v="$1"
     [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
     printf '%d' "${v%%.*}"
 }
 
+# _wp_int FILE VAR -- non-negative integer from sysfs (abs of negative
+# values: some drivers report discharge as negative current/power), or "".
+_wp_int() {
+    local _x=""
+    wu_read "$1" _x || true
+    _x=${_x#-}
+    [[ "$_x" =~ ^[0-9]+$ ]] || _x=""
+    printf -v "$2" '%s' "$_x"
+}
+
+# _wp_wear DIR -> sets _WP_WEAR ("" when unknown). energy_* (uWh) or
+# charge_* (uAh) pairs, whichever is complete; never divides by zero.
+_wp_wear() {
+    local d="$1" f="" fd="" pre
+    _WP_WEAR=""
+    for pre in energy charge; do
+        _wp_int "$d/${pre}_full" f
+        _wp_int "$d/${pre}_full_design" fd
+        [[ -n "$f" && -n "$fd" ]] && (( f > 0 && fd > 0 )) && break
+        f="" fd=""
+    done
+    [[ -n "$f" ]] || return 0
+    _WP_WEAR=$(( 100 - f * 100 / fd ))
+    (( _WP_WEAR < 0 )) && _WP_WEAR=0
+    return 0
+}
+
+# _wp_rate DIR -> sets _WP_UW (discharge/charge rate in uW, or "").
+_wp_rate() {
+    local d="$1" p="" c="" v=""
+    _WP_UW=""
+    _wp_int "$d/power_now" p
+    if [[ -n "$p" ]]; then _WP_UW=$p; return 0; fi
+    _wp_int "$d/current_now" c
+    _wp_int "$d/voltage_now" v
+    [[ -n "$c" && -n "$v" ]] && (( v > 0 )) && _WP_UW=$(( c * v / 1000000 ))   # uA*uV -> uW
+    return 0
+}
+
 print_batteries() {
-    local found=0 d name status cap energy_full energy_full_design capacity wear cycles tech
-    for d in "$PS_DIR"/BAT* "$PS_DIR"/bat*; do
-        [[ -d "$d" ]] || continue
+    local found=0 d name status cap cycles tech _WP_WEAR wear
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
         found=1
-        name=$(basename "$d")
+        name=${d##*/}
         status=$(wp_read "$d/status")
-        cap=$(wp_pct "$(wp_read "$d/capacity")" || echo "?")
-        energy_full=$(wp_read "$d/energy_full")
-        energy_full_design=$(wp_read "$d/energy_full_design")
-        # Some drivers expose charge_* (uAh) instead of energy_* (uWh).
-        if [[ ! "$energy_full" =~ ^[0-9]+$ ]]; then
-            energy_full=$(wp_read "$d/charge_full")
-            energy_full_design=$(wp_read "$d/charge_full_design")
-        fi
-        local wear=""
-        if [[ "$energy_full" =~ ^[0-9]+$ && "$energy_full_design" =~ ^[0-9]+$ && "$energy_full_design" -gt 0 && "$energy_full" -gt 0 ]]; then
-            wear=$(( 100 - (energy_full * 100 / energy_full_design) ))
-            (( wear < 0 )) && wear=0
-        fi
+        cap=$(wp_pct "$(wp_read "$d/capacity")") || cap="?"
+        _wp_wear "$d"; wear=$_WP_WEAR
         cycles=$(wp_read "$d/cycle_count")
         tech=$(wp_read "$d/technology")
 
@@ -50,15 +87,16 @@ print_batteries() {
         [[ "$cap" != "?" ]] && (( cap <= 20 )) && ccolor="$R"
         [[ "$cap" != "?" ]] && (( cap > 20 && cap <= 45 )) && ccolor="$Y"
 
-        local line_out="$(_emu '🔋') ${BOLD}${name}${RESET}: ${ccolor}${cap}%${RESET} (${status})"
+        local line_out="$(_emu '🔋') ${BOLD}${name}${RESET}: ${ccolor}${cap}%${RESET}"
+        [[ -n "$status" ]] && line_out+=" (${status})"
         [[ -n "$tech" ]] && line_out+="${DIM} · ${tech}${RESET}"
         pline "$line_out"
         if [[ -n "$wear" ]]; then
             local wcolor="$G"; (( wear >= 25 )) && wcolor="$Y"; (( wear >= 40 )) && wcolor="$R"
             local wtxt="$(t pwr_wear): ${wcolor}${wear}%${RESET}"
-            [[ "$cycles" =~ ^[0-9]+$ && "$cycles" -gt 0 ]] && wtxt+=" · $(t pwr_cycles): $cycles"
+            [[ "$cycles" =~ ^[0-9]+$ ]] && (( cycles > 0 )) && wtxt+=" · $(t pwr_cycles): $cycles"
             pline_sub "$wtxt"
-        elif [[ "$cycles" =~ ^[0-9]+$ && "$cycles" -gt 0 ]]; then
+        elif [[ "$cycles" =~ ^[0-9]+$ ]] && (( cycles > 0 )); then
             pline_sub "$(t pwr_cycles): $cycles"
         fi
     done
@@ -67,34 +105,30 @@ print_batteries() {
 
 print_ac() {
     local found=0 d name online
-    for d in "$PS_DIR"A* "$PS_DIR"/AC* "$PS_DIR"/ac*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d")
+    for d in ${_WP_ACS[@]+"${_WP_ACS[@]}"}; do
+        name=${d##*/}
         online=$(wp_read "$d/online")
         case "$online" in
-            1) pline "$(_emu '⚡') ${BOLD}${name}${RESET}: $(t pwr_online)" ;;
-            0) pline "$(_emu '🔌') ${BOLD}${name}${RESET}: $(t pwr_offline)" ;;
+            1) pline "$(_emu '⚡') ${BOLD}${name}${RESET}: $(t pwr_online)"; found=1 ;;
+            0) pline "$(_emu '🔌') ${BOLD}${name}${RESET}: $(t pwr_offline)"; found=1 ;;
             *) : ;;
         esac
-        found=1
     done
     (( found )) || pline "${DIM}$(t pwr_no_ac)${RESET}"
 }
 
 print_thresholds() {
     local d name start stop found=0
-    for d in "$PS_DIR"/BAT*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d")
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
+        name=${d##*/}
         start=$(wp_read "$d/charge_control_start_threshold")
         stop=$(wp_read "$d/charge_control_end_threshold")
-        if [[ -n "$start$stop" ]]; then
-            found=1
-            local ttxt=""
-            [[ -n "$start" ]] && ttxt="$(t pwr_thr_start): ${start}%"
-            [[ -n "$stop" ]] && { [[ -n "$ttxt" ]] && ttxt+=" · "; ttxt+="$(t pwr_thr_stop): ${stop}%"; }
-            [[ -n "$ttxt" ]] && pline_sub "$(_emu '🎚') ${BOLD}${name}${RESET}: $ttxt"
-        fi
+        [[ -n "$start$stop" ]] || continue
+        found=1
+        local ttxt=""
+        [[ -n "$start" ]] && ttxt="$(t pwr_thr_start): ${start}%"
+        [[ -n "$stop" ]] && { [[ -n "$ttxt" ]] && ttxt+=" · "; ttxt+="$(t pwr_thr_stop): ${stop}%"; }
+        pline_sub "$(_emu '🎚') ${BOLD}${name}${RESET}: $ttxt"
     done
     (( found )) || pline "${DIM}$(t pwr_no_thresholds)${RESET}"
 }
@@ -120,88 +154,70 @@ print_governor() {
 }
 
 print_drain() {
-    # Current discharge rate in watts when available (positive = discharging).
-    local d name now rate found=0
-    for d in "$PS_DIR"/BAT*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d")
-        now=$(wp_read "$d/power_now")
-        if [[ ! "$now" =~ ^[0-9]+$ ]]; then
-            now=$(wp_read "$d/current_now")
-            local volt
-            volt=$(wp_read "$d/voltage_now")
-            if [[ "$now" =~ ^[0-9]+$ && "$volt" =~ ^[0-9]+$ && "$volt" -gt 0 ]]; then
-                # uA * uV -> uW
-                now=$(( now * volt / 1000000 ))
-            fi
-        fi
-        [[ "$now" =~ ^[0-9]+$ ]] || continue
+    # Current charge/discharge rate in watts when available.
+    local d name found=0 _WP_UW tenths
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
+        name=${d##*/}
+        _wp_rate "$d"
+        [[ -n "$_WP_UW" ]] || continue
         found=1
-        pline_sub "$(_emu '📉') ${BOLD}${name}${RESET}: $(awk -v u="$now" 'BEGIN{printf "%.1f W", u/1000000}')"
+        tenths=$(( (_WP_UW + 50000) / 100000 ))
+        pline_sub "$(_emu '📉') ${BOLD}${name}${RESET}: $(( tenths / 10 )).$(( tenths % 10 )) W"
     done
     (( found )) || pline "${DIM}$(t pwr_no_rate)${RESET}"
 }
 
 json_out() {
+    _wp_scan
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "batteries": [\n'
-    local first=1 d name status cap efull edes wear cycles
-    for d in "$PS_DIR"/BAT* "$PS_DIR"/bat*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d"); status=$(wp_read "$d/status")
+    local first=1 d name status cap cycles wear_j _WP_WEAR _WP_UW pw
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
+        name=${d##*/}; status=$(wp_read "$d/status")
         cap=$(wp_read "$d/capacity"); cycles=$(wp_read "$d/cycle_count")
-        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_full_design")
-        [[ "$efull" =~ ^[0-9]+$ ]] || { efull=$(wp_read "$d/charge_full"); edes=$(wp_read "$d/charge_full_design"); }
-        local wear_j=null
-        if [[ "$efull" =~ ^[0-9]+$ && "$edes" =~ ^[0-9]+$ && "$edes" -gt 0 && "$efull" -gt 0 ]]; then
-            wear=$(( 100 - efull * 100 / edes )); (( wear < 0 )) && wear=0
-            wear_j="$wear"
-        fi
+        _wp_wear "$d"; wear_j=${_WP_WEAR:-null}
+        _wp_rate "$d"; pw=null
+        [[ -n "$_WP_UW" ]] && printf -v pw '%d.%06d' $(( _WP_UW / 1000000 )) $(( _WP_UW % 1000000 ))
         [[ "$cap" =~ ^[0-9]+$ ]] || cap=null
         [[ "$cycles" =~ ^[0-9]+$ ]] || cycles=null
         (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "status": "%s", "capacity_percent": %s, "wear_percent": %s, "cycle_count": %s }' \
-            "$(json_esc "$name")" "$(json_esc "$status")" "$cap" "$wear_j" "$cycles"
+        printf '    { "name": "%s", "status": "%s", "capacity_percent": %s, "wear_percent": %s, "cycle_count": %s, "power_w": %s }' \
+            "$(json_esc "$name")" "$(json_esc "$status")" "$cap" "$wear_j" "$cycles" "$pw"
     done
     printf '\n  ],\n'
-    local ac="null"
-    for d in "$PS_DIR"A* "$PS_DIR"/AC*; do
-        [[ -d "$d" ]] || continue
-        ac=$(wp_read "$d/online")
-        [[ "$ac" == "1" || "$ac" == "0" ]] && break || ac="null"
+    local ac="null" v
+    for d in ${_WP_ACS[@]+"${_WP_ACS[@]}"}; do
+        v=$(wp_read "$d/online")
+        [[ "$v" == 1 ]] && { ac=1; break; }
+        [[ "$v" == 0 ]] && ac=0
     done
     printf '  "ac_online": %s,\n' "$ac"
     printf '  "thresholds": [\n'
     first=1
-    for d in "$PS_DIR"/BAT*; do
-        [[ -d "$d" ]] || continue
-        local st sp
+    local st sp
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
         st=$(wp_read "$d/charge_control_start_threshold")
         sp=$(wp_read "$d/charge_control_end_threshold")
         [[ -n "$st$sp" ]] || continue
         (( first )) && first=0 || printf ',\n'
         printf '    { "name": "%s", "start": "%s", "end": "%s" }' \
-            "$(json_esc "$(basename "$d")")" "${st:-}" "${sp:-}"
+            "$(json_esc "${d##*/}")" "$(json_esc "$st")" "$(json_esc "$sp")"
     done
     printf '\n  ]\n'
     wu_json_end
 }
 
 short_out() {
-    local d cap status wear efull edes
-    for d in "$PS_DIR"/BAT*; do
-        [[ -d "$d" ]] || continue
-        cap=$(wp_pct "$(wp_read "$d/capacity")" || echo "")
+    _wp_scan
+    local d cap status _WP_WEAR out
+    for d in ${_WP_BATS[@]+"${_WP_BATS[@]}"}; do
+        cap=$(wp_pct "$(wp_read "$d/capacity")") || cap=""
         [[ -n "$cap" ]] || continue
         status=$(wp_read "$d/status")
-        local out="${cap}%"
+        out="${cap}%"
         [[ "$status" == "Discharging" ]] || out+="+"
-        efull=$(wp_read "$d/energy_full"); edes=$(wp_read "$d/energy_full_design")
-        [[ "$efull" =~ ^[0-9]+$ ]] || { efull=$(wp_read "$d/charge_full"); edes=$(wp_read "$d/charge_full_design"); }
-        if [[ "$efull" =~ ^[0-9]+$ && "$edes" =~ ^[0-9]+$ && "$edes" -gt 0 && "$efull" -gt 0 ]]; then
-            wear=$(( 100 - efull * 100 / edes )); (( wear < 0 )) && wear=0
-            out+=" ($(t pwr_wear) ${wear}%)"
-        fi
+        _wp_wear "$d"
+        [[ -n "$_WP_WEAR" ]] && out+=" ($(t pwr_wear) ${_WP_WEAR}%)"
         printf '%s\n' "$out"
         return 0
     done
@@ -212,6 +228,7 @@ main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
     if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
+    _wp_scan
     box_header "$(_emu '🔋')" "wellpower" "$(t pwr_title)"
 
     box "$(_emu '🔋')" "$(t pwr_battery)" print_batteries

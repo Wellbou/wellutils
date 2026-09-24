@@ -22,7 +22,8 @@ _WU_EXTRA_HELP="      --output FILE           save HTML to FILE (default: ~/well
       --open                  force open in browser
       --ami                   render the classic AMI BIOS 2000s setup look (English only,
                               xb-16 palette & embedded VGA font)
-      --ai                    optional AI analysis (needs WHTML_AI_ENDPOINT; OFF by default)"
+      --ai                    optional AI analysis (needs WHTML_AI_ENDPOINT; OFF by default)
+Environment: WHTML_KEEP_TMP=1 keeps the temp dir, WHTML_DEBUG=1 logs progress."
 _WU_EXTRA_PARSE=whtml_extra_parse
 _WU_EXTRA_CONSUMED=0
 
@@ -31,6 +32,17 @@ _WHTML_OPEN=1
 _WHTML_AI=0
 _WHTML_AMI=0
 _WHTML_FONT_B64="d09GRgABAAAAAGDwAA8AAAABPSgAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAABPUy8yAAABzAAAAEoAAABgdpBzvlZETVgAAAKUAAADPAAABeBiIGl5Y21hcAAABdAAAAIvAAAD6hzoLIxjdnQgAAAJHAAAABIAAAASAFYOAGZwZ20AAAgAAAABAQAAAXMGUJwuZ2FzcAAAYOAAAAAQAAAAEAAXAAlnbHlmAAALNAAAUdAAASHAfv8zCGhlYWQAAAFYAAAANgAAADYJ9zFeaGhlYQAAAZAAAAAcAAAAJBUCBgFobXR4AAACGAAAAHoAAAQAAAB6AGxvY2EAAAkwAAACAgAAAgK5cnFybWF4cAAAAawAAAAgAAAAIANLD9BuYW1lAABdBAAAAYoAAARiaJ3ewXBvc3QAAF6QAAACUAAAA6s31pyscHJlcAAACQQAAAAWAAAAFhz/fZwAAQAAAAEAAISNLzRfDzz1AAkQAAAAAAC7IsgXAAAAAOa5FFIAAPwACQAMAAAAAAAAAAAAAAAAAHicY2BkYOBh+MPAwMDJwAAhGRlQACMDACEAAR4AAQAAAQABPABAAAAAAAABAAAAAAAKAAACAA6TAAAAAHicY2DmZGCcwMDKwMAEhAwMLEg0BwNIlIGTAQwaGBj0gZQXAxQEhzsGMDgwMCpJ8jD8AfJ5gHoUGBgFHYBsdiAPCBQYGADWfgU1AAB4nJ1SSQ4AIQgDOhf//+GJGUwcUnA5NCKUrdpEpFGYn5rEZyjhaeJnfRhHPWbh3m0E3mo+TH12ZmI67CDbY65jG7U1cGKNG6jrcLL7zXueasR2qvpYUgtFz0w3FLbJ//+t9DfPA+HF2Z4LrSp7ACE+fCDcL/8F504JewAAeJwd0NOCEAAUBuHpprbabNu2bdu2bdu2bdvabNu2vfH0d+bie4ABQhDifwQSHGAEENL+EppQ9ocwBMiwhJaBbjjC2G/CE1ZGIFBGdCMRzn4RmfAyChFkVDcaEe0n0YkkYxBZxnRjEcV+EJuoMg7RZFw3HtEtmPjEkAmIKRO6iYhl30lMbJmEODKpm4y49o3kxJMpiC9TuqlIYF9JTUKZhkQyrZuOxPaF9CSRGUgqM7qZSGafyUxymYUUMqubjZT2ieykkjlILXO6uUhjH8lNWpmHdDKvm4/09oH8ZJAFyCgLuoXIZO8pTGZZhCyyqFuMrPaO4mSTJcguS7qlyGFvKU1OWYZcsqxbjtz2hvLkkRXIKyu6lchnr6lMflmFArKqW42C9orqFJI1KCxrurUoYi+pTVFZh2KyrluP4vaC+pSQDSgpG7qNKGXPaUxp2YQysqnbjLL2jOaUky0oL1u6rahgT2lNRdmGSrKt247K9oT2VJEdqCo7up2oZo/pTHXZhRqyq9uNmvaI7tSSPagte7q9qGMP6U1d2Yd6sq/bj/r2gP40kANoKAe6g2hk9xlMYzmEJnKoO4ymdo/hNJMjaC5HuqNoYXcZTUs5hlZyrDuO1naH8bSRE2grJ7qTaGe3mUx7OYUOcqo7jY52i+l0kjPoLGe6s+hiN5lNVzmHbnKuO4/udoP59JAL6CkXuovoZddZTG+5hD5yqbuMvnaN5fSTK+gvV7qrGGBXWc1AuYZBcq27jsF2hfUMkRsYKje6mxhml9nMcLmFEXKru42RdontjJI7GC13ursYYxfZzVi5h3Fyr7uP8XaB/UyQB5gog9yDTLLzHGKyPMwUecQ9ylQ7xzGmyeNMlyfck8yws5xipjzNLHnGPctsO8M55sjzzJUX3IvMs9NcYr68zAJ5xb3KQjvFNRZJ/ZM33JsssZPcYqm8zTJ5x73LcjvBPVbI+6yUD9yHrLLjPGK1fMwa+cR9ylo7xjPWyeesly/cl2ywo7xio3zNJvnGfctmO8I7tsj3bJUf3I9ss8N8Yrv8zA75xf3KTjvEN3bJ7+yWwe4P9thBfrJX/mKf/O3+Yb8F8ZcD0giyoH9IebBOeJzlkodPU1EUxn+vIO4JKlSsl4p1V9yCe+8FDlwI7r1FXDEFxRUTxK1BccS9ElfURMWB26honKF14wzuFVpPH4b6P3iSd9659373e+983wG80B8vAxruCJSVVAYjPppTP/uFQbI3+fAhPwUoSCEKU4SiFKM4JShJKXzxozRlKIs/ARgpJzzlMVEBRRBmKhJMJSxUpgpVqUZ1alATK7UIoTZ1qEs96tOAhjQilDAa04SmNKM5LWhJK1rThra0oz0d6EgnOtOFrnSjOz3oSTgR9KI3fehLJP3ozwAGMogoBhNNDEMYyjCGM4KRjGI0YxjLOMYzgYlMYjJTmMo0phPLDOKYySxmM4e50v05zpPOJW5yl0c4sPOEZzzlOS/J4hWvecM73vKeD2TziY985itf+MkP0e03CzjAZrawnZUcIZN97GQth9gh3Be4J/mgrvo2DuOJXRyX/ILvnCKVPVLH6/u7OcF8NnGas9xhKRtYxWqSWUESy/kmCCcbJW9lCev1G4kcxUYCi0jjMme4wkWucZ0bXOU2GYK4xQMecl+qhaxh/98/OCZ+Z8nbKv55i88a84QnSdhdWoQWo8VpyYZ0w2Plp4zKpMzKokJUmNobZDYHuFxyT5OZsbGMFFK1cC06D++r/FWgUjo+1IN35YX74y6LMzsnLeekI7drHFGOSLBn2GMzU4TZ+o9SwTJTnjDJpOWuPbsuXafFrNM1sulqJYgvieKIW6X/pM8/Q3Pk7wB4nF2QsU7DMBCGzzgUeAMkC8mWlQ6VK3amDE4klCU0DL6lgNRKpO+AlIXFA89ybGbLiyG4pFGHLr77/zt9/u0E4OoE0IRvIb4wib/PBP7uBwDky3adQDity86TeGVx4dhYGe6k0xXJvNoEizrq+LiLutLvbzvK8qnyYB/xXhO0oePzORgqUJ3aPeIDc7KRk02ciEw4zITDRGDALy9dulqTXDbhKVDvFRUelTG6pKEJNHhlEHlrcUrK9aO7nTNfcebFipvrI6UNVCgCjPGorKE+RhX5HbNOMJwZAs6NYjb4J0aizMsk+mYa9dao0bDGGs6Jnu++cXUbSk5qcP0PC/Rr0gAAALgAACsAugABAAQAByu4AAAgRX1pGEQAAABVAAAAAP0AAAAHAAAACgAAAAAAAAAAAACiARoBlAIwArQC8AMuA8YEWAU2BdgGMAaYB6YIFAh+CQgJeAniC8oL5AyCDNQNLA2SDfYOFA6qDvQPLg8uD4wPzhCGEY4ShBO2E+AUYhTkFYQVwhX+FhIWMBbaF9IYJhkaGcoafhr6G4Ab9hyeHTgdZB2qHqge0B/EIGggxCFsIe4iuiNII+okdiVyJcgmGCZ4JygnkigEKHgo2ilIKcwqYitUK7YsBCyWLQIt5i5eL0gvgC/0MC4w1DDoMTwx2jJcMs4zhDQCNJg1XDXkNkY2tjdmN6o4Ejh4ONg5djoWOpg7eDwEPGo85D1kPlA+zj+OQAhALkCoQRpBqkKuQ05EKEU6RhJHEEgkSMpJukpwS05Lykx4TRRN+k8MT9pQzlFaUixSwlNyVEpVElXIVkhWtFdIWBJY0lmkWlJbTFvgXJBdVl4kXupfal/4YJBgrmDKYlhj3GRCZXJmjmpWc6x3bHeEd6p35ngeeFR4hnjaeQh5SHmIebx57noKeih6THpwepZ6qnriex57VnuWe958OnySfOx9En2efeJ+Hn5UfpB+xn76fy5/ZH/GgCyASIBmgHqAjoCmgLqAzoGAgiSCYoK0g6SEBoRshO6Froagh2KILIiaiWiKAIpKinSKvot6jDyMgozajRqN2I5EjlyOdI7QjyKQFJAokCiQ4AAAeJztvQmYZNlVHnhf7JGRy83MysrMytqyqqurF3Vnq7vVi1puJNSSW6KFBJJGEhKLrH1Dm5FkkITEMOxmzMjgsY3HDEYw8hhjG/A0hbEHjz1oZDMEsoyNHcYGjIaxjdEA6urqyoz0O/f8/zvnLRGZJcn+5vtmOjrrvXfjxXv3nnvuuWc/oRPy/wZhIYR26IeVsBP+yZXQCzG0b7+SN3Xy4+OhHR8PG5PHQ5b/xfy8O9G2wfjx0MqPw/yY5ceF/NjLj4v5sZMfl/NjNz+ujMPjITzvlY+Htb2dnwtrof/wq9AQpCGEbtHQkYaOa9iShq2QScNa1E505UX535Z0YqLHYX4M+XE00Q4M8/OlsXTirqdnq7vpUxx3V4tPLxyGaf7XDlnYz/8O8r9e/ncYnsr/+ulM/uQ7OR7i2ydTu/yX/u3nUAyb4c9dCSfzBoGaQEQ6ejI/9nFckM5NBCL5eX69jo6eEAj19vLGvVlwGEjDwDUsSsOiazghDScUUgL+1kSnYEUg4EbsP600oiy08HdYfOSq40Z/iDvTeDMd707401fyG/sJW/LOpnH3o45PZn4VmLAOTNmQcXb2BBHQ6SidjvVR5A1XcniG9OilHEHl0QFItwnkWsqPWwDlqTmj5DzbJyt9ZPabWvUj/7V0nQzln63wz6+E9byP0rVW/lPp2nrehTDRo8z6OtZFwLoYCGoCCotoXwHKRnwv0JJ1dRLQ2yrWTUuA0pKpvZKDYjW9sYU3dsb6RrnuA7fkiQJzAdYqFoL0aA0osZ5wTr/bGOvCOmkAvH+3CskuVkcrm06BLAf5sjlI54ok2bSla+kgB4n8tbg2Etx2wo9L39sJagPgCkfNtdBGf2T0m1wTHgKGJwvSsNCI/oIwy+n5giABz4/52E8ABgLhzbFSM0GgbSEUQKLZKLS6q4jRKhBkCrBMQRYMbab407tD1sqPvfwTRuG5V/LRB6wZpRUd0IgsYU0Q0jtIN3Tzn8gNXQykl9CpjOm2duWF3eIsU7zdzx+1KO9dCfdfSefy4OXUAx11C3gomLSYH3sTeUkQEpPfsGf0k7TTv+Mgf+STodyHhfA5eXeW6ERf3r0ZPiOzou9ew6gXgbEBS7kzMaq5hPXTATUhFVkChgwTxnJ9LMvcLyvRaKeVqXO9jqcv4+nLGF3AmzsgKEPgnt/BlrCOVrFa17BuTuJ6szIN/rztgJElLOkUZNSDql20ZrID21xt5uvl8Sv5SLYSxLhuQmVvCcCbBfSZa12ut2W8E+A+xrdWUJgccqf2ZHcFBFcFgqsKwT6wsyvUDcjHvX4Bb5W3kNL3MTchzU0FKjXUsVVxiPWyDyhVEakMt5EgVUv32sSvnMueL/R3Ffi8UqKKI1DG5QqkloFXPYylA8itRL9LKYRP4v5NYIxQCdl6dvLjKD+emRD/Tgv0Tju+pi8NfUedgKFpc+6jj1x7wtKcBoaSGkmfTwNb5TiY2F7i9xGPpSNi6Vgpq1D4DYyVFE+edSp/1kZ+PJtfn8N8zds6O0FoPlkFmzHSu04iO/v5eJX26bcdt5XuF3toT+duJ/y64FcH9KBvRG6ixwxzMwR+yZjXgHd+71zH3G0Uq1J/v405PFXQCPBL/QbO8krYyNk26UoGlF9EVwRMHYB7MC5PgfJW+p1MwcloXMgscCoo9wtgdrBhtBK6T/ONcj+hvUd83U5ang9JMFwJ77iS+DBdqwvpuAIKwQ1DjosFni7JkJfqeJpgEMDuLwEtBexDHEcTHde2G1gn9fowcczCMw/SIn4KJK6ft5f7ux4+JJRsBA5gKR1X82btd6vgCAKA2q3S935190/97uARGfZKLqt1zFkijpPmeWknXqWV9jHdzvvpKGO5nn/3VOIN+4nbDwlC5GekdRQuZ99zJW20OgedgjoLlz8A/C9MFI+7wF/uaYn3w57HXWYdeOvxOQM+d0B7hGs5jeedGSuynsPxYn68kB8vFbCrCQ7A+ybaxAVwJZwBMGU+FhzHRLoltEp20E2szSwaX7uE64hrSgGkTT3Qpj7GuZkWjo5NaZLecx737I51Mi+MdXzy7Jvw7EvAlZvBuR1Fy5Rhmib2lP+SW2uFabH/tHDdLnZsQfSDtGOb0HDghQTIgSORA7/tSsISgeAQ6DgE1OQoVJ0SQa+CFa0EseBkwRrlghhdEw4dKZstDHUbxSAZa6doH5WEpcrYPnwlPyqmjzAWOQ5wFGyR8Qwwnl70cqAfF3pt46ox+Rg5MFPHNXtW66KbzGrPtX/enYdM+dMFkU3+xhXZCRLmb4MzDlF3YeXJoVzIj9uYry2Mb5vjOlWfL+P0R46Rb08UKkNATDaSIdZLD+ukizXSwRqhXCi92DpC1G0XW4pJK1NsOVNct0uQIh6HTmb8VT/JDB8TGV0UNab/kQ1RhPjuxERyQon8lNK6MGumayhtEi4aetLQ04ayqGuUnH/dNNh9ILGd828hXMtHc62yH62G76GOS+ani31pWGB2C5hc1mGhY/2GxdeItSqJ9vA8SutkIpROpiHd2qqiM3ekKdhhETJl4p7IO3k1SXrgCQ51bY7Cl7X2Tc5ayGmBHO8BRnNjlzlrj3VjpKzVB+VZaaDdS1Hpdh84KfuM7AXCHG3j+x18fxrtfl/aAA2/Jyr9lvfcPTHafRnvvAXPuhXPug19vB333YH77sSz9tD+DLTfh/b78+Pd+fFBXD+EPvyxYg7Pywydd3N4kzTc5BpukYZbXENNIXdKGk65hjul4c4ZPH9qeKY0PNM1PCwNDyumPBSelWbrQthNxzvAET0clZvYhCwr1EN2+DP58WljXYUChR6ohMzkZjR2latS6PKzBDoTpTBJUQpa9hBmfimaNLEQTYIIoD6tqBJKGzPfxcw/DTN/Pj+enchurLMqs78bdaZ3MbOXMbO34/ecxbvw3Kej/3fjvfdg9u4d60yvYaZF1n1grLMs/f+yOfL4cT+dgiKq1NJK+//UST5y7CZ6elDQVvv2epKGTPafuj22uj/ZLjUt7cjcaztCo7bqGkAhhboLCknrqGyVFXT7XPg/riT2VXCoB+2kUB+hNtU9uR3LHGY7rdxQRvl+o4ptEYJ3H7pZQZchUFQWbwsEYLlB7bYKNFKVm953Guh3Bqh39ohNLk1xwwbXynl2nikfX93kbEraoQy7lfDaOsza0e9kNZh4Yj8PFtK23DCm8himlT5fS8qYch/fUdYb0voyqmqLZ0lLw+KnFBApbPfAni4CRZr72yqUAYq47bS3GmTBL7ZU97cePmISkkp9ioftcZ23WorgfSvGoSt5pxdKClH5RavWXR1OBEVReaMZjdpu7aoWt5N20TpvXBrLB6+EiLW1il21qotbxZhiaU5MCpNfrpX0a6uYikGk7lWh0cXYWjOmQtkE9rWVaI9qo72UUnDxGEcvh2jY4ZyEK4mgGWtKBjtnw/NZ7aVV42GwE/6haRto/ZA1Qs1NHzpHryGkLYjcrdzvtW0q6QZBXafzP5ZtaB2iCBnRtNWNVWBcHJutaB00pxO/FLYiMtdZifYcEvdhH1sJL6/aPLxNY46NTxjS5UKbsQRakpjSBhNFuYfXklhrStRppU/3VG12ySYnFH1U0n0NxhRP6tAqQ6ifUI+K3VaCTo4wLdP3rYRvkjXcgaKmLmHR+jEaU4cwk9/2xrAhKC4lhCRkV6htVTHvFdBTzOUwXamAH9R20Veeupv/82KZxX5NA98Bpo8m4Up6HnsiX/TGpjVsR28kBzSV3e+lDtAycJj2fenEfqHrTrqmc2FfuFaVw87HsgzWctQnYMsdYnv1eqUuVlsn6jas+iRYZAd7ZXjPsbSdlYazrgH6CONrT0rDSZ2ileRNoFpamrCyidNeR+UzaYtbicoUyF4gTMEZGPDna6gp2dKu4Pmvw7TVi7amB4HwEOo+anzaoPPTHN6LIVzOvpMWBWosdaYD+ndiopumtF2c6IRfBDbTlkfoL8QyD70M6MtzaHcsLAq4/xzuP4/n7WL2bsK1afdqloeaaDNXPKWLx3msHxlUa2JbUXdiW6sQcgoEMkBhyhegDlyFMLGGTeCkQ7Oq0JBFU/fJIM/lv9mJpt67aaL9uXlyNAfITzefUDLv04LtbsMU0XKb/TBN/b5DmMNEvRQJqA5MJKrw6xAO52L2RvHtUKv/aXAhJ7HagrPiiB7sAlblCaxUOVJbIivzNCidDJvcC/dJmhJWAeI1fE/LBhnnbYBPcGYAnLkInMkSzoRZ67WmbLEFLBtrLHFaJK1nMTZOXeHdAC0wtb9VVFlAn3tYz3J9BmhyHu0y9WdkLVWUO7OnWybqevp3/matQsC0dE+rdM+0sKtA73V79ilhK7YTFGLO8AgUhDpdwkzLeYbZOzlRTvYWzLSwGbdPdPFcikr+aWu8HVCSe5cctE5Gswds4LmbeJbMrki8Z9Eus7wJyK2DMqwBgrdHXUC3gFLI9WU891a857YCKy7InF9whGIkDaMZVJx2gR5sdReAFReA2UK9ROQZTLzrlXl49IHJgrnrwA7aOgcgCHLPDrBcKb9i39mxUUMZr4zN9P6KOaI7uhXPug3Pup3YdH8FfTY3Zu4iiZPOpmqQBkpNWweFhJ/BZi9nQyE10xYNnupB1r1O06dxGIeU4WR3Hwmi3V71AQlccMZJqAnPaCCZfEHoNvnygsdaDz8r7BDlrKywPQh2zrI5DIF5QprjmJaombKuV2h1gAD0NBN+hwwIXSqWo+0QosLyqqV5wlmrEGgOsUTlzOTip8qyZhkGq4BBBAxWo8maTXIa/T4iYCPty5OZmusSrzPRxccdszOpC3FUiC+NKcg541+CxzwYGLmioJrBoGFwKOTtgcpnv27y9iI0wNRpLGLsnP92NI2v5xRVs1uXw2uCC12tjBOnYC4gJ07I3FO1uIhXLQMHpJ1KZW4XJ4GaW1jIuuXM5wZML6Gy2RQOJFOw1V7hRqYwMxzKKN+OwqMz/bIcl2ymquM5aZlgJJ9uwWi0Ev6K/0Rb6MJX1ehCeQ6y6hxk1Q5kYz8Hdz391szwSalH22T6jvioyJ43CiTxplrsEreEEZIe5/edL/QGM/SSWSFkJSHQfGN3wu+Z9b8Dbx0SkQUsGul08r4Zm45S1uwK5oF2RuoX6BVGS7kssFPF2sX+VZNkIJao48QWNviT6AqN1GTvpVurYOekG51x2UWM3h87wOOk0jiCc53PsngDbQOrQr4UcvXF7B2yztfhBbVaKA3o9yZ8abLuAI+9lx+9oejWQn3NIokTFiUtPqNovBz1/6fw3NMQFc6CD6YVn7LLBfz+YkFX4IhgtBUsiWM4lMFIjlHoMn2+yVRVaazcv+z2mqVoczqKxpYOoumjydIK2SPjIcwVnREEDMp81DQKZaMdlQzm21bewszyqgrpXqIG5m7eSNxN97skut8utCddLPIuAORtPaPZe7h3FWgnQ6FOb1bbu6o4TE21atipp76KbhdrPe/nxext4kESICspLRUuTTYFwQ1Z02eieqL10bYFrcWZaHr3qkeJ4OapqFy3TK4gwwlwnJvA3220y8QNMXEnopeHoFeswaRJ0diAmSNAjSwwMSYD9rWckNQeG2cQAV05Clc0nFBPpQMjlg5j3W2vE41dvoBFJsfzk9kOEfW5k89B2hW7pd1QCPY1pzRuFehrgtO0oD82zzvhGnWIQoNszwzo8hLmdDGafXF1XNdEBQxP7VDH4L3McE9Xb6qg5RUZoO75UtKKALQSvk2cr1YmpoKSLm2NDbU2QW8E6lRLqbpmPn1vpT3W4EzTYAtKqHYBX+oi9KpjPn4Jvt0cwoeic4zYNdcKFmsHGgeabWT78bImSWIGBAvR/ElOot3iC7YFsNvzPHHWpWHdNXhpkaEHPWfzSk7bE4UbNcnDiQmG0h7RIYF3y3cQJu2tYh/NGgFNO1Q3QXAff8ThbqGVP4B8Zrvp9RIer4dPyJoX/0ilFYKzwz1lXL13OuUl7fRMemK+K7aP9fCI9qTsdp6cZbBEvEm+jYmjU4bg6NoMvqIF3Rdx7Ho+rOtJMeJxi/yc13Vshp8UgXMDLHwHvpih0Px4iUmuud2uz9bPewmJ7s0JBccGBY6+F01CXJoYNyUY4RVISgdn+9Z2oTSXWZ5Cn6fwyJJr8qCQoAiTfoWWrYe/RO8fkx3pjZq0GBBqIqAiR8EPlRfpX0+ogNWcLTdylOQzaUzo4TiYeL5mnoyoNL1f0OkO2AzBBfUf3q/xjf2csvyOaI/VonAaCDmARYFCRGdsOoMAGGzM9sr1HtVUGFHDvAz6TD6uOzF73XBswQXtWKbT3sGdRl2aD6tOcn7HrMqMs7HmIK2YLNC1w+g1dcXUDnt6XYXnZvhVodBLzsIlvpiDko2Y9u4eBsiBygLfACGUe05MZtIWb/3qY8F2K1YwwiAbG9exWcEpOiN77X45eGC2KjaDoZm+0/sOdtP0r+xxylEo3K6R9rTTjdCpV2yBnTEhFQx/VLa1eTThsp2wXnmSZGvEc0fhZbaSZzy/gRkmoa6aPpqYYXZChztI3kAMuSK/PhQ++MMi8+6AP9ou7EjcKAtbWDQenptBH0eRn7ize60x/YWpu+lFk4W9QmUXi0Leuzk2+1JiJ2ODv0+3aktqMvTZBF2E2pIKoARhmHAGUJAtAylHE2O8pI9C8qn9PoFxnEC/T6K/DPIUBuIU+r8DJCXrneROIPUuCMWFYzgQKREgm2Ci+LTWMiyJ7E2Cewa7cVv1SHK4qcmTpezB4tW7vVywkr8+NqoKLr3V6EpMO7YubtmTznrshvzdw+LvQ0YsQjnc4j8NXCIOnQeB9ZEIm2jfwvO28b5TY/P/ixEiUPQen18MXuk7Gdd6Fox8p4JTOxBWhw6vJO5tcVxm6pejEcUF9N3jj+KLbiwXj4k33qPPC0nlluPiTYkn+w+mKeOMn4CTjqdjfawWUgExvjJ2pB8b4iNrHOocI38txqCs6bMoEMK4CzjL/AjO0d+wuokzWjBt1nMUZe3CyaYssk5h9WOMBsXUA8fPDYWfezud3RjtalFGjApUG32Fk828WjuDzJWCisZ1BjaZOOb4mIlZmmxoBp1PK22HGZILyLdu/oUz+yyVDMKbaz9OVayxI6x86Q/FK+/3lsXybkDWKEnaBXcBqW6Os4CJeRKnxy1ZXQgZ807v41Z08XmY8TXgYwQl2cJ92541a5j+DhQTh8X8+88AeKD+r/3SmrtW53U3w8c11DXbQ7KIscp33IepF81AQ0y6qQUqlI2inUJ/1sJW1nPIQZ7WRwvSuZ4BUcOCTBX8VlWnaCxPC4xqr2BTn0qs1n4h4pBBLck257JLFibXg+PuDjijxIOMTcrrgN7KAESrMAK99zFKtBdSP0w9jrRv4f7t2Xpeb0fcimWelZoz6dIW4FoN3yZJYXcJb2EVFpytaRXwJV9LHQON7KKyrgbCzmcVzHfMojOzYHGcw0BFblZ4oVClq14l5bW+GX5RZmYRrowZaH3ds5Te/CmzQ/S0fUWAueKgO5SGoUJ3BdBdic1BaISeTDJdTamhEeh5ZoBkJDFnYxoFDGrbFfB1C+go0nYBB0HUJwON6JTMnwqHFd3ivxLqNwL1UyPNKVA9OQ4mZtNmFDojqFZxD3NKFIaZMb0rZu6MXiTYxERQl1i18ZbWd1R1wDJISLJvgrUnzlm6ifm41gm0/FxL0Ok75kJDrXVbVOgdFFcHFZ3GZvgF82NbdLahPmT8RcDT74c+Op5R8YmbECGy2DmgIW9a0yaPngD2nQD8TkQzO3l/AHPW9jL8bBj1HDSo+VMoDQpIUCodFHDx625XJDNax5cTZaxbzZL0BaukrMU22s5PdLfYjaYJIrc9cFCkVW03mlWtFKcfleRJ+/bYJBzBWCGBwgELhyrv9r4w8v25AoMRhzQnlA46BAR590tuqtQhd92qoqGB3PEQ3y1MTOslnH9VbeBR3ZR2atE5OzG/pd0j1DLc9TqO31Oye1AjuN1EXNpJuWluISWSa+thFN6vSU2SGd/hf3sPtrSxLu7h5Cj72RxweyuzptIoY3I3MTQtBB/LABaSjumJ4H1ZRuEtxv0zaKPsw1KRLpv0z+YLUGVcjXZVs8l03JpaCMx0NajQlpXwIY0MFZ05zVumN/+i+jZLJ27+M3XaQHRRR+pWqe/tlKWmaru6LhRgycFX9pnNkg1LMDYD9ndxTb3MysTsWYvRm+5mZjurMUIlYJR9c40zYuhoNncWLdqKgjBZ/2TVikrAj+NJ03P8i2Z3OIRtsJVYTxW2mC9tgGM7UVmDbwzfL/LWCF7zQ/CeWckYMirhcY3XniW2FjIoQcPneeezRVAslUQqQxavmHZpjzWjve2shxWcWZf8brR3MhKg7CNU0etOdEpqMuacMZpjTwP5HkKAZdiT7pzN82nkkxYx5od6Kq0NHe0TFdv9evhhG+MK6M4KFmIAjjNgTMYtO8H6xLLo3Oh4a3ns5gDgCx2oTO8TYl71epaCgokFxMe1Z8Ak2wVqo/DrtId1SimQKpq0mTSsU0/BqvuCWiK6hWJgmFMwxUTLN+jHsB6+mz65RsVov+tgplTrN3OVebXHKtQdjAESAa9J7VHPg9Nsm+ti++Z+0oOQKpaV647/PwiFbXJqstFPXkn+srraFCOZO8zLROtY5WtxrnWqrOzfNLVOA2ffceM7KtWSbArzPL46jkf3NqaD5HL4ZGJrsmKWVfFb1gd+2uwZJwAHRh8OYoO1bmI+2NQPrh4XNg1qjhZ4RprwCKz2xPLDNJnrmHGshd2xE8uqjlkidsttPNR0TBPKTCFMEmkk0UPwfkdvNp5pCxA7DYidhQ8sNaek04TUaUDqbLTe+2w8DF+hb5v8bnc2RI9WqNbcE6EWhwjVLrTghRE9lvnzjlM5bUfTRy7ChLw0cZ58Y8uyuBrLfPomFjhVL/S/l/nycoeMWoN0jud0VI6er0fNX0902aJVqcttFfaXg1C2qSW+86NVnyPL2kG+Tef0qD1oJhvRRLUNwevIy8ypPSeP9oMmCMoK26eXQ96qcojIHYvoMzOstNOMzuSf5zj0NTk8lWdKhQ6F/EK4mtKI+JwDSWfwKcaqWuxqRNw2Y+BIdVJsG3T9KVZpYtlChESevAE+wFOcIajbyejUVpUJIQvEzDmeJCvrO8+2UHavrVoA+4WGnoHtFR7pe+lTTz5QtAijYmcifVmFHlVW3MpsmbK2Jde8vY0F0gd7L016eJcHOK0MT0XoYbLKH+TDuJq+L4/rYvaYjYs5JFagzOlh7nsYl8VKGOypL1oGzVyNZb/hhWgRPzt41hnAyjQb1fi1mnvm0QA0ZHq8FAM3N3Slqqq3EA3FxDXQ2xMNOhLGJjEW67hWxFYDHnoLNEM+Wk4LMi0+RjFbnkauhx+1NdzEKdAtNU4sVwF9mSwuaObaPdK5qUmgXypBdLZD0yEEeMJiH9qeTlKS7IcG+8bF7Gv8vm/7/CnodLawJuk7zLgfZmDyVivOtPctZk5i5kjZwX1nACvB3RPA3bU419cY2vkm12KFnTeA0J2Y2MZYrqo78WBibsWcS5nfqoaOmfdos6GGTt4jxhC6FouOnJq64+z03r2YCQHMuViF7LJ7cTl7Hu28Tv/VD8+7kgx5dO5V/dxMGlo1T6tjrKFZJ3nDdeCftFDek1N+6o+a1X0bhj3hqjLSN+BSNQaF9gfGopBflN+Kf8ImMyl7fKilkZop3PIzP2bEX7VLd8Im4OD6AovipP9RP9GEmbCtql2UcFp/lTh1Cn3QE4TtQOPpN8MfGM/G3BPrKZ+fS+4Wjelqyijpo2RXZ/NHNf2srUCxqpuPFyUYWq65Z1O8XZpYdj5mQpst0ViGPvlunvGi4zDePlMgpc+ry6kOyE0gVu+GWK1B0g0ccp4H+UylXHDvru7l5T3ctBu1fEFG8GXaLB0SoxZS3qCJpRtTYbw85I7b2DS/Bofk1l0/5OT6t8TQVualVqCGqMZspuCfsena1hyurE5cDLpTf25FL/nWxLIjWa1EdyZlx9ymgE7SWMY20Lqz1cyiXbysUKJv+gH8dvNtvWVJKUxQyme8NT0o63+6+SL6W7KS1uCBx6hPq0mQjW2aKOlKu3GjNS11zTfIi0tUdlFx0qR5naU8UcV04dJfWxWeF6J02MuPHXyznxRiWRl/1sMPqu9+gO++vHW0V850SF68llG4OYUqcZ4Kj6piY158yWqc7affRV2EQ+cSNE1D9KnlKmskn+dT2Ug6xZxL6i2wmXLDw/l5ouML6IB0itn1F6M5Wguu0k5Oo2tyipgw0HamZxDcDAxgljoaDZvSsNnsd9B3BJeEfsERe0/oma1pdWLJU4SwCgNkmZsaY/iV6LiA/RYYkCmk8/3Qmvr4fIi/XFPJb3NDvIVO7mkyqpOg9Ot70HNxt5hY5/uxIUNct4GgWI6lqugxmPiN2Ji5KnFhCs6NGfpWxh6p+vt6DdtUXDhw+Oblhu3wy9QeizybFbp/BvfItK1Ec3hYHZvMR+svs1io7+ixcglWUwRVodPGyOm/vgBIcV02l/WYx0+RU7IQTbN59tBOptQS2qc1eaB4cjo7Jx1fhH5kFHxGt4iBkEdnIigGQVFeXqjATnUmppWr5kQSnvJ0AdO2gLDtMA0rsFsVNtpFA8o8pDUq24KvpjSM5ri5CLwbjM2ow4gtITDrk7IvkK5NXbcivJwW6N9/z2x2NqfpU6PqLdj2NXynFbrTltk8MmwKtIqU98B+TqX+XtXf36oRVfXh5NbJ0SlnP1OLOyv1Qdawbxi74PGWCnIqZkl+i6Qok2ZnCE0jWrXBqmilbuK0vSZ7gcu1thS+w3LRN9VU6DsirFrwo7SNTdukDbcx5UUt4T5Tr7WDORdMA93lusl3/oA2j9XwQ9SozR6LSuw33Pf2vL4vjy171xKmjdJdbCwi0C3GVXY+kLarhcZmUPM9WIM/ZrUWEO0T3ejjuet6imTtmhifKddzfC7n5FZvUOI0FZfqkZmYGGPh96iBw2zpzImJ+R2YeeEoz7e6Esywvxcsik95ZFrOrpdk3GF4VTnypw1esMg2eKR+vaZOTwxuia9rlVBZp3pQ4k1Xw3eadbYFGYfWWSYFJBeRZIlq3pk55d5qviNecFkszV8TzJllYoq8Z1nyRdpP7urMlvKUp7V9+WdFRtSBlEbMXYR1QOsEhVkIVxvSXO+XKgY2WZs9zeQuoZ5VWSmxAmlmmc+r2f/lNV0nOYxmz4YXiQaxLBKxx0lPPy5LB0zpulRP+c4QVhMDrifRwJwBSvzHVvjXQkNWgq+m0oFOxcetcotfwXIl/8YKQcqvzcz1U1NYQYJuN09jLIuFxxGYGb0pfIQXmhvoxD2bupMwGJPLL6ewrRaCYK8HGjvUSty63uqGKux+W/TEvnKU5XmkFygTCSyAfjBbPq2wVVuH3H9ythRQSylRg2PVKlkzT1Rg6c0TTK+2Pnbes6szGDDyXix4Sb4rZ3E931XluYyubYjWYREcF/V5a/Ci7ZPejpXr4vaxNFsHUxPGPRGmEH4UOAqH/zGFcG/pnrXteGdHKl3Ue8ivRFpZHAwuZs+x9ddBtsABPIp3QePXonEqAodd0HzGVLOWCF3s16LlBt0ZMz6T+R1n5nMsF5xQEeQswHYWK5G7tYgfApLuxNIAnYiPF5WSuDppVmVY5kp8vMFHu5yZJKVfwveSFpUZPqtGshsLz6y6DDS5FdS142WdeF2nshF+if6IZrsl2eqDhLFqk8+NxIQV1AVrpNVMObdGUGvqtSb9QC+WjTrNEdqK2M1wYw69aWDxosNEIFnryuucGvb4IdJjVeWpRnlhzh5fk5f8Hj/fAFvf400m2i9Exn6ROOkp6HK8bvDHTYqIoFcd0P1qFuoUFzF7ZHP5r6OcR6qLqrygZikL6QflLcT9tAQUubtQ7FTG/NOWrZo2lzWXby1xNxOTK5hniaE/mjFmJudT4wfmZqZbAjViiCC1N7523toMH4ZeYApnbx7PMNvXk56rCx7V0+VXe1vwGXCoir0ijjAXZLLhQQJkrnrpFnMVLWCdD2JZ9Ub9PmtmBNBqxj5LtMPuDayQWvJsswgaP+XzSLVjfcX4DGgMjvaB9tUg6I1Yd2EQP0a6eQkzQ2o9ijfq9jXfmcEMxLw6KF1RM1fm2dbDTxleswbDMhT1qaLm2Gz67eh9kI+WpTAH7UayJXD0mT6ZcsmbOJqyes6Sb/exhyl8rhemQA3/d7a8AqfPZBuM1xQYrBe+WMyZuAN8pgvrNtCD8Zs7wFnmmmZVK59giBox1T0eJQ+UsDMAM33xUnopEeOkO7NcFZqyoPkCpuQryBIxLfx8PCw7IbSSnz+NrZYvhxyDuY8Xfv/On+bjJmNx32ANE69XOLKWSXNNlmpRE8KzyuIyV0snPt4QOzfLOb5dCp/ScS6Ew5Jmu6iFo7k+kw7ujmquz9oYzOfCJ/5coP2/DL8bzcvbWD+lORcc1e5cqTeSi/col6RysWareFrPCYQ1OwypbsRK+Cv1ynmMjxocx/ZeRpRmz0kZRTaxcL6iEPzYyjY3OVXooq+PuOt4RR3fKJh9RFdGq6glUsQvL0ESXCnttlThsCMaU2EcNL0ostikiZjjLy2JlUzAauIgBbFGoC6+TCEdOoxWzw5F9CkIGCfETy8wBor5oRzdKGIYLkuU6Rb2LNIN8iCkG/Q52YplfkyupY4AeTIpiyDxRBcAvZti2d+I/Ii0C6E8AUKZasWNld88h/aLeO+lAg+PLsjoU2BeCjfDp343jUky3cv+K/Jth2Ob1NXGVZXxCP2KWKwk/ivRiD9rrtNLvdhkom4Ku7G6MbC2wPHLR5gHsI8tLQf7mz96NcLUsrcaqxNQK7jIQbGSrxVX89oydC+V4lm4i5DEs3KSaghumCuf4zde0/+bRdbp8cYW8Ngkh1bz8jVJbL4yZ1V6WyiUK1UprsjhMVJd7W52j9TfOBcsUyGSNo8tJk2ul7D8T3L5jw3/utF0n0wOsT6x/LEsVbIevZ/y8WOBa9OA8ixp0fQgjG0h9igCxoTlCfgArINA0ACUCtFNaFYzGiaBKBbTabz7epyZrXimv4Dx65rntdl7wJdHVNms7ElQ6BHS/ndL9mevhMuwci2B+l3GTC1hkIvRapD2QN0E4S5jxtRT7fGiGl8vlmuT0tuAFVIWMYMhlj3NL4A6DKPTqIHq7OL3N+H3l3C8ZXZFvdouXasGWuKTpcFH93Sw6peAv965jtCpKuQ0Aaja/NK0R82ZTJrHKiEWpaNinoxG6sJIJZBbmgr61emh+qZV3ROZOb7JW83796kGebb/Wjk3z/nsXqOKtOJv5qBssmNQZ9FkzY9o97k/5HobIjD3Seb9CtH2irNHWpGPVXz78ZLttZGQ0h0g2ZYbhHSfN4ELm2UxWf/lfAPBrc1emfLOmjfS36tz5svW9CjclH1AMv4pn+crZQZgmWDvCazhi5U1LKroBcBAOJx2tFS3XtPSxkyRKp/Fmh5gNqV9Z1Jey5blW4833cDarQXi1bZGT8bpHMgokuraLTvFWli+uLM1RZCwCKon4asYybmIklhH17bVWWfpb53j7Fjr9RhrFXvwLdkPGkXPsGaHjrILJa9S8BHaFtHmdQ9ct5QIaAoM0YwLN0LFQ2nmjx0794WR8XJITWtSlj4G0dKJ9CcmjXgJ5EtJ0o+FHmrtOiiJrrOJ+oJTysnZHCIBmSfVn/msyPhdxFFQD2tR25R96M8tQNkCXmzFctEGzasxk+utySg+hnAbe8g2qBNFZCpOODleQcAaI9WJOr490eSJacE2TQu3Xy9D0NU3K0wxkBv8mlsPl7KXSl6SiyVb9SYUHqcwtpQgDcfCsDcuqwKGjv89Fc0GcWJsMU4trLPNaLFN53Cf6bRnZfyuOXc2hzafRkLcLuooMDsUt70t8MGb0VjEIrX9pF43gSHO3PwlZFoCv6orZzOydFiz7+w83th4oGwOf9wNxgHRd7TOI5flwlE4E/5QbLqmKWI2V9b39JXcWQWjLBcad1PU9LwxKbDbwLxIsoH1kl5yljQYMSt0LdmKZX9cbm/yfVHS0zEwTd5JVuBvtkczuZf9QhivwroqQz5kMuQCYqAoQzJinnKk0Ic22jtjkyepOKQjZ4p3nuixSYbsR59j+Wj13lwZcgBl0nFlSGpC03oB29kdWyJgakS/tLKk50FmrRUrg0PbUG3uMr9OVsNPmNZkiLzqjAsfgu7R25c2PV0tN8wPzOAEj1gFGlDbxJpnhf5j6jIn1bUfkKEzk6G3w1XzHAxOr+qj1brATEatsYooZWRmp6LlUiPUvgiM9L77ZP98liomI/GqfRYjqXqBNfruN8TPZI42TEGHiWMepsNCRUfMqsEW8XEb4kHXmGFtYl64zDLAjNkpMnpimw3z7NJcVc5BU5M9arCt0V/PcFK7n0x7Y1OnSge9Vj9idZcS8U1miQwGt0MwfoTdyClBD0pw6zg62k9Vxx4xqX0heR2ahptmK3IbDOwhty/ta2OLnmRVW2bmTvLduCypn8X1eczNhRuQ73akYaeO0MY3ItopIfQpxFktIV8mJ4ETQLsqY4CXxxamNIjlLMfS+1NReSnWpDqP+3eb1KYNzKTfCudnRR4V5GRudmTsiYsaS3p79l1iTjkJiX7LJPpJOTewjH8jlks/M2zr5onBIQIua7jPV3btxXJGSybf7QM2AqPzaL+A9ot47k043oJ33jbb13JJGpZcA+obWYOPg0kNG9KwoRhwU7gEfG5ht1GJl1Wfae1gltTT0SzrK2PTRYol5iw4BhndpahSaobRSbuIcMLv3VqV8GcLF+nTwVx7A9XU4YQt7UMsbDpZtEAUBTd6JfxxMkirwBGpfH267HVAbqkLci/rV0pldbA2B2Nb+yyV2AEN2IzmRUcrjseMhVjOCEKvGlZ26JXWvned07K5Vkb3JHwxz7kaLILDVecDEk8rSqu83hZ0NSJKsDAg8XM51rN8zJMH24FJWOhn2pzadxSYDNmS+vZDJcWv93V6pzDp2xjvZiFOBfR9NDEf5pZbx6xVn+TwicWl+RreF6Plw/C1yDej2RdlprYxQycxQxulGerKDHXn1X7AYm0S4h8vatKz2GFSoY6Ntx2C8ZaBLmAgTD3PCU1GnnG5IASVb9UtJ4umfRnEetqrTDQpz7CZVbVK+SNKFHFHV5+SfEm2aC/RRSrIILxga3pYlI1pZVOzNqrDgVuD3XyKf9a048yJx1x41JJL53vjMvdbzo1HB/t6/ZsG6W+5cHjpFcaK1tiUDEL6mGk9i1aonkH3J2eEelNWYLg3ubluITkfpArXAp1r4iITqKrSHOEm063kROlctieQ2CjF2OwgoJQeCGux7BpBKkUOmrWfyUEzZ3g7Wg2a7TE18cfnnAFOQ3ZLQ/TFc84C4wh1wZozIchgZlc2beSsfRxKJ5SzU6gauRqZUmWzp+VIlaqOYzP8I63AQB3HVizrOKgt91FvBQ7fgARXk1VK1CSWJTj6ownpIjtDs1LV0s061Rtltq0cwWOcWlM0D8W9gzKsDJ9HOUbviMS3XPFRZgEESieJ2xiblOIzjlPyo8S3OdvXqIavNb2d90U9rjQiG8MitNm+Eu9irPoNqEK1KSN+BbJlkaXTAFsvuuzPgq/4YJzLHqxK1OVcNF6yPhld2JaTsAln5n9m3YtWLPsEd0v0ooabNfJwNEUpOWlUtUNfalm8rA2arfI2b4+qZF73+Jgln5vnh18P62En2xX55ERpPWxgPSQr4tjWhdB5vy42PDUBp7oyMe0p65aUvQYqPlFzYriOXlE1UdMbh79Q+X5WjUM/F1nj0mk3zEiT1F/xwzkwWr6TZfUcq4zQJhWnnZ6xypmDt9dEdUrwnqVnuhGvJhAs8+Sep8FjwQMWN1iswNkb4weOUhG+zXzNNHAjaPL25ibw+UBHMu/1XdazyL75wze+by4WEA81qmFSLZNuUC5iiAarWJyITk4aV+Sjcd3tq5zKuroTltNam6biWtAqWJpvs6Svl8wO3665fTrI7ePzpHZiGQLec85q3DVJigyRaxp53cmtebr9NPusqhzZYUrcXSTtzopx7YR/YJ6yjDn1UjXtox1cb08s7xyRkjZyizf17uQbWJ20gC5U0F7ekKLcormXM/rFe9NsR7MxnZxYMaD5qVV8mqPDtCGoXEMyNCjsndMixJQZfx2czmS3ij5qydmRy/ooGQXrMktP+xABt6NpHnyNBl/LhrXi51jKagVujs6oUPMM8nGZA5ibtjAEmqMZg0kTNHlP7+O/Fa2KA2uSn4KF9PSczOPG0KvaoZV2W1onqRxaKMUDtpxnu1asMj/+c9lyJa/CuMxY0EJJV3PRodCuH9Fxz0zHaLHTVP5v4356Ppm+cGZt5VraFs8U6SqwIAH6A1SLLVfjiHuO3rHQcCsq7ZMN4+wx/ItZo/Aw+JymrOY2DSzWnIWsaDWT2IGSw5ajiUnaZZbKjUq97gW3OmRGNrAqVjBCH+VGD1gGjnN1rGAm1qNudxux7IHTj957bubqmZUOvSnKjepnFF4a2z5dJJJHR4QkrmIwTNBCp7Gq78xJN0XzM45MEVeoKvVusT6otdFkLgdQ2o0CFexWVx50a6D0/arwRaqPaBde3uU85W3gnswI4w3pBect+ts3YOWYk5SXTmssa2mOp3RWY7yxT4xbdU3cctSIVMgc2I52iLHg+lYBPeVGe4VncVYk+NUZ6NT8D9/l/Q8ti6mvpiwKEVFUnQCFEk2mkNqLscwjad42PXrutB99BjPzP0zcKqTwnYlZMaT9BvwPaxN1Y/6H3gqcTYyOMcqmSKkX/4v6HZr3OD1fmlzKvKzxRJjjc9rydtpfqdY4qc8508F5vRGrAhae/l8au+zxp+DG7LKdEgynx7LLztEdzVodKfxrbDol6o7oz8L6vAn7vzS6o+ND7D+D7qiMmq0vVHekuogzpougskU2pgwY1h6brpklNjei47LH0M5PjD9lvUrajr9kuojaDjFHF1F2a2aOX+4OKZXB5IvVQyj4mXOqSTM0Tyvk4wZUj7db1+Mtgjp0AfOqRwz3WEYeMnokAObU88sc7IzpZ3zDefDnaPhqhQk8aadgSvN7tYpUNXa1ukMfpa+rzkk7WJynxn0y24LPokWNHQVbNWL6rFreViW+IQtmq2L2DeYPYW1NJszyMW5k5eiNyhXBzPvLsSwVMIKDNmK53sX3F6v1MZu8lx6vO6dyCiieUTfApcCCuczu4asIMLB2Ge1NAbazM334oFvaVMoVzRZDORRXLMjXiwrz7XBVl0hbzIvOb+6nrP7eMmzhnAX6z2k+opmxoEcnsbAMThbN7uuhMQFfU1WdFUytYPJqY2gLpdFeIb120tAlm81+odVkDbE0/h7Hvy55floY/yqy2lBi4vhXovmDM4nz0mx4HJ3azlSZZXiwXDpjtptrqel3siQYIbA+I+SHDv1dyO/m2D+E6qUdGL9eryv2a/TrsMxVyw0aKW7Y3oywEU1aqWWLmJODsynZEcU9JtboxHKaiKrDd1OKiOOUDW45ady7o2bI1qlCCT33UwqSTGPde7LBbDI/vYx2T4Q7Eb/5Ok0/p2rOIg7c/1b3qiDYw+AZZrDoJzWipjovYilynuP+1uutRmkbOMu83qzsd+/E8k94mzaLoVO+HMWyVyj1uZ7fE2gugvoyFzF1M9UqxfTpostEG9T43mgeO+fRfvdEKbN8d9dEZYu7owaySNtl3H8L7r8Vz78dz38a7r8D992TH+/Kj88QzDvF2ho1DV0tUdpN0nDTvAiSu6XhbsXPu8J94KSVuzgfLqcZuE/eDBZJetVGb6hLHjgdsvRceu2rasvxTix4+Z33L5XvbgPjS8N+2hcnGj1VaM0mllz1wlhn6DJmYgMzIdFSlyZwYIkK9TVA+VY85/YbiJKvrycLjCD/TEcXn0yF+xMVjNeLe72rOIXB65Wn+o8sgqnqWSQ25v7Wo6JrUf+nEZRIo2iWEsF/2XoimKk2qJfIwrKbb2O2GIm4EM19hXEwp8dW64cuQQvRagCex/27uP8CnnsR7ZfQfjN+dxm/uwVr6Vb0i7h+B2ZmD9dPx/f34P5n4Pf3C+7fvFfGbMP926ThNofqd0nDXfPSr3qF0TKsRE8L99Q9Qp3VJXnPjC1pPb0UuKHdFtUH8t6x9nyR0AZ9Z7RXE+UpC3l636mxcefLmJ1nYDbuwWyI36VkzpA1dhHtAu07BZoThfSdgLA8476ULHN39Ti8WvXTgzqLYUK62e4fa0XQscm+0Xi8o9dEKd/3iuT7HpbySpgOmJZwauXVF7si0cwxsHoTxhCV4Lhfk3vSvbmuam0Xe6mxIAspKFkUQ0Vtx5b8j7yit2W/Kt5bN6WxnAkX0vvOYJWy7IbgWMpoNSn76lczZns/OKHHQhf9DijPlZ3vNPBvA3h3Bjgn7dtj81IOwDNWxzqFVX8Bq3sHeHYKq7rspVxjGm+VhluVRxwiFq6a9ZiWot7E8vOnhJTY2EcTc7xmgkGKUt4fjwXM6JxOtX6Tu70svzN45lkst3No30X7BfzuIn53E4YtxE5AIYRvRsKBi5efkVwo+xfrq6ma/nvakoS04ihp2K+rrOfWUcKw/Nas1TosLbwsZCX8OpHj1ycEr85CW3DeGHMMlJmaWsCDJbhneC8TWpoTfzo2XaOvBm8ZgY1zEnw4hedeAH4JAM8DgGeBR2eAR6cb8agmjF2WhsuKRysIXmhD0KtmFBNBR8TZLlhqOv1yqTRnFmP5YB3OCpZHD8Oq4g9duBk8yvD8lehduHVTVSWzmpuIOzLk25rZElE2b/QvblRxh6XcvS+1Yk5rakkHWyErpX0rLG/TqSCaxxrh4M+LNnCgcRL9pF9dz2WmnXAuXMzBfXvYy7fG+8ND4cvCc8MfD18RXhxeGl4RXh2+PrwuvCm8LbwzvDe8P3xL+Nbuz18Jrw3fkCbmOeHZQTMEn6/R66qblvdqqLpt0UZPz5oQy1kuqNHyWSp95AVxbheAPw+c2wXOyfXTcH0Hru/C9dNxfS+un4HrB3D9IK6fhes/lh+fnR8fyY/PyY/Pw/WjuH4Brh/D9Ytw/RJcfxWuX4brl+P6lbh+Fa5fg+uvzY/fkB9fnx9fmx/fgOs34/otuH47rt+B63fh+t24/pO4/iZcfwDXfwrXH8T1h2ZrCh6Whoddw2PS8Jhr+LA0fHhe4ehbpOEW1/BCaXiha3izNLy5rno3L6gHpOEB1/A10vA1ruED0vAB11DL63qfNNznGp4tDc92De+Thvcps/BgeCY28bOlYJoVqGD6UKOvonjZOlzIaMdtw6hTolTRQjUiqJoIQMIIPBiVCqXdCkymUB2hYkJ1Ujq1sVKcPpC/B+SX3VAoj1gfZNdaiCYg3TZWhnE5mjAnFE2YS6FwwkSuYXGsY3HITnv3WKmpsO0nozHAsgDvHyuxlwVyDgtE+v1l+P45Y+3/l6P/z8UzH8Ezn4cxPB9j+OPo06Po0wswhq/Ac2VB3ZEfvzI/vljGg8X1Vej7V6PvLwUsXgZYyEIT5vq/yo+vGKsBVRadLDiB96vHulm9BuP5Oozn69H/b0D/Xyu/yY9/Ij++Dn1/Pfr+BrzzjXjnm9B3WaRflR/fmh/fJv2OumDfgbF+I8b6TozhXRjDuwGr9wBW75W+R13M3wT4vh/9l4X8zPz4zej/B9H/DwFu3zojM/GNCAlf7Pf9QvM+62/6X+SOw6TX6kJAOXB/K/nfHx3x/RNf5O/lv2cH2Y9biyEZgZdzirGVRITLuZD69JwwPZTf8bycLr44vCy8Knxdvgu/ObwjvCffgz8YPhq+I3xv+DPhB8NfCH85/Fj4RPjr4adzqv0L4e+HXwr/OPxq+LXwL8O/Cb8T/l34/bw318I0a2eDbClbyzaz09n57FJ2a3Zndnd2f/bQ8sckC87ZwKw3l0CCpILuCNZ2eiqmCgDgH6XaO/f3Ls6FtxQ+T/jIhT1lsmV/X9qzYKaVPY0dlP1dvCFluQgjv7lnjPz2nvblPJYpa1HLnn4L3iWk7LY90zLcsadLSUjY3p72Q8jW3Xi3kKx7cS4k636MR/b3B9EnIWHPQj8eHsuGp+dCwp6DZwr5eu6eLjEhWdLPR9HPF+BaSJU870VofzH6L2TqJeizkKmvxrmQppej/0KaXoF3fc1Y9jbts5Cl1+BcSNLXo/9Cjl6L/gsZev2ekaA34lzIz1vwTCE/b0P/vxH9fRf6+W5cvxf9/ya0vx/9F57hA+izkJlvxrmQmA+h/9+an38r3vVt+fm3oc/fnp9/O86/Mz//TvT/u/Pz70b/vy8//z70+fvz8+/H+Q/k5z+AZ34sP/8Y+v9D6O9/j37+eVz/RfT/L6H9L6P/P5IffwR9/tH8/Edx/vH8/OPo/0/k5z+Bd/3V/Pyvos9/LT//azj/qfz8p9D/v5mf/030/2fy859Bn/92fv63cf5z+fnP4Zk/n5//PPr/d9Hf/xX9/EVc/2/o/z9E+y+h/5/Mj59Enz+Vn38K57+cn/8y+v8r+fmv4F2fzs8/jT5/Jj//DM7/WX7+z9D/X8/Pfx39n+TnE/T5N/Lz38D5b+bnv4ln/nZ+/tvo/2fR399FP/9vXP979P/30P776P/n8uPn0Oc/yM//AOefz88/j/5fzc+v4l1P5edPoc/7+fk+zg/z80Ptf5aN8z/tf5bLHFlH+5zlgmHWw3kuc2RDfWY2ys9H2v9sWfubRe1ntorrde1/toF2VCTLIINkp3CEFjUTxYI8Gwnms4s43ozfXcbzhGZJf56G4x5+J+yW9OcevP8ZeO99uH4Av38Q7Q8VPPrnhUn9vGO4r0rDVddwKA2H1pADa+fnssw1SF3FbOgaRtIwcg2SUSBz9VMzCTDPNlyDZCXIXFaCTFS4mVPhZndIwx2uQTjw7D7X009KTz/pGP9PScOnXMNYGsau4dPS8GnX8Blp+Ixr+BfS8C9cw0QaJq7hN6ThN1zDv5WGf+saPisNn3UNvysNv+sa/qM0/Me66tEEECjMrKFUv8+JSrVgD2uoJfaH8d8a4JBhDXDIsAZYkawB/gLWcLM03OwaZObCHU4y2pOGPddwvzTc7xoelIYHXcNzpOE5ruG50vBc1/AV0vAVruFF0vAi1/BSaXipa/haafha1/AmaXiTa3i3NLybCt/kXpNdzrYKczk1kqkk9ljbmLaaBixGYDPymg4dDKelmze1j15bJPcIURA5kNoh+Y4mQlHgC1MjSn6Ry4Qw3JKfvwwKfzkX4vD0qMyMXAuReFpU+UsIxMuiKivknmfinodw/Sxci0wmhj6RyZ6N33w57nkE9zwP18/HtchhoogQpuaF+M1juOcrcY8wNiJ7vGSi8tdL8vMPTpShEXmH8pUwMq/GM0Su+mBUJublUeWqV0eTp4SJeQPufTPufQvuFfnpDdFkJ2Fg3ol734N734t7RUZ6Z35831gZGGn76ESZGDn/lvz4gfz4YxNlYOT8I/nxo1EZF7n+r/HM/wa/+Y78+GNRGZgP5cfvwv3fg/u/F9ffh+s/jd//t/j9n8HvfwC//+9w/5/F/T+I6x/C9Z/D7/88fv8X8Pu/iN//MO7/H3C/MDqfyo8fz8f042NlVP7GWBmQK2NlLP5B/veP8r9/nP/9yESf84n8+D/imX9F2vPj/4SjMEGfyI//M979k7jvr+P7v4XvfxrXP4Prn8X9/wvufxzf/x18/wu4/ru4/nu4/xdx/9/H9/87vv8l2ejz4+fyvv4/eduT+d+1/O+X8+tP5u1/lB//z7Ge/yqO/0TGmR//aX78Nbk3KvPzR/nxn+Oef4njv5J78uO/zo//Bvf+Ju79LdzzOzj+X3JPVIbn3+Hef497/wPu+X20/2HebzGmPCH9jcrUXMd3B/jNVO/JRNC6nh9b+XV7rAxNV+/N+npvNsC9C/JdflzMjzmtEmYmW8G9q7h3DfeekO/y48lxYmayy8q8ZFv58RzuOT/R65xeZefz4wW0X8L1Lbj/VhxvQ/vtuO9OPHcP3z8d39+N63twfS/uvx/3P4Dvn4nvHxJt+T2bG7v5P/2Lu3PP/r953+7qrbNPdnvQ/k+T+3nz+f7Uzrv///3z7w+0phwW+U/mn0tBSjHW1P79f/03hw3/hpyhvHHb0Ue7H7uSN39dUoe/OrwmHV8MO9ErwisTCyaqzJdDvyQq0Ra2uQ6ue7ge4HoB14u4FvntlVHZM2Eh1nB9Atcncb2F61O4Po1rkdvEn0JU6bQhyfXNY7MhyfVtY7MhyfWdY7Mh0XYk7feNzXYk18/E+56F9z2M62fj+stx/Qiun4/xPYrxvRDXj+H4ErSL7ug1UVmnr4vKOsn163H9Rly/GddvxfXbcf2NuH4Xrt+D6z+J6/fh+gO4/maM54MY34fRj48UcqgIlcEJlRQ8+lUpwhreLw3vdw21vGY1W9FLpOElrgH8fS3YyIQXOApZw6uk4VWuAVKENVyShktOinhEGh5xDS+Qhhe4htdJw+tUzvhI+GgRkC3eD4I0ojAV3ljkjA68HgS5O0AW2dtfEBG1NjHXXdHbL00sPcejE/OkpSzClMePTcx5VBBe7EfCG9KpXGQKn4TssWjp6Z49sXRXIqc8isXwCBaDWMxFZhG549aJIrQsCnENo6vXnfhelBq0Hd2NMdDd6170VWQXcZUURazwRqLYkMWyF1VWeRiwEcXrA1goYnwV5ev9UWWV56N/L0T/ROkq8sqLcO9XYjwio9waVT55FhaP9FvsQx+JKqtIH18Bm5zIKkKYXo12kVfEMVLklW8AbF6Ld/4J9EEW3vOjyi1vxBjfBBi/Bf14K/r3NvTv7RjjOzBGWZRivxF55l3o43vQ9/ei77JAH46qmH0f4P4BzLPYf0QO+maM61vQ/iG0f5iOYf8Z/o7/YTV2s8TMv/Z/7RnndDY7OMLqo1Gbw6BObdV/GaNZ/feau2dQPEesPNU727VnHjY+83PF++Z99LfJ91pivLq6/677OnZS3n3PV6tbzJ+dfK5xfz9cvJK8w+mO1RWK3dmj33bP+W3zGeJ/38+fM6DfN541Co9Un0W3/+KZNa8eUbtYOcCFSbnMIV/YTjlZuuml6uYkfk77ltfzfjGxl30CxeyaHMnGQd88QGKR3t6VVPSP3uy0SVqCCw1XF1gNi5Fm+r6uBJc8pNYreRhzWIi1i65H/UnxRumWd3nxfj7doAkj+ikw/sk0tKsepn151wP0pWdUTpgBx77PSlOCY9fB8POEYLuAXzdxbK+3+rlLcM8T4pNVNiN6VyaoCkSXMa+LTX3quZiHTmVuBRCtFNLSQeJsDSropiC4q3k/B4KsrZbNcz+4acywDVp+GGA8Ma23Z/PbBSJxDcS0DoBDfYXBY5bpZ+DyIzOYp1fCo7I/qYV89hqwuFNMs0RbXk3p/j4v3qytkGKXFov3cwaYrb08A9X3l2d/YSakFcoCgmsFfPs5wslw8f4Cp7t7lllBrCZkRgbEaV09gyLwMJQqk2riE3mRoO81fY2+p6vveeBKeidXaPYF4HM7edWTJjyp+Iw10z06/qQLGnZV13U7GdgX8TtHO6sxL+2ULeSp/NZroYh5wW/74dwVTSXCdzIOqgojfcpVwOfQ1vtQ+o7ndPU5nb1yiF7PPWeY/0THocl3in1gWNB1jd95HLlLCOeib0aLuilQSFLk7ucrQ3uFsXWVvrIf+v5h6n+p74n+P0QYzKAVdbgwTKRO9jvF+BRO9TGm/YaRlh08rkMa2QMlqESsGUAHWKnlTE76Wn29gjZqbHSiQ0PuNw/Va8VzxOqwHLjXKNRlJoe25zBiu4WcUVNsOkqaruF9BV6OwqNXUmxV1Yeyzf2N76r4XpsXewt0waco7QalDEIWu/lbF9NIe8X799P2lzcshpf5KutZiTZm0WJGB9IXISEj9qUvfelrX7iPybof5n1xG4GCfppmvJ+qRCvwR8mbBvHQHcJ/mO9X77ZYMZIjpvlgEaJszLIF4D8W2Ktanl4f0UkE6eIxGoeMxFipy+olJaugXwBwPwHxMCV8OkTsJvoNOGq/3yyxOwtwCuyUog+Z40v6nTxjJlg3jXtrtYxywrsxyyZbHi/+q4tWgXw9cE9ShvrJMAQ5DO0Cz5UveDv5gTrmBTfzttaZDTsovJexXS82YWcfM1fGTkMLYihRQ9fI9aLXuo3rPgoY98NN9UzpNqkadenJ6NVAciYig8QkuvGvhk3JRcx9uQ+Yc19mrTefU4w1G2UGV8fl/P9Wuyaoo9OJglepzXAD6WL5VIaFCIPN0CPmjFA3fA4QCOCw1pgBA6yhQzfFuF+vowVhvKD076uFR8Iu1Rz6WgsStnwCVRosAyhvAMMU3c2NUmamzYBn23NH4bmKVkJwFo/iWUgIh1hsQ/DjVUZJk7dxf7Y9uuXW8Ui4GOURwwx+rLo6m7Y5xb19ED2CfOD5gWKMAWOsyhpDjnFhz5YTU2QPajKHSR1DJOR6EjJr4tOKPafgB9t7Rp/IdWs+p4LbtvfKEmiV3mcQvZb4JsfztO1dDxhtySiDhhujF2QZlEEjAhu/QFmq3NUgG1TD7HFPD2mdq1pEP8P0jv0S7RwFhR3m7MbkQ7+d9hrkw34xT0PMkue51sP7lYjIu05U3uUTmjCqglFxkidpiTzh2h73mStpMD5EYwQizwJxGorRHEZL3LJZ9zhm6+nJyhg+WucbGdXGCBCN/Ai6GBrkhQaSzxXPQHsG1Q9BoC3lXXlZ1lFqv6SEuO6WqiojTL5JMkRJDijLHiq6dCkXtYkz6Xdtyh7G95vs0Uu96DbggNAj0/WQsKimx9OS5vu6XufQma1DUkF2357baX5/lu4TKBW6pu78fl4jfUWdh3bYCYeWxYK5sJjFYgWIyaJePWCItG9PXFY5BIAx867Yesr1AGZlvZoTNOwzhDPDBfNPV/PXNGW6YIRZqs6A30pMxybw0mV48lmdymipMaaWkK8cRdhzZceoMtVqKAH5Rhckb99vWWbFWMk7GrGXphyQY8qP2s4ctIwn98aG7Wgp+beKXFo3khwRew144OWoBo8+jCKynVXzVjKjI6srZbE5TVb1Yyn4NIl3x6l4mZcmS1lmVB18UMAxeDj2w8uVdHbhnUoeJIAH6czOKeZDjkoJeCYWh9HCDnCQ8pa27N194Q2+8Ri8QXPkcy0ThJ+U5oRMZXhq3QSt6DJFWmdNlFSCz8XsDRIUpZLyadD4M+jr6ajPPwN8UgmyHAU4wn0SJLWMPAcr+A1z0a/hHp+7VL4/BYMXs3yyJpVcs67N7uxotgvScMEqszDXpkzxBaz5M9Hy2taTKVuClz7uEXRej8axx0k5sUsfhIpFlTrRUu0z35W8+yzezWqFsxHdCVTBwvH7LoifCSuER9PAUv47Lb61pBfTCq1eCR+y6sijlHDTssWl4imz4+995kcinc+jVKWoPpeSQropDF9zBIntgnk3e6U0dxn3uwMdw0r4XpFxq7lLu0W0dHt2VHttSKB2Na/dNMZljHEBWON3Cq9lKM8aU+keFJz7U8gUNzUdXEicbS6v/h3LE8dZSFX9ANIlhNbX6kQ28VCzRLm5ZfxIBSn5sHiRLw/Nuuish+4ns77b+aRth+C8fYq2RHNarn7mOcnJRpyMmEma25k/oeOozOqkXLuPO5pcy7JcdctxGxSqXvGiliAPTg9N5WZtp9sCnLytgYhfzdbMzH7VgHXmxiGJEBLj0+LNz18+TaoAcg8+gvwpwLyfeENPLso5P4LPV6gVE18ra2gd1oxV0P92TTxltq3uuJxdzif+G3DUsZwprxr1TSKZor4RaXYO17v4/gJ+ZxnzanmUjO4LEmkGYU7SViwnyuuDHsskyXGhwqYsuAljmW8m3SXNJ3PaXMHIT6aCwFeoPerTQoIVTtRBcW4VaQ/ySW9h81aGcj9Rz6xYXodlOpNyo69ZZa4eOPV10NANRAsyf/0oWnVRpl2QTVIihFbH5Motui9En6setKWW6bM5uXYbOtWI1cWSwUz5LO9eAC5wkkKsb9xWAMkmyIpiaBuzTx1VMMbzTNycypPAtmHQekmJdrkJktXWRX50R+fOZJeE2usq23RVfZh4rzM2qi8rbDNaJXqfPU3aJZbTV8BjdZ8Mq+pktAxoRvNmlaTKTF1jGxEngwUtyB0tgOz5gtN+MjJMBsnxIiZkwU3IIJbzu7DE4pkjSaASwGkqtEQSt18IWSpK7ReJJ8lDWCr7RPtapn9eD98lszKCbSIg8L/jtKXe3LDuslQGsIcidWWVvWA9lqvcrztMLqo2jb101JxEsY1FrhjIxLOtRPsPoGe1xIqKdEOZQrFf7EpOYK2lIjyTJjM4jzVH+8sK1r1cdydWeEx6eA67P8sTrmEqWRW3g2k8n6aP8NoUeG26jXRFGlYUy3ZQ8oDlRTbj47WsQpskA2MF3gIWwAoWxyqwTdp9skWW7mEXRcHAErfbWPqyMLTUrcO0mYH0Bn71E9oPFo+utSimKeFPuTxC0gYV2Cm8e6LHWt85pwWb4Z9a3tMW7OveTuPLoJPL6UWfvdXScAYAgemU2tFXea7J8yABpdoGHc5BBe4hGte7jJW/jJXPfdJK78wmqcoO+t1Ms38eOFWI7WAVPnkosvPXHld2niMqH1fjroVqu0ELwniNe1pfmfLu6ju9E6i5tOKu3vbOD7Wp/eRrcZiKJV/HOLFHDFQ+e4lJM3QbLaoFVW3GWdVmHCbNmc/KIkovcYpU+Co694DAUxUX0aeh8ucdq6cdUy5WVKWE5idGV7IK/U3FT8eWP/l0LNvVmPDrNCgJw+5Yc1fzRNZn1cC8CXq2XamnKU84DXFN1sQp0LBtUFzp9Wa0JNUiTfh6L6NoW5LVfz6aM89gRm4Fz3lPS1fkGvzHOwlW4B6tXtIyKuguY3ZZ6JQZ3JkpnxzTBnCH+TaZSGvFzcky5oLauIA50Cq682C/Atifq+AeZ34BRMLDVwi32DyEcAghZ/5WmX1mIWPJW86B4PLpYi6OOwfMqk/YTiuQPmIOkp5/IHR6FF55THtexWbapJGzTPxVP5aek5pFYfCHUnI4tUl3Dumv+WHtS3vPssLVbHydOoWYxYc3EUavz+1jvLoPVU2vptNWK/8fqaqmnTGfndLHR2ZlEZtt9a+agspVrNXHVCmXzrUmZoHQY/n0VvL1M5yV673cK5+rrFoFkNLrMFqGYeb3rNUYatK5CMuo2aQo7BRG5nE5bXs/1i0Q61hA61gwa+jOCSycdSyYNXRrFQuGUuhaPJ6wU0/zXr3uFwSMXE35OtGuvtZFkX3sh64kFxvlPKlvDCWr4VKkP5SD4TGrCHmdFdcZ+ek2KAlZRxbiXp7UTDWao9ySah8m3f00+LzkmfgzdNUmZ7a2ss2vXbiGwVZ+zPsPyecMtAbsB7xX66jgAoQv7FEbNjGdO1WsSQdT8EBWOdszJQvF01pORyW/XJnUFZlaCHwKpu0wVUoUqvlEUGWzzndXc4GLDul1rHBhgiTt8slzdGI1jVSCB7VarnlNIlH12JL1qvhfYDEnsBNYqMNKQ4wSY0X1sfDc6OOZ7E9ZzautkBWKIuqyRCNHu4a3Z1C/JfeemFgxWlmWIkysTUwDyepMJ0AtYuPynKmfrhVbqtWHwNTWcuDWJPrUIAyZsEIiB5HfZT2/NlRuJybGLvbR5SGuWSeIaqBlDFVKwwghpMTfieUcCm0M93Rsrupd3bT58cY9SlxPQTLIHK2xbXuqclXBk1dt28oQDJLVuqvrDLUXpE7L+fB7IuvHYHVihadZLxwKg1N/NNm6mBmduk5WplvFvK+X5luyqgSXVaWx9Cmz7cqrfAFQZRx0Z5AYqzip10SO0TQswvTJDrAZG+Rdt6HqUZLepm1ASWAGEWWKDaAHL/SnWi01HA4Cc7NR56LlRAcpIW6Slf4TOIsa6HiczZLLSsNQEIb/U3u3SNGdbo4bl2l60UILQkvRjWCp0n0Mp00hJSWNRlz2PQQfQ/A9XPoIom/gTzNdKCJSXJghmW8u/5xJCIBddQyF5NrjnbDCDqOEU8jBEt7APg6F0+wZCmdQwEQ4izJC4RynLITzVN8LF5h/EC6Sn4Q3yc/CJfI7NSpdYHSkSsIKB6ornMKW8oQ30FU3wmn2PApnsK1ehLPQ6k04h6NUWTiPbOpEuMD8mXCRvBDeJK9mlsivXhTNWpVKHMfWyImC0HWCueUGU+sq7JtwZNxI984v9PC0oxv15sCMr30nvDNeS/cnt8bXq6ZLM535TmRaumbbtW+kTNfbumrZUmOJFRZ+2IDn/FD98xI8RLQZWqjQ4qVZGMFhNuD/4JICzJlz6af0V8z2Yfgc8emyT6OHc1zQD3GKDn0DdTQxYH2Ma/icEeKOkcdzNNUT3DLyl/x50iVpyn385QZm2V+DTav98tSku442M1Xua3/RJapEkyjW+wbJ+6yn/feqD92gzPEAAHicXc9XjExRGMDx/8faUbax1q7VlsVid7lnbJnRZ8vovXdj5mJYM2tmV+/RW4iEJ6JFovcSgkT0Lkp48USiJvorWfs9+V5+uefcnP851ODf/FkuVQj/TdWC1JCaEiO1JFYcUlvqSF2pJ3ESLwmSKElSXxpIsjSUFGkkqZImjSVdmkhTaSbNpYVkEEMtYnFIS+pQl3rEEU8CiSRRnwYk05AUGpFKGo1JpwlNaUZzWpBBS1qRSWva0JYs2tGeDmSTQy4d6YSFwUln8singEJcuOlCV7rRnR70pBceiiimhFK89KYPfelHfwYwkEEMZghDGcZwRjCSUYxmDGMZx3gmMJFJTGYKPmklmdKaGxzkJkdYyXVecYu3XOWktJG2kiXtOM8FznKOtZzmDK/ZxDuucUraSwcuc5T9rGI1V9jBe9awhY3s4hAHJJsNkiO5bOc7P9jMTtZJR97wjd0c5hc/+c0+jnGX2xyXTvjZSoD72NzhHo95wEMe8YFpPOMJTznBdL6yjZc85wUz+MQX1jOTILOYTRkh9hBmDuVEiFJJBXOZx0fms5AFLGIJi7nIXpaxlOWs4LNYXBLjqAwFLctyqp3VPDVfLVALVZfqVj1qkVqslqilqrdaY6naN9o32jfaN9o32jfaN9o32jfaN9o32jfaN9o33ri5wWhwapkdLff57epFp0YKvTGllZFw9YdLb+bSE1x6gktf4NYXuHXfrfuektjZPn8kHHKUVURn+AJ2QrkdCYYDfjtUYUfsQO3hXmNVTdXvznyPHmOZv73D0KQAAAADAAgAAgAQAAH//wAD"
+
+_WHTML_XTRACE=0
+_whtml_set_lang() {
+    case "$(_wlc "$1")" in
+        ru) WELLUTILS_LANG=RU ;;
+        en) WELLUTILS_LANG=EN ;;
+        auto) WELLUTILS_LANG=EN; _wu_detect_lang ;;
+        *) printf '%s: --lang must be ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
+    esac
+    export WELLUTILS_LANG
+}
 
 whtml_extra_parse() {
     case "$1" in
@@ -43,6 +55,11 @@ whtml_extra_parse() {
         --ami) _WHTML_AMI=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --ai) _WHTML_AI=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
         --no-ai) _WHTML_AI=0; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        -l|--lang)
+            [[ $# -ge 2 ]] || { printf '%s: --lang needs ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2; }
+            _whtml_set_lang "$2"; _WU_EXTRA_CONSUMED=2; return 0 ;;
+        --lang=*) _whtml_set_lang "${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --debug) WHTML_DEBUG=1; _WHTML_XTRACE=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
     esac
     return 1
 }
@@ -62,8 +79,17 @@ Usage: $_WU_TOOLNAME [options]
   --ai            OPTIONAL AI analysis. Requires WHTML_AI_ENDPOINT to be set
                   (bring-your-own endpoint, OpenAI-compatible). OFF by default;
                   without it this tool makes zero network requests.
+  --lang ru|en|auto  report language (auto = from locale; --ami is English only)
+  --debug         shell tracing + progress log on stderr
   --help, -h      this help
   --version, -V   print version
+
+Environment:
+  WHTML_KEEP_TMP=1   keep the temporary work directory (path printed on stderr)
+  WHTML_DEBUG=1      progress log on stderr
+
+Exit codes: 0 ok, 2 bad CLI, 3 runtime error (python3 missing, cannot write
+the output file, generation failed).
 
 Collects data from the wellutils suite via their --json output and renders a
 single self-contained HTML file (no external resources, no network access).
@@ -88,26 +114,20 @@ _whtml_tool() {
     return 1
 }
 
+# Raw --json output of one sibling tool into PATH (validated later, all at
+# once, by a single python run -- starting python per tool is slow on SBCs).
 _whtml_collect_json() {
-    local path="$1" name="$2" tool out
-    tool=$(_whtml_tool "$name") || return 0
-    out="$("$tool" --json 2>/dev/null || true)"
-    if [[ -z "$out" ]] || ! printf '%s' "$out" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
-        out='{}'
-    fi
-    printf '%s' "$out" > "$path"
+    local path="$1" name="$2" tool
+    tool=$(_whtml_tool "$name") || { : > "$path"; return 0; }
+    "$tool" --json > "$path" 2>/dev/null </dev/null || true
 }
 
-_whtml_host() {
-    local host os ker ver
-    host="$(cat /etc/hostname 2>/dev/null || hostname 2>/dev/null || python3 -c "import socket;print(socket.gethostname())" 2>/dev/null || echo unknown)"
-    if [[ -f /etc/os-release ]]; then
-        os="$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}")"
-    else
-        os="Linux"
-    fi
-    ker="$(uname -r 2>/dev/null)"; ver="$(uname -m 2>/dev/null)"
-    python3 -c "import json,sys;print(json.dumps({'host':sys.argv[1],'os':sys.argv[2],'kernel':sys.argv[3],'arch':sys.argv[4]}))" "$host" "$os" "$ker" "$ver"
+_whtml_hostname() {
+    local hn=""
+    wu_read /etc/hostname hn 2>/dev/null || true
+    [[ -n "$hn" ]] || wu_read /proc/sys/kernel/hostname hn 2>/dev/null || true
+    [[ -n "$hn" ]] || hn=$(uname -n 2>/dev/null) || true
+    printf '%s' "${hn:-unknown}"
 }
 
 # ─── Optional, OFF-BY-DEFAULT AI enrichment ─────────────────────
@@ -215,6 +235,20 @@ def load(name):
 def esc(s):
     return h.escape(str(s)) if s not in (None, '') else ''
 
+def js(s):
+    # Value for a <script> block: JSON string literal, with <, >, & and the
+    # JS line separators escaped so no data can close the script element.
+    return (json.dumps(str(s), ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
+            .replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029'))
+
+def num(v):
+    try: return float(v)
+    except Exception: return None
+
+def dl(x):
+    # list of dicts only: tools on odd hardware may emit strings/nulls
+    return [i for i in x if isinstance(i, dict)] if isinstance(x, list) else []
+
 def gv(d, *ks):
     cur = d
     for k in ks:
@@ -241,9 +275,9 @@ def run():
     def R(ru, en):
         return en if (lang != 'RU' or ami) else ru
     if lang == 'RU' and not ami:
-        U_GB=' ГБ'; U_GHZ=' ГГц'; U_MB=' МБ'; U_W=' Вт'; U_MBIT=' Мбит/с'; U_MHZ=' МГц'
+        U_GB=' ГБ'; U_GHZ=' ГГц'; U_MB=' МБ'; U_W=' Вт'; U_MBIT=' Мбит/с'; U_MHZ=' МГц'; U_HZ=' Гц'
     else:
-        U_GB=' GB'; U_GHZ=' GHz'; U_MB=' MB'; U_W=' W'; U_MBIT=' Mbps'; U_MHZ=' MHz'
+        U_GB=' GB'; U_GHZ=' GHz'; U_MB=' MB'; U_W=' W'; U_MBIT=' Mbps'; U_MHZ=' MHz'; U_HZ=' Hz'
 
     def badge(status):
         s = (status or '').lower()
@@ -260,27 +294,26 @@ def run():
 
     # ---- data ----
     cpu_max = gv(cpu,'max_freq_ghz') or gv(cpu,'max_freq_mhz')
-    if gv(cpu,'max_freq_khz') and not cpu_max:
-        cpu_max = '%.1f' % (int(gv(cpu,'max_freq_khz'))/1e6) + U_GHZ
+    if num(gv(cpu,'max_freq_khz')) and not cpu_max:
+        cpu_max = '%.1f' % (num(gv(cpu,'max_freq_khz'))/1e6) + U_GHZ
     cpu_base = gv(cpu,'base_freq_ghz') or gv(cpu,'base_freq_mhz')
-    if gv(cpu,'base_freq_khz') and not cpu_base:
-        cpu_base = '%.1f' % (int(gv(cpu,'base_freq_khz'))/1e6) + U_GHZ
+    if num(gv(cpu,'base_freq_khz')) and not cpu_base:
+        cpu_base = '%.1f' % (num(gv(cpu,'base_freq_khz'))/1e6) + U_GHZ
 
     mem_type = gv(mem,'type') or ''
-    slots = gv(mem,'slots') or []
-    if not isinstance(slots, list): slots=[]
+    slots = dl(gv(mem,'slots'))
     if not mem_type and slots: mem_type = slots[0].get('type','')
-    mem_size_mb = gv(mem,'size_mb')
+    mem_size_mb = num(gv(mem,'size_mb'))
 
     def mem_total_gb():
-        tk = gv(mem,'total_kb')
+        tk = num(gv(mem,'total_kb'))
         if tk: return round(tk/1e6,1)
         tg = gv(mem,'total_gb')
         if tg: return tg
         if mem_size_mb: return round(mem_size_mb/1024.0,1)
         return None
     def mem_used_gb():
-        uk = gv(mem,'used_kb') or gv(memraw,'used_kb')
+        uk = num(gv(mem,'used_kb') or gv(memraw,'used_kb'))
         if uk: return round(uk/1e6,1)
         ug = gv(mem,'used_gb') or gv(memraw,'used_gb')
         if ug: return ug
@@ -295,28 +328,24 @@ def run():
         if u in ('MiB','MB'): v = v/1024.0
         return ('%g' % v) + U_GB
 
-    disks = gv(block,'disks') or []
-    if not isinstance(disks, list): disks=[]
+    disks = dl(gv(block,'disks'))
     smart = {}
-    for c in (doctor.get('checks') or []):
-        if c.get('check','').startswith('smart_'):
-            smart[c['check'].replace('smart_','')] = c
-    usb = per.get('usb') or []; disp = per.get('displays') or []
-    aud = per.get('audio') or []; pci = per.get('pci') or []
-    for x in (usb,disp,aud,pci):
-        if not isinstance(x, list): x[:] = []
+    for c in dl(doctor.get('checks')):
+        if str(c.get('check','')).startswith('smart_'):
+            smart[str(c['check']).replace('smart_','',1)] = c
+    usb = dl(per.get('usb')); disp = dl(per.get('displays'))
+    aud = dl(per.get('audio')); pci = dl(per.get('pci'))
 
-    cores = gv(sensors,'cpu_cores') or []
-    if not isinstance(cores, list): cores=[]
+    cores = dl(gv(sensors,'cpu_cores'))
     gp = gv(sensors,'gpu')
     if isinstance(gp, list): gp = gp[0] if gp else {}
     if not isinstance(gp, dict): gp = {}
-    ifs = net.get('interfaces') or []
-    if not isinstance(ifs, list): ifs=[]
+    ifs = dl(net.get('interfaces'))
 
     def airow(key):
         t = ai.get(key) if isinstance(ai, dict) else None
         if not t: return ''
+        if not isinstance(t, str): t = json.dumps(t, ensure_ascii=False)
         return '<tr><td class="lbl ai">AI</td><td class="ai">' + esc(t) + '</td></tr>'
 
     # ================= panels =================
@@ -370,7 +399,6 @@ def run():
 
     # Memory
     mem_subs = []
-    mem_main = 'Нет данных' if not (mem_t or slots or mem_type or mem_size_mb) else ''
     ram_rows = airow('memory')
     ram_rows += trow(R('Всего','Total'), (('%s' % mem_t) + U_GB) if mem_t else '')
     ram_rows += trow(R('Тип','Type'), mem_type)
@@ -391,17 +419,17 @@ def run():
     disk_subs = []
     for d in disks:
         nm = d.get('name','')
-        size = d.get('size_bytes')
+        size = num(d.get('size_bytes'))
         size_s = (('%d' % (size/1e9)) + U_GB) if size else ''
         rows = '<tr><td class="lbl">%s</td><td>%s</td></tr>' % (esc(nm), esc('%s - %s (%s)' % (d.get('model',''), size_s, d.get('type',''))))
         st = smart.get(nm)
         if st:
             rows += '<tr><td class="lbl">S.M.A.R.T.</td><td>%s %s</td></tr>' % (badge(st.get('status')), esc(str(st.get('detail','')).strip()))
-        parts = d.get('partitions') or []
+        parts = dl(d.get('partitions'))
         subt = ''
-        if isinstance(parts, list) and parts:
+        if parts:
             subt = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(p.get("name","")), esc(p.get("fs_type","")), esc(p.get("mountpoint",""))) for p in parts) + '</tbody></table>'
-        disk_subs.append((nm.upper(), rows, subt))
+        disk_subs.append((str(nm).upper(), rows, subt))
     if not disk_subs:
         disk_subs.append((R('Диски','Disks'), trow('', '-'), ''))
     panels.append((L[4], disk_subs))
@@ -416,7 +444,7 @@ def run():
         for dd in disp:
             refresh = dd.get('refresh_hz') or dd.get('refresh_rate') or dd.get('refresh')
             cells = [esc(dd.get('name','') or dd.get('model','')), esc(dd.get('mode') or dd.get('resolution') or '')]
-            if refresh: cells.append(esc(refresh) + ' Гц')
+            if refresh: cells.append(esc(str(refresh) + U_HZ))
             dtrs += '<tr><td>%s</td><td>%s</td>%s</tr>' % (cells[0], cells[1], ('<td>'+cells[2]+'</td>') if len(cells)>2 else '')
         per_subs.append((R('Дисплеи','Displays'), '', '<table class="mini"><tbody>' + dtrs + '</tbody></table>'))
     if aud:
@@ -458,7 +486,7 @@ def run():
     warn = gv(doctor,'summary','warnings') or 0
     try: score = max(0, 100 - int(crit)*15 - int(warn)*5)
     except Exception: score = 100
-    checks = doctor.get('checks') or []
+    checks = dl(doctor.get('checks'))
     h_rows = airow('health')
     h_rows += trow(R('Оценка здоровья','Health score'), '%s/100' % score)
     h_rows += trow(R('Критично','Critical'), str(crit))
@@ -469,7 +497,7 @@ def run():
         h_rows += trow('', '-')
     panels.append((L[8], [('Health', h_rows, '')]))
 
-    if ai:
+    if ai and isinstance(ai, dict):
         panels.append((R('ИИ-анализ','AI Analysis'), [('AI', '<tr><td class="lbl ai">AI</td><td class="ai">%s</td></tr>' % esc(ai.get('full')), '')]))
 
     user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
@@ -500,7 +528,7 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
         nav.append('<button data-i="%d" class="%s"><span class="idx">[%d]</span>%s</button>' % (i, 'active' if i==0 else '', idx, esc(p[0])))
     nav.append('</nav>')
     out.append(''.join(nav))
-    out.append('<div id="search"><span class="p">&gt; </span><input type="text" id="searchin" placeholder="%s" autocomplete="off"><span class="count" id="searchcount"></span></div>' % R('фильтр строк…','filter rows…'))
+    out.append('<div id="search"><span class="p">&gt; </span><input type="text" id="searchin" placeholder="%s" autocomplete="off"><span class="count" id="searchcount"></span></div>' % esc(R('фильтр строк…','filter rows…')))
     out.append('<main>')
     for i, (maintitle, subs) in enumerate(panels):
         out.append('<div class="panel%s" id="p%d">' % (' active' if i==0 else '', i))
@@ -519,9 +547,9 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
         out.append('</div>')
     out.append('</main>')
     out.append(FOOTER_CLI.replace('__VER__', esc(wu_ver)).replace('__TS__', esc(ts))
-               .replace('__HINT__', R('<- -> или цифры для навигации','<- -> or digits to navigate')))
+               .replace('__HINT__', esc(R('<- -> или цифры для навигации','<- -> or digits to navigate'))))
     out.append(HELP_CLI.replace('__H1__', R('Клавиатура','Keyboard'))
-               .replace('__H1K__', R('<- -> / ^ v','<- -> / ^ v')).replace('__H1V__', R('переключить вкладку','switch tab'))
+               .replace('__H1K__', esc('<- -> / ^ v')).replace('__H1V__', R('переключить вкладку','switch tab'))
                .replace('__H2K__', 'Tab / Enter').replace('__H2V__', R('внутренняя вкладка','inner tab'))
                .replace('__H3K__', '1…9 / 0').replace('__H3V__', R('перейти к вкладке','jump to tab'))
                .replace('__H4K__', 'Home / End').replace('__H4V__', R('первая / последняя','first / last'))
@@ -602,12 +630,13 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
       '<div class="row"><span class="key">Esc</span><span>Exit / close popup</span></div>'
       '<div style="margin-top:14px;text-align:center;color:#0ff">Press any key to close</div>'
       '</div></div>')
-    boot_cpu = esc(str(gv(cpu,'model') or 'N/A') if cpu else 'N/A')
-    boot_mem = esc(str(mem_t)+' GB' if mem_t else 'N/A')
-    boot_disks = [esc(str(d.get('model','') or d.get('name','') or 'None')) for d in (disks[:4] if disks else [])]
-    while len(boot_disks) < 4: boot_disks.append('None')
-    import json as _json
-    boot_disks_js = _json.dumps(boot_disks)
+    # Values end up in innerHTML (so HTML-escape) inside a JS string literal
+    # (so JSON-encode): a CPU/disk name can never inject markup or script.
+    boot_cpu = js(esc(str((gv(cpu,'model') if cpu else None) or 'N/A')))
+    boot_mem = js(esc(str(mem_t)+' GB' if mem_t else 'N/A'))
+    bd = [esc(str(d.get('model','') or d.get('name','') or 'None')) for d in (disks[:4] if disks else [])]
+    while len(bd) < 4: bd.append('None')
+    boot_disks_js = '[' + ','.join(js(x) for x in bd) + ']'
     js_boot = JS_AMI.replace('__BOOT_CPU__', boot_cpu).replace('__BOOT_MEM__', boot_mem).replace('__BOOT_DISKS__', boot_disks_js)
     out.append(js_boot)
     out.append('</body></html>')
@@ -931,8 +960,8 @@ document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){sho
 
 function runBoot(){
   closeAll();bootEl.innerHTML='';bootOv.classList.add('show');
-  var cpu_m="__BOOT_CPU__";
-  var mem_s="__BOOT_MEM__";
+  var cpu_m=__BOOT_CPU__;
+  var mem_s=__BOOT_MEM__;
   var disks=__BOOT_DISKS__;
   var lines=[
     '<span class="hi">AMIBIOS (C)2024 American Megatrends Inc.,</span>','','',
@@ -1038,69 +1067,99 @@ except SystemExit:
 except Exception as ex:
     import traceback; traceback.print_exc()
     sys.stderr.write("whtml: generation failed: %s\n" % ex)
-    sys.exit(1)
+    sys.exit(3)
 PYEOF
 }
 
 # ─── Main ────────────────────────────────────────────────────────
-main() {
-    _WHTML_TMP="$(mktemp -d /tmp/tmp.XXXXXXXXXX)"
-    local keep=0
-    [[ "${WHTML_KEEP_TMP:-0}" == 1 ]] && keep=1
-    trap '[[ "${keep:-0}" -eq 0 ]] && rm -rf "$_WHTML_TMP"' EXIT
+# Globals (not locals): the EXIT trap runs after main() has returned.
+_WHTML_TMP="" _WHTML_KEEP=0
+_whtml_cleanup() {
+    [[ -n "$_WHTML_TMP" && -d "$_WHTML_TMP" ]] || return 0
+    if (( _WHTML_KEEP )); then
+        printf 'whtml: temp dir kept: %s\n' "$_WHTML_TMP" >&2
+    else
+        rm -rf -- "$_WHTML_TMP"
+    fi
+}
 
-    _whtml_log "collecting data..."
+# mktemp -d with fallbacks: Termux has no /tmp, read-only rootfs may lack it.
+_whtml_mktemp() {
+    local d
+    for d in "${TMPDIR:-}" /tmp "${PREFIX:+$PREFIX/tmp}" /var/tmp "${HOME:-}"; do
+        [[ -n "$d" && -d "$d" && -w "$d" ]] || continue
+        _WHTML_TMP=$(mktemp -d "$d/whtml.XXXXXX" 2>/dev/null) && [[ -d "$_WHTML_TMP" ]] && return 0
+    done
+    _WHTML_TMP=""
+    return 1
+}
+
+main() {
+    [[ "${WHTML_KEEP_TMP:-0}" == 1 ]] && _WHTML_KEEP=1
+    (( _WHTML_XTRACE )) && set -x
+    # Colors only for an interactive terminal (respects NO_COLOR too).
+    if [[ ! -t 1 || -n "${NO_COLOR:-}" || "${TERM:-}" == dumb ]]; then G="" RESET=""; fi
+
     if ! command -v python3 >/dev/null 2>&1; then
         echo "whtml: error: python3 is required to build the report (not found on PATH)" >&2
         echo "       install python3, or choose another tool (wellhw/wellcpu --json)" >&2
         exit 3
     fi
-    printf '%s' "$(_whtml_host)" > "$_WHTML_TMP/host.json"
-
-    _whtml_collect_json "$_WHTML_TMP/hw.json" wellhw
-    if _whtml_tool wellcpu >/dev/null 2>&1; then
-        _whtml_collect_json "$_WHTML_TMP/cpuinfo.json" wellcpu
+    if ! _whtml_mktemp; then
+        echo "whtml: error: cannot create a temporary directory (set TMPDIR to a writable dir)" >&2
+        exit 3
     fi
-    PYTHONIOENCODING=utf-8 python3 - "$_WHTML_TMP" << 'PYEOF'
-import json, os
-t=os.sys.argv[1]
-def split(src, dst):
-    try:
-        d=json.load(open(os.path.join(t, src)))
-    except Exception:
-        d={}
-    for key, out in dst.items():
-        v=d.get(key)
-        if v is None: v={}
-        json.dump(v, open(os.path.join(t, out),'w',encoding='utf-8'), ensure_ascii=False)
-split('hw.json', {'cpu':'cpu.json','gpu':'gpu.json','board':'board.json','storage':'storage.json'})
-mem={}
-try:
-    mem=json.load(open(os.path.join(t,'hw.json'))).get('memory') or {}
-except Exception:
-    pass
-if not mem:
-    try:
-        mem=json.load(open(os.path.join(t,'memraw.json'))).get('memory') or {}
-    except Exception:
-        pass
-json.dump(mem, open(os.path.join(t,'mem.json'),'w',encoding='utf-8'), ensure_ascii=False)
-try:
-    ci=json.load(open(os.path.join(t,'cpuinfo.json'))).get('info') or {}
-    cpu=json.load(open(os.path.join(t,'cpu.json')))
-    for k in ('sockets','max_freq_khz','base_freq_khz'):
-        if k in ci: cpu[k]=ci[k]
-    json.dump(cpu, open(os.path.join(t,'cpu.json'),'w',encoding='utf-8'), ensure_ascii=False)
-except Exception:
-    pass
-PYEOF
+    trap _whtml_cleanup EXIT
+    _whtml_log "work dir: $_WHTML_TMP"
 
-    _whtml_collect_json "$_WHTML_TMP/memraw.json" wellmem
-    _whtml_collect_json "$_WHTML_TMP/net.json"     wellnet
-    _whtml_collect_json "$_WHTML_TMP/per.json"     wellper
-    _whtml_collect_json "$_WHTML_TMP/sensors.json" wellsensors
-    _whtml_collect_json "$_WHTML_TMP/doctor.json"  welldoctor
-    _whtml_collect_json "$_WHTML_TMP/block.json"   wellblock
+    _whtml_log "collecting data..."
+    # Tools are read-only and independent: run them concurrently.
+    local pair
+    for pair in hw:wellhw cpuinfo:wellcpu memraw:wellmem net:wellnet per:wellper \
+                sensors:wellsensors doctor:welldoctor block:wellblock; do
+        _whtml_collect_json "$_WHTML_TMP/${pair%%:*}.json" "${pair#*:}" &
+    done
+    wait
+
+    # One python run: validate every tool's JSON, split wellhw, write host.json.
+    local os_pretty
+    os_pretty=$(wu_os_pretty 2>/dev/null) || os_pretty=""
+    PYTHONIOENCODING=utf-8 python3 - "$_WHTML_TMP" "$(_whtml_hostname)" "${os_pretty:-Linux}" \
+        "$(uname -r 2>/dev/null)" "$(uname -m 2>/dev/null)" << 'PYEOF'
+import json, os, sys, io
+t, host, osn, ker, arch = sys.argv[1:6]
+def rd(name):
+    try:
+        with io.open(os.path.join(t, name), encoding='utf-8', errors='replace') as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+def wr(name, v):
+    with io.open(os.path.join(t, name), 'w', encoding='utf-8') as f:
+        f.write(json.dumps(v, ensure_ascii=False))
+raw = {}
+for n in ('hw','cpuinfo','memraw','net','per','sensors','doctor','block'):
+    raw[n] = rd(n + '.json')
+    if n not in ('hw', 'cpuinfo'):
+        wr(n + '.json', raw[n])
+wr('host.json', {'host': host, 'os': osn, 'kernel': ker, 'arch': arch})
+hw = raw['hw']
+for key, out in (('cpu','cpu.json'),('gpu','gpu.json'),('board','board.json'),('storage','storage.json')):
+    v = hw.get(key)
+    wr(out, v if isinstance(v, dict) else {})
+mem = hw.get('memory') if isinstance(hw.get('memory'), dict) else {}
+if not mem:
+    m = raw['memraw'].get('memory')
+    mem = m if isinstance(m, dict) else {}
+wr('mem.json', mem)
+ci = raw['cpuinfo'].get('info')
+if isinstance(ci, dict):
+    cpu = hw.get('cpu') if isinstance(hw.get('cpu'), dict) else {}
+    for k in ('sockets','max_freq_khz','base_freq_khz'):
+        if k in ci: cpu[k] = ci[k]
+    wr('cpu.json', cpu)
+PYEOF
 
     if [[ "$_WHTML_AI" == 1 ]]; then
         _whtml_ai_enrich
@@ -1110,18 +1169,23 @@ PYEOF
     local html
     if ! html="$( _whtml_generate )"; then
         echo "whtml: generation failed (see above)" >&2
-        exit 1
+        exit 3
     fi
     if [[ -z "$html" ]]; then
         echo "whtml: generation produced empty output" >&2
-        exit 1
+        exit 3
     fi
-    printf '%s' "$html" > "$_WHTML_OUTPUT"
+    if ! { printf '%s\n' "$html" > "$_WHTML_OUTPUT"; } 2>/dev/null; then
+        printf 'whtml: error: cannot write %s\n' "$_WHTML_OUTPUT" >&2
+        exit 3
+    fi
 
     printf '  %s%s%s %s\n' "$G" "$(t done)" "$RESET" "$_WHTML_OUTPUT"
     if [[ "$_WHTML_OPEN" == 1 && -t 1 ]]; then
         if command -v xdg-open >/dev/null 2>&1; then
             nohup xdg-open "$_WHTML_OUTPUT" >/dev/null 2>&1 &
+        elif command -v termux-open >/dev/null 2>&1; then
+            termux-open "$_WHTML_OUTPUT" >/dev/null 2>&1 &
         fi
     fi
 }
@@ -1145,6 +1209,6 @@ while [[ $# -gt 0 ]]; do
         esac
     fi
 done
-set -- "${_WU_REST[@]}"
+set -- ${_WU_REST[@]+"${_WU_REST[@]}"}
 
 main "$@"

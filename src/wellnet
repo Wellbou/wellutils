@@ -8,7 +8,6 @@ set -euo pipefail
 # ─── Shared libs ────────────────────────────────────────────────
 _WU_TOOLNAME="wellnet" _WU_NAME="WellNet" _WU_VERSION="1.0"
 _WU_SHORT_OK=1
-_WU_SHORT_OK=1
 _WU_TAGLINE="network overview (offline)"
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
@@ -16,23 +15,26 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box parse
 
+# Icon followed by two spaces; nothing at all without emoji (so rows are
+# not indented by stray blanks under --no-emoji / TERM=linux).
+_nic() { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s  ' "$(_emoji_clean "$1")"; return 0; }
+
 fmt_bytes() {
     [[ "$1" =~ ^[0-9]+$ ]] || { printf '0 B'; return; }
     local b=$1 u=(B KiB MiB GiB TiB) i=0
-    while (( b >= 1024 && i < 4 )); do b=$(( b / 1024 )); (( i++ )); done
+    while (( b >= 1024 && i < 4 )); do b=$(( b / 1024 )); i=$(( i + 1 )); done
     printf '%s %s' "$b" "${u[$i]}"
 }
 
 # ─── Sections ───────────────────────────────────────────────────
 wn_state() {
-    local st
-    st=$(cat "/sys/class/net/$1/operstate" 2>/dev/null || true)
+    local st="" car=""
+    wu_read "/sys/class/net/$1/operstate" st || true
     case "$st" in
         up|down) printf '%s' "$st" ;;
         *)
-            local car
-            car=$(cat "/sys/class/net/$1/carrier" 2>/dev/null || true)
-            [[ "$car" == "1" ]] && printf 'up' || printf 'down' ;;
+            wu_read "/sys/class/net/$1/carrier" car 2>/dev/null || true
+            if [[ "$car" == "1" ]]; then printf 'up'; else printf 'down'; fi ;;
     esac
 }
 
@@ -109,16 +111,133 @@ wn_kind_label() {
     t "kind_$1"
 }
 
+_WN_HAVE_IP=0
+command -v ip >/dev/null 2>&1 && _WN_HAVE_IP=1
+
+# hex (little-endian, as in /proc/net/route) -> dotted quad, fork-free.
+wn_hex_ip4() {
+    local h=$1
+    [[ "$h" =~ ^[0-9A-Fa-f]{8}$ ]] || { printf '%s' "$h"; return 0; }
+    printf '%d.%d.%d.%d' $(( 16#${h:6:2} )) $(( 16#${h:4:2} )) $(( 16#${h:2:2} )) $(( 16#${h:0:2} ))
+}
+
+# Default routes from /proc/net/route as "iface gateway metric" lines
+# (works without iproute2: busybox, Termux, stripped containers).
+wn_proc_defaults() {
+    local ifn dst gw fl rc us met rest
+    [[ -r /proc/net/route ]] || return 0
+    while read -r ifn dst gw fl rc us met rest; do
+        [[ "$dst" == "00000000" ]] || continue
+        printf '%s %s %s\n' "$ifn" "$(wn_hex_ip4 "$gw")" "${met:-0}"
+    done < /proc/net/route
+    return 0
+}
+
+# Default-route lines. busybox `ip route show default` ignores the filter
+# and lists every route, so filter by the first word ourselves.
+wn_default_routes() {
+    local out=""
+    if (( _WN_HAVE_IP )); then
+        out=$(ip route show 2>/dev/null | awk '$1=="default"') || out=""
+        [[ -n "$out" ]] && { printf '%s\n' "$out"; return 0; }
+    fi
+    local ifn gw met
+    while read -r ifn gw met; do
+        [[ -n "$ifn" ]] || continue
+        if [[ "$gw" == "0.0.0.0" ]]; then
+            printf 'default dev %s metric %s\n' "$ifn" "$met"
+        else
+            printf 'default via %s dev %s metric %s\n' "$gw" "$ifn" "$met"
+        fi
+    done < <(wn_proc_defaults | sort -k3 -n)
+    return 0
+}
+
 # Primary egress interface from the routing table (local lookup, no packets).
 wn_primary() {
-    command -v ip &>/dev/null || return 0
-    local out pif="" prev="" tok
-    out=$(ip route get 1 2>/dev/null | head -1) || return 0
-    for tok in $out; do
-        [[ "$prev" == "dev" ]] && { pif="$tok"; break; }
-        prev="$tok"
-    done
-    [[ -n "${pif:-}" ]] && printf '%s' "$pif"
+    local out="" pif="" prev="" tok
+    if (( _WN_HAVE_IP )); then
+        out=$(ip route get 1 2>/dev/null | head -1) || out=""
+        for tok in $out; do
+            [[ "$prev" == "dev" ]] && { pif="$tok"; break; }
+            prev="$tok"
+        done
+    fi
+    if [[ -z "$pif" ]]; then
+        local ifn gw met
+        read -r ifn gw met < <(wn_proc_defaults | sort -k3 -n) || true
+        pif=${ifn:-}
+    fi
+    [[ -n "$pif" ]] && printf '%s' "$pif"
+    return 0
+}
+
+# Gateway of the default route (optionally via device $1): only the token
+# after "via" counts -- device routes (PPP, VPN) have no gateway at all.
+wn_gateway() {
+    local r tok prev gw="" dev=""
+    while IFS= read -r r; do
+        [[ -n "$r" ]] || continue
+        prev="" gw="" dev=""
+        for tok in $r; do
+            case "$prev" in via) gw=$tok ;; dev) dev=$tok ;; esac
+            prev=$tok
+        done
+        [[ -n "$gw" ]] || continue
+        [[ -z "${1:-}" || "$dev" == "$1" ]] && { printf '%s' "$gw"; return 0; }
+    done < <(wn_default_routes)
+    return 0
+}
+
+# Wi-Fi link state of $1 -> _WS_SSID _WS_SIG (dBm) _WS_RATE ("72.2 MBit/s")
+# _WS_BSSID. `iw` indents with tabs; fallbacks: /proc/net/wireless, iwgetid.
+wn_wifi_link() {
+    local ifn=$1 line k v
+    _WS_SSID="" _WS_SIG="" _WS_RATE="" _WS_BSSID=""
+    if command -v iw >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            wu_trim "$line" line
+            case "$line" in
+                "Connected to "*) v=${line#Connected to }; v=${v%% *}; _WS_BSSID=${v,,} ;;
+                SSID:*) v=${line#SSID:}; _WS_SSID=${v# } ;;
+                signal:*) v=${line#signal:}; wu_trim "$v" v; _WS_SIG=${v%% *} ;;
+                "tx bitrate:"*)
+                    v=${line#tx bitrate:}; wu_trim "$v" v
+                    k=${v%% *}; v=${v#* }; v=${v%% *}
+                    [[ "$k" =~ ^[0-9.]+$ ]] && _WS_RATE="$k $v" ;;
+            esac
+        done < <(iw dev "$ifn" link 2>/dev/null || true)
+    fi
+    if [[ -z "$_WS_SIG" && -r /proc/net/wireless ]]; then
+        local f1 f2 f3 f4 rest
+        while read -r f1 f2 f3 f4 rest; do
+            [[ "$f1" == "$ifn:" ]] || continue
+            f4=${f4%.}
+            if [[ "$f4" =~ ^-[0-9]+$ ]]; then _WS_SIG=$f4
+            elif [[ "$f4" =~ ^[0-9]+$ ]] && (( f4 >= 64 && f4 < 256 )); then _WS_SIG=$(( f4 - 256 ))
+            fi
+            break
+        done < /proc/net/wireless
+    fi
+    [[ "$_WS_SIG" =~ ^-?[0-9]+$ ]] || _WS_SIG=""
+    if [[ -z "$_WS_SSID" ]] && command -v iwgetid >/dev/null 2>&1; then
+        _WS_SSID=$(iwgetid -r "$ifn" 2>/dev/null) || _WS_SSID=""
+    fi
+    return 0
+}
+
+# DNS resolvers (max 3), Termux keeps resolv.conf under $PREFIX.
+wn_dns() {
+    local f="/etc/resolv.conf" k v rest out="" n=0
+    [[ -n "${PREFIX:-}" && -r "${PREFIX}/etc/resolv.conf" ]] && f="${PREFIX}/etc/resolv.conf"
+    [[ -r "$f" ]] || return 0
+    while read -r k v rest; do
+        [[ "$k" == "nameserver" && -n "$v" ]] || continue
+        [[ "$v" == *:* ]] && v="[$v]"
+        out+="${out:+ }$v"; n=$(( n + 1 ))
+        (( n >= 3 )) && break
+    done < "$f"
+    printf '%s' "$out"
 }
 
 # VPN server endpoint, read from local connection state only (offline).
@@ -193,57 +312,66 @@ print_connection() {
     local pif kind dns_list
     pif=$(wn_primary)
     if [[ -z "$pif" ]]; then
-        pline "$(_ic '🛰') ${DIM}$(t net_no_gw)${RESET}"
-        return
+        pline "$(_nic '🛰')${DIM}$(t net_no_gw)${RESET}"
+        return 0
     fi
     kind=$(wn_kind "$pif")
     local klabel
     klabel=$(wn_kind_label "$kind")
-    pline "$(_ic '🛰') $(t conn_primary): ${BOLD}${pif}${RESET} (${klabel})"
-    command -v ip &>/dev/null || return
+    pline "$(_nic '🛰')$(t conn_primary): ${BOLD}${pif}${RESET} (${klabel})"
 
     # VPN: endpoint + carrier gateway, then stop.
     if [[ "$kind" == "vpn" ]]; then
-        local vep ugw vproc
+        local vep vproc r tok prev ugw_ip="" ugw_dev="" g d
         vep=$(wn_vpn_endpoint "$pif")
         if [[ -n "$vep" ]]; then
             vproc="${vep#*|}"
-            pline_sub "$(_ic '🔒') $(t vpn_endpoint): ${BOLD}${vep%%|*}${RESET} ${DIM}(${vproc})${RESET}"
+            pline_sub "$(_nic '🔒')$(t vpn_endpoint): ${BOLD}${vep%%|*}${RESET} ${DIM}(${vproc})${RESET}"
         else
-            pline_sub "$(_ic '🔒') $(t kind_vpn)"
+            pline_sub "$(_nic '🔒')$(t kind_vpn)"
         fi
-        ugw=$(ip route show default 2>/dev/null | awk -v d="$pif" '$0 !~ ("dev "d"[ :]") {for(i=1;i<=NF;i++){if($i=="via")v=$(i+1); if($i=="dev")dv=$(i+1)}} END{print v"|"dv}')
-        if [[ "$ugw" == *"|"* && -n "${ugw%%|*}" ]]; then
-            local ugw_ip="${ugw%%|*}" ugw_dev="${ugw##*|}" ukind umac
+        # Carrier uplink: a default route with a gateway on another device.
+        while IFS= read -r r; do
+            prev="" g="" d=""
+            for tok in $r; do
+                case "$prev" in via) g=$tok ;; dev) d=$tok ;; esac
+                prev=$tok
+            done
+            [[ -n "$g" && -n "$d" && "$d" != "$pif" ]] && { ugw_ip=$g; ugw_dev=$d; }
+        done < <(wn_default_routes)
+        if [[ -n "$ugw_ip" ]]; then
+            local ukind umac=""
             ukind=$(wn_kind_label "$(wn_kind "$ugw_dev")")
-            umac=$(ip neigh show "$ugw_ip" dev "$ugw_dev" 2>/dev/null | awk '{print $5; exit}')
+            (( _WN_HAVE_IP )) && umac=$(ip neigh show "$ugw_ip" dev "$ugw_dev" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
             local uline="$(t gateway) ($ukind): ${DIM}${ugw_ip}${RESET}"
             [[ -n "$umac" ]] && uline+="${DIM} ($umac)${RESET}"
-            pline_sub "$(_ic '🚪') $uline"
+            pline_sub "$(_nic '🚪')$uline"
         fi
-        return
+        return 0
     fi
 
     # Gateway + its MAC from the neighbour table (offline reads only).
-    local gip gmac line_out=""
-    gip=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}')
-    [[ -z "$gip" ]] && gip=$(ip route show default dev "$pif" 2>/dev/null | awk '{print $NF}')
+    local gip gmac="" line_out=""
+    gip=$(wn_gateway "$pif")
+    [[ -z "$gip" ]] && gip=$(wn_gateway)
     if [[ -n "$gip" ]]; then
-        gmac=$(ip neigh show "$gip" 2>/dev/null | awk '{print $5; exit}')
+        if (( _WN_HAVE_IP )); then
+            gmac=$(ip neigh show "$gip" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
+        elif [[ -r /proc/net/arp ]]; then
+            gmac=$(awk -v g="$gip" '$1==g && $4!="00:00:00:00:00:00"{print $4; exit}' /proc/net/arp 2>/dev/null) || gmac=""
+        fi
         line_out="$(t gateway): ${BOLD}${gip}${RESET}"
         [[ -n "$gmac" ]] && line_out+=" ${DIM}($gmac)${RESET}"
-        pline_sub "$(_ic '🚪') $line_out"
+        pline_sub "$(_nic '🚪')$line_out"
     fi
-    # DNS resolvers from /etc/resolv.conf (max 3).
-    dns_list=$(awk '$1 == "nameserver" && $2 !~ /:/ {print $2} $1 == "nameserver" && $2 ~ /:/ {print "["$2"]"}' /etc/resolv.conf 2>/dev/null | head -3 | tr '\n' ' ') || dns_list=""
-    dns_list="${dns_list% }"
-    [[ -n "$dns_list" ]] && pline_sub "$(_ic '🧭') $(t dns_servers): $dns_list"
+    dns_list=$(wn_dns)
+    [[ -n "$dns_list" ]] && pline_sub "$(_nic '🧭')$(t dns_servers): $dns_list"
     # Wi-Fi SSID on the primary interface.
     if [[ "$kind" == "wifi" ]]; then
-        local ssid
-        ssid=$(iw dev "$pif" link 2>/dev/null | awk -F': *' '/^SSID:/{print $2; exit}') || ssid=""
-        [[ -n "$ssid" ]] && pline_sub "$(_ic '📶') SSID: ${BOLD}${ssid}${RESET}"
+        wn_wifi_link "$pif"
+        [[ -n "$_WS_SSID" ]] && pline_sub "$(_nic '📶')SSID: ${BOLD}${_WS_SSID}${RESET}"
     fi
+    return 0
 }
 
 
@@ -252,163 +380,289 @@ print_ifaces() {
     local any=0
     for d in /sys/class/net/*; do
         [[ -d "$d" ]] || continue
-        name=$(basename "$d")
+        name=${d##*/}
         any=1
         state=$(wn_state "$name")
-        mac=$(cat "$d/address" 2>/dev/null || true)
+        mac=""; wu_read "$d/address" mac || true
         kind=$(wn_kind "$name")
         local color="$G"
         [[ "$state" == "down" ]] && color="$R"
         local extra=""
         if [[ "$kind" == "ethernet" || "$kind" == "virtio" ]]; then
-            speed=$(cat "$d/speed" 2>/dev/null || true)
+            speed=""; wu_read "$d/speed" speed || true
             [[ "$speed" =~ ^[0-9]+$ ]] && extra=" ${DIM}${speed}Mb/s${RESET}"
         fi
-        pline "$(_ic '🔌') ${BOLD}${name}${RESET} ${color}[${state}]${RESET}  ${DIM}${kind}${RESET}${extra}  ${DIM}${mac}${RESET}"
+        pline "$(_nic '🔌')${BOLD}${name}${RESET} ${color}[${state}]${RESET}  ${DIM}${kind}${RESET}${extra}  ${DIM}${mac}${RESET}"
     done
     (( any )) || pline "${DIM}$(t net_none)${RESET}"
+    return 0
+}
+
+# 32 hex chars from /proc/net/if_inet6 -> compact-ish IPv6 text.
+wn_hex_ip6() {
+    local h=$1 i g out="" z=0
+    [[ "$h" =~ ^[0-9a-fA-F]{32}$ ]] || { printf '%s' "$h"; return 0; }
+    for (( i = 0; i < 32; i += 4 )); do
+        g=$(( 16#${h:$i:4} ))
+        printf -v g '%x' "$g"
+        out+="${out:+:}$g"
+    done
+    # collapse the first run of zero groups
+    out=":$out:"
+    for z in ':0:0:0:0:0:0:0:0:' ':0:0:0:0:0:0:0:' ':0:0:0:0:0:0:' ':0:0:0:0:0:' ':0:0:0:0:' ':0:0:0:' ':0:0:'; do
+        [[ "$out" == *"$z"* ]] && { out=${out/"$z"/::}; break; }
+    done
+    [[ "$out" == "::" ]] && { printf '::'; return 0; }
+    out=${out#:}; out=${out%:}
+    [[ "$out" == :* && "$out" != ::* ]] && out=":$out"
+    [[ "$out" == *: && "$out" != *:: ]] && out="$out:"
+    printf '%s' "$out"
+}
+
+# "iface addr/prefix" lines for every assigned address.
+wn_addresses() {
+    if (( _WN_HAVE_IP )); then
+        # -o works on iproute2 and busybox; -brief is iproute2-only.
+        ip -o addr show 2>/dev/null | awk '{ifn=$2; sub(/@.*/,"",ifn); sub(/:$/,"",ifn); if ($3=="inet"||$3=="inet6") print ifn, $4}' || true
+        return 0
+    fi
+    if command -v ifconfig >/dev/null 2>&1; then
+        ifconfig -a 2>/dev/null | awk '
+            /^[^ \t]/ { ifn=$1; sub(/:$/,"",ifn) }
+            $1=="inet" { a=$2; sub(/^addr:/,"",a); if (a!="") print ifn, a }' || true
+    elif [[ -r /proc/net/fib_trie && -r /proc/net/route ]]; then
+        # Local IPv4 addresses ("/32 host LOCAL" leaves), matched to the
+        # interface whose connected route contains them.
+        local ln last="" ip4 seen=" " ifn dst gw fl rc us met mask rest a b c d
+        local -a rt_if=() rt_dst=() rt_mask=()
+        while read -r ifn dst gw fl rc us met mask rest; do
+            [[ "$dst" =~ ^[0-9A-Fa-f]{8}$ && "$gw" == "00000000" && "$dst" != "00000000" ]] || continue
+            rt_if+=("$ifn"); rt_dst+=("$(( 16#$dst ))"); rt_mask+=("$(( 16#$mask ))")
+        done < /proc/net/route
+        while IFS= read -r ln; do
+            case "$ln" in
+                *"|-- "*) last=${ln##*|-- } ;;
+                *"/32 host LOCAL"*)
+                    ip4=$last
+                    [[ "$ip4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$seen" != *" $ip4 "* ]] || continue
+                    seen+="$ip4 "
+                    IFS=. read -r a b c d <<< "$ip4"
+                    # /proc/net/route is little-endian
+                    local le=$(( (d << 24) | (c << 16) | (b << 8) | a )) i bits m hit=""
+                    [[ "$a" == 127 ]] && { printf 'lo %s/8\n' "$ip4"; continue; }
+                    for (( i = 0; i < ${#rt_if[@]}; i++ )); do
+                        if (( (le & rt_mask[i]) == rt_dst[i] )); then
+                            m=${rt_mask[$i]}; bits=0
+                            while (( m )); do bits=$(( bits + (m & 1) )); m=$(( m >> 1 )); done
+                            hit="${rt_if[$i]} $ip4/$bits"; break
+                        fi
+                    done
+                    [[ -n "$hit" ]] && printf '%s\n' "$hit" ;;
+            esac
+        done < /proc/net/fib_trie
+    fi
+    if [[ -r /proc/net/if_inet6 ]]; then
+        local hx idx plen scope flags ifn
+        while read -r hx idx plen scope flags ifn; do
+            [[ -n "$ifn" ]] || continue
+            printf '%s %s/%d\n' "$ifn" "$(wn_hex_ip6 "$hx")" "$(( 16#$plen ))"
+        done < /proc/net/if_inet6
+    fi
+    return 0
 }
 
 print_addr() {
-    command -v ip &>/dev/null || { pline "${DIM}(iproute2 $(t pkg_not_installed))${RESET}"; return; }
-    local out
-    out=$(ip -brief address show 2>/dev/null) || out=""
-    [[ -n "$out" ]] || { pline "${DIM}-$(t net_none)${RESET}"; return; }
-    local ifname state addrs
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        ifname=$(awk '{print $1}' <<< "$line")
-        ifname="${ifname%%@*}"
-        addrs=$(cut -d' ' -f3- <<< "$line" | xargs)
-        [[ -n "$addrs" ]] || continue
-        pline_sub "$(_ic '🌐') ${BOLD}${ifname}${RESET}  $addrs"
+    local out ifn a order="" line
+    local -A per=()
+    out=$(wn_addresses) || out=""
+    while read -r ifn a; do
+        [[ -n "$ifn" && -n "$a" ]] || continue
+        [[ -z "${per[$ifn]+x}" ]] && order+=" $ifn"
+        per[$ifn]="${per[$ifn]:-}${per[$ifn]:+ }$a"
     done <<< "$out"
+    if [[ -z "$order" ]]; then
+        pline "${DIM}$(t net_none)${RESET}"
+        return 0
+    fi
+    for ifn in $order; do
+        pline_sub "$(_nic '🌐')${BOLD}${ifn}${RESET}  ${per[$ifn]}"
+    done
+    return 0
 }
 
 print_wifi() {
     local found=0 d name
     for d in /sys/class/net/*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d")
-        [[ -d "$d/wireless" ]] || continue
+        [[ -d "$d/wireless" || -e "$d/phy80211" ]] || continue
+        name=${d##*/}
         found=1
-        local ssid sig rate bssid
-        ssid="" sig="" rate=""
-        if command -v iw &>/dev/null; then
-            local link
-            link=$(iw dev "$name" link 2>/dev/null) || link=""
-            if [[ -n "$link" ]]; then
-                ssid=$(awk -F': *' '/^SSID:/{print $2; exit}' <<< "$link")
-                sig=$(awk '/^signal:/{print $2; exit}' <<< "$link")
-                rate=$(awk -F': *' '/tx bitrate:/{print $2; exit}' <<< "$link")
-                bssid=$(awk '/^Connected to/{print tolower($3); exit}' <<< "$link")
-            fi
-        fi
-        if [[ -z "$sig" && -r /proc/net/wireless ]]; then
-            sig=$(awk -v ifn="$name:" '$1 == ifn {gsub(/\./,"",$4); print $4; exit}' /proc/net/wireless 2>/dev/null || true)
-        fi
-        if [[ -n "$ssid" ]]; then
-            local scolor="$G" semoji="$(_emu '📶')"
+        wn_wifi_link "$name"
+        if [[ -n "$_WS_SSID" ]]; then
+            local scolor="$G" semoji sig="$_WS_SIG"
+            semoji="$(_emu '📶')"
             if [[ "$sig" =~ ^-[0-9]+$ ]]; then
                 local dbm="${sig#-}"
-                if   (( dbm >= 60 )); then scolor="$R";  semoji="$(_emu '📪')"
-                elif (( dbm >= 70 )); then scolor="$Y";  semoji="$(_emu '📫')"
+                if   (( dbm >= 70 )); then scolor="$R";  semoji="$(_emu '📪')"
+                elif (( dbm >= 60 )); then scolor="$Y";  semoji="$(_emu '📫')"
                 fi
             fi
-            local line_out="$semoji ${BOLD}${ssid}${RESET}"
+            local line_out="${semoji:+$semoji }${BOLD}${_WS_SSID}${RESET}"
             [[ -n "$sig" ]] && line_out+=" ${scolor}${sig} dBm${RESET}"
-            [[ -n "$rate" ]] && line_out+="${DIM} · ${rate} Mb/s${RESET}"
-            [[ -n "$bssid" ]] && line_out+="${DIM} · ${bssid}${RESET}"
-            pline "$(_ic '📡') ${BOLD}${name}${RESET}: $line_out"
+            [[ -n "$_WS_RATE" ]] && line_out+="${DIM} · ${_WS_RATE}${RESET}"
+            [[ -n "$_WS_BSSID" ]] && line_out+="${DIM} · ${_WS_BSSID}${RESET}"
+            pline "$(_nic '📡')${BOLD}${name}${RESET}: $line_out"
         else
-            pline "$(_ic '📡') ${BOLD}${name}${RESET}: ${DIM}$(t wifi_disconnected)${RESET}"
+            pline "$(_nic '📡')${BOLD}${name}${RESET}: ${DIM}$(t wifi_disconnected)${RESET}"
         fi
     done
     (( found )) || pline "${DIM}$(t wifi_no_iface)${RESET}"
+    return 0
+}
+
+# Non-default routes: iproute2 text, or decoded /proc/net/route.
+wn_other_routes() {
+    if (( _WN_HAVE_IP )); then
+        ip route show 2>/dev/null | awk '$1!="default"' || true
+        return 0
+    fi
+    [[ -r /proc/net/route ]] || return 0
+    local ifn dst gw fl rc us met mask rest bits m
+    while read -r ifn dst gw fl rc us met mask rest; do
+        [[ "$dst" =~ ^[0-9A-Fa-f]{8}$ && "$dst" != "00000000" ]] || continue
+        m=$(( 16#$mask )); bits=0
+        while (( m )); do bits=$(( bits + (m & 1) )); m=$(( m >> 1 )); done
+        if [[ "$gw" == "00000000" ]]; then
+            printf '%s/%d dev %s\n' "$(wn_hex_ip4 "$dst")" "$bits" "$ifn"
+        else
+            printf '%s/%d via %s dev %s\n' "$(wn_hex_ip4 "$dst")" "$bits" "$(wn_hex_ip4 "$gw")" "$ifn"
+        fi
+    done < /proc/net/route
+    return 0
 }
 
 print_routes() {
-    command -v ip &>/dev/null || { pline "${DIM}(iproute2 $(t pkg_not_installed))${RESET}"; return; }
-    local gw
-    gw=$(ip route show default 2>/dev/null | head -4) || gw=""
+    local gw g
+    gw=$(wn_default_routes | head -4) || gw=""
     if [[ -n "$gw" ]]; then
         while IFS= read -r g; do
             [[ -z "$g" ]] && continue
-            pline "$(_ic '🚪') ${BOLD}$g${RESET}"
+            pline "$(_nic '🚪')${BOLD}$g${RESET}"
         done <<< "$gw"
     else
-        pline "$(_ic '🚪') ${DIM}$(t net_no_gw)${RESET}"
+        pline "$(_nic '🚪')${DIM}$(t net_no_gw)${RESET}"
     fi
     local n=0 r
     while IFS= read -r r; do
-        [[ -z "$r" || "$r" == default* ]] && continue
+        [[ -z "$r" ]] && continue
         if (( n >= 6 )); then
             pline_sub "${DIM}...${RESET}"
             break
         fi
         pline_sub "${DIM}${r}${RESET}"
         n=$(( n + 1 ))
-    done < <(ip route show 2>/dev/null || true)
+    done < <(wn_other_routes)
+    return 0
+}
+
+# Listening sockets as "proto local_endpoint process" lines (process "-"
+# when unknown). ss columns: Netid State Recv-Q Send-Q Local Peer [Process].
+# Without ss: /proc/net/{tcp,tcp6} state 0A (LISTEN), {udp,udp6} state 07.
+wn_listeners() {
+    if command -v ss >/dev/null 2>&1; then
+        local line proc ep
+        local -a cols
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            read -r -a cols <<< "$line"
+            (( ${#cols[@]} >= 5 )) || continue
+            case "${cols[0]}" in
+                tcp) [[ "${cols[1]}" == "LISTEN" ]] || continue ;;
+                udp) : ;;
+                *) continue ;;
+            esac
+            proc="-"
+            if [[ "$line" == *'users:(("'* ]]; then
+                proc=${line#*users:((\"}; proc=${proc%%\"*}
+            fi
+            ep=${cols[4]}
+            # "127.0.0.53%lo:53" -> drop the scope, keep the port
+            [[ "$ep" == *%* ]] && ep="${ep%%\%*}:${ep##*:}"
+            printf '%s %s %s\n' "${cols[0]}" "$ep" "$proc"
+        done < <(ss -H -tulpn 2>/dev/null || ss -tulpn 2>/dev/null | awk 'NR>1' || true)
+        return 0
+    fi
+    local f proto want sl la ra st rest ip port
+    for f in tcp tcp6 udp udp6; do
+        [[ -r "/proc/net/$f" ]] || continue
+        proto=${f%6}
+        [[ "$proto" == tcp ]] && want=0A || want=07
+        while read -r sl la ra st rest; do
+            [[ "$st" == "$want" && "$la" == *:* ]] || continue
+            ip=${la%:*}; port=$(( 16#${la##*:} ))
+            if (( ${#ip} == 8 )); then ip=$(wn_hex_ip4 "$ip")
+            else
+                # /proc/net/*6: four little-endian 32-bit words
+                local w i x=""
+                for (( i = 0; i < 32; i += 8 )); do
+                    w=${ip:$i:8}; x+="${w:6:2}${w:4:2}${w:2:2}${w:0:2}"
+                done
+                ip="[$(wn_hex_ip6 "$x")]"
+            fi
+            printf '%s %s:%s -\n' "$proto" "$ip" "$port"
+        done < "/proc/net/$f"
+    done
+    return 0
 }
 
 print_ports() {
-    command -v ss &>/dev/null || { pline "${DIM}(iproute2/ss $(t pkg_not_installed))${RESET}"; return; }
     local out
-    out=$(ss -H -tulpn 2>/dev/null || true) || out=""
-    [[ -n "$out" ]] || { pline "${DIM}$(t ports_none)${RESET}"; return; }
-    local tcpline=0 udpline=0 line proto local_ep proc
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        read -r -a cols <<< "$line"
-        [[ ${#cols[@]} -ge 5 ]] || continue
-        case "${cols[0]}" in
-            ESTAB|LISTEN) proto="tcp" ;;
-            UNCONN)       proto="udp" ;;
-            *)            proto="${cols[0]}" ;;
-        esac
-        [[ "$proto" == "tcp" && "${cols[0]}" == "LISTEN" ]] && tcpline=$(( tcpline + 1 ))
-        [[ "$proto" == "udp" ]] && udpline=$(( udpline + 1 ))
+    out=$(wn_listeners) || out=""
+    [[ -n "$out" ]] || { pline "${DIM}$(t ports_none)${RESET}"; return 0; }
+    local tcpn=0 udpn=0 proto local_ep proc
+    while read -r proto local_ep proc; do
+        case "$proto" in tcp) tcpn=$(( tcpn + 1 )) ;; udp) udpn=$(( udpn + 1 )) ;; esac
     done <<< "$out"
-    pline "$(_ic '👂') $(t ports_summary): TCP ${BOLD}${tcpline}${RESET} · UDP ${BOLD}${udpline}${RESET}"
+    pline "$(_nic '👂')$(t ports_summary): TCP ${BOLD}${tcpn}${RESET} · UDP ${BOLD}${udpn}${RESET}"
     local shown=0
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
+    while read -r proto local_ep proc; do
+        [[ -n "$proto" ]] || continue
         if (( shown >= 12 )); then
             pline_sub "${DIM}...$(t ports_more)${RESET}"
             break
         fi
-        read -r -a cols <<< "$line"
-        proto="${cols[0]}"
-        local_ep="${cols[4]}"
-        local_ep="${local_ep%%%*}"
-        proc="-"
-        if [[ "$line" == *"users:(("* ]]; then
-            proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"') || proc="-"
-        fi
-        pline_sub "$(_ic '🔗') ${BOLD}${proto}${RESET} ${local_ep}  ${DIM}(${proc})${RESET}"
+        pline_sub "$(_nic '🔗')${BOLD}${proto}${RESET} ${local_ep}  ${DIM}(${proc})${RESET}"
         shown=$(( shown + 1 ))
-    done < <(ss -H -tulpn 2>/dev/null | grep -E '^(LISTEN|UNCONN)' | sort -k5 || true)
+    done < <(printf '%s\n' "$out" | sort -u | awk '{n=split($2,a,":"); print a[n] "\t" $0}' | sort -n | cut -f2-)
+    return 0
+}
+
+# "name rx tx" per interface (lo excluded), fork-free reads.
+wn_traffic_rows() {
+    local dd bn rb tb
+    for dd in /sys/class/net/*; do
+        [[ -d "$dd" ]] || continue
+        bn=${dd##*/}
+        [[ "$bn" == "lo" ]] && continue
+        rb=0 tb=0
+        wu_read "$dd/statistics/rx_bytes" rb || rb=0
+        wu_read "$dd/statistics/tx_bytes" tb || tb=0
+        [[ "$rb" =~ ^[0-9]+$ ]] || rb=0
+        [[ "$tb" =~ ^[0-9]+$ ]] || tb=0
+        printf '%s %s %s\n' "$bn" "$rb" "$tb"
+    done
+    return 0
 }
 
 print_traffic() {
-    local d name rx tx total_rx=0 total_tx=0
-    while IFS= read -r line; do
-        name="${line%%|*}"
-        rx="${line#*|}"
-        tx="${rx#*|}"
-        rx="${rx%%|*}"
-        [[ "$name" == "lo" ]] && continue
+    local name rx tx total_rx=0 total_tx=0
+    while read -r name rx tx; do
+        [[ -n "$name" ]] || continue
         total_rx=$(( total_rx + rx ))
         total_tx=$(( total_tx + tx ))
-        pline "$(_ic '📊') ${BOLD}${name}${RESET}: ↓ $(t net_rx) $(fmt_bytes "$rx") · ↑ $(t net_tx) $(fmt_bytes "$tx")"
-    done < <(for dd in /sys/class/net/*; do
-                 [[ -d "$dd" ]] || continue
-                 bn=$(basename "$dd")
-                 rb=$(cat "$dd/statistics/rx_bytes" 2>/dev/null || echo 0)
-                 tb=$(cat "$dd/statistics/tx_bytes" 2>/dev/null || echo 0)
-                 printf '%s|%s|%s\n' "$bn" "$rb" "$tb"
-             done | sort -t'|' -k2 -rn)
-    pline "$(_ic 'Σ') $(t net_total): ↓ $(fmt_bytes "$total_rx") · ↑ $(fmt_bytes "$total_tx")"
+        pline "$(_nic '📊')${BOLD}${name}${RESET}: ↓ $(t net_rx) $(fmt_bytes "$rx") · ↑ $(t net_tx) $(fmt_bytes "$tx")"
+    done < <(wn_traffic_rows | sort -k2 -rn)
+    pline "$(_nic 'Σ')$(t net_total): ↓ $(fmt_bytes "$total_rx") · ↑ $(fmt_bytes "$total_tx")"
+    return 0
 }
 
 # ─── JSON ───────────────────────────────────────────────────────
@@ -419,9 +673,10 @@ json_out() {
     local d name state mac kind speed first=1
     for d in /sys/class/net/*; do
         [[ -d "$d" ]] || continue
-        name=$(basename "$d"); state=$(wn_state "$name")
-        mac=$(cat "$d/address" 2>/dev/null || true); kind=$(wn_kind "$name")
-        speed=$(cat "$d/speed" 2>/dev/null || true)
+        name=${d##*/}; state=$(wn_state "$name")
+        mac=""; wu_read "$d/address" mac || true
+        kind=$(wn_kind "$name")
+        speed=""; wu_read "$d/speed" speed 2>/dev/null || true
         [[ "$speed" =~ ^[0-9]+$ ]] || speed="null"
         (( first )) && first=0 || printf ',\n'
         printf '    { "name": "%s", "state": "%s", "kind": "%s", "mac": "%s", "speed_mbps": %s }' \
@@ -432,63 +687,58 @@ json_out() {
     printf '  "wifi": [\n'
     first=1
     for d in /sys/class/net/*; do
-        [[ -d "$d" && -d "$d/wireless" ]] || continue
-        name=$(basename "$d")
-        local ssid="" sig="" rate=""
-        if command -v iw &>/dev/null; then
-            local link
-            link=$(iw dev "$name" link 2>/dev/null) || link=""
-            [[ -n "$link" ]] && {
-                ssid=$(awk -F': *' '/^SSID:/{print $2; exit}' <<< "$link")
-                sig=$(awk '/^signal:/{gsub(/[^-0-9]/,""); print; exit}' <<< "$link")
-                rate=$(awk -F': *' '/tx bitrate:/{gsub(/[^0-9.]/,""); print; exit}' <<< "$link")
-            }
-        fi
+        [[ -d "$d/wireless" || -e "$d/phy80211" ]] || continue
+        name=${d##*/}
+        wn_wifi_link "$name"
         (( first )) && first=0 || printf ',\n'
-        printf '    { "iface": "%s", "ssid": "%s", "signal_dbm": "%s", "tx_mbit": "%s" }' \
-            "$(json_esc "$name")" "$(json_esc "${ssid:-}")" "$(json_esc "${sig:-}")" "$(json_esc "${rate:-}")"
+        printf '    { "iface": "%s", "ssid": "%s", "signal_dbm": "%s", "tx_mbit": "%s", "bssid": "%s" }' \
+            "$(json_esc "$name")" "$(json_esc "$_WS_SSID")" "$(json_esc "$_WS_SIG")" \
+            "$(json_esc "${_WS_RATE%% *}")" "$(json_esc "$_WS_BSSID")"
     done
     printf '\n  ],\n'
 
     printf '  "default_routes": [\n'
     first=1
-    if command -v ip &>/dev/null; then
-        local r
-        while IFS= read -r r; do
-            [[ -z "$r" ]] && continue
-            (( first )) && first=0 || printf ',\n'
-            printf '    { "route": "%s" }' "$(json_esc "$r")"
-        done < <(ip route show default 2>/dev/null || true)
-    fi
+    local r
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "route": "%s" }' "$(json_esc "$r")"
+    done < <(wn_default_routes)
     printf '\n  ],\n'
 
-    printf '  "listen": { "tcp": %s, "udp": %s },\n' \
-        "$(ss -H -tln 2>/dev/null | grep -c . || true)" \
-        "$(ss -H -uln 2>/dev/null | grep -c . || true)"
+    local lst proto ep proc ntcp=0 nudp=0
+    lst=$(wn_listeners) || lst=""
+    while read -r proto ep proc; do
+        case "$proto" in tcp) ntcp=$(( ntcp + 1 )) ;; udp) nudp=$(( nudp + 1 )) ;; esac
+    done <<< "$lst"
+    printf '  "listen": { "tcp": %d, "udp": %d },\n' "$ntcp" "$nudp"
 
     printf '  "connection": '
-    local _pif _kind
+    local _pif _kind _gw _dns
     _pif=$(wn_primary)
     if [[ -z "$_pif" ]]; then
         printf '{ "primary": null },\n'
     else
         _kind=$(wn_kind "$_pif")
-        printf '{ "primary": "%s", "kind": "%s" },\n' "$(json_esc "$_pif")" "$_kind"
+        _gw=$(wn_gateway "$_pif"); [[ -z "$_gw" ]] && _gw=$(wn_gateway)
+        _dns=$(wn_dns)
+        printf '{ "primary": "%s", "kind": "%s", "gateway": %s, "dns": "%s" },\n' \
+            "$(json_esc "$_pif")" "$_kind" \
+            "$( [[ -n "$_gw" ]] && printf '"%s"' "$(json_esc "$_gw")" || printf 'null' )" \
+            "$(json_esc "$_dns")"
     fi
 
     printf '  "traffic": [\n'
     first=1
-    for d in /sys/class/net/*; do
-        [[ -d "$d" ]] || continue
-        name=$(basename "$d")
-        [[ "$name" == "lo" ]] && continue
-        rx=$(cat "$d/statistics/rx_bytes" 2>/dev/null || echo 0)
-        tx=$(cat "$d/statistics/tx_bytes" 2>/dev/null || echo 0)
+    local rx tx
+    while read -r name rx tx; do
+        [[ -n "$name" ]] || continue
         (( first )) && first=0 || printf ',\n'
         printf '    { "name": "%s", "rx_bytes": %s, "tx_bytes": %s }' \
             "$(json_esc "$name")" "$rx" "$tx"
-    done
-    printf '\n  ]\n'
+    done < <(wn_traffic_rows)
+    printf '\n  ]'
     wu_json_end
 }
 
@@ -505,14 +755,9 @@ short_out() {
     if [[ "$kind" == "vpn" ]]; then
         ep=$(wn_vpn_endpoint "$pif")
         [[ -n "$ep" ]] && out+="(${ep%%|*})"
-    elif [[ "$kind" == "wifi" ]] && command -v iw &>/dev/null; then
-        local ssid sig
-        ssid=$(iw dev "$pif" link 2>/dev/null | awk -F': *' '/^SSID:/{print $2; exit}') || ssid=""
-        sig=$(iw dev "$pif" link 2>/dev/null | awk '/^signal:/{print $2; exit}') || sig=""
-        [[ -n "$ssid" ]] && out+="($ssid${sig:+ $sig dBm})"
-    else
-        # Show the carrier kind when the primary rides a tunnel-less uplink.
-        :
+    elif [[ "$kind" == "wifi" ]]; then
+        wn_wifi_link "$pif"
+        [[ -n "$_WS_SSID" ]] && out+="($_WS_SSID${_WS_SIG:+ $_WS_SIG dBm})"
     fi
     printf '%s\n' "$out"
 }

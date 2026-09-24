@@ -1,4 +1,4 @@
-.TH WELLUTILS 1 "August 2026" "wellutils 1.4.0" "wellutils"
+.TH WELLUTILS 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
 .SH NAME
 wellutils \- launcher and suite of system/peripheral reporting tools
 .SH SYNOPSIS
@@ -48,6 +48,21 @@ GPU detail with live nvidia-smi stats when available.
 .TP
 .B wellup, up, wup
 Cross-distro system updater; \fB\-\-self-update\fR also updates the suite itself.
+.TP
+.B wellnet, net, wnet
+Offline network overview: interfaces, Wi-Fi, routes, ports.
+.TP
+.B wellpower, power, wpower, wbatt
+Battery wear, cycles, charge thresholds, power profiles.
+.TP
+.B welldoctor, doctor, wdoc, wdoctor
+Health aggregator for cron: S.M.A.R.T., temperatures, units, disk usage.
+.TP
+.B whtml, html, report
+Offline, self-contained HTML system report.
+.TP
+.B self-update, selfupdate
+Same as \fBwellup \-\-self-update\fR.
 .SH OPTIONS
 .TP
 .BI \-\-lang " ru|en|eng"

@@ -1,28 +1,45 @@
 #!/usr/bin/env bash
 # wellutils -- launcher for wellutils system utility kit
-# Usage: wellutils [-l LANG] <command> [args]
-#        wellutils --lang RU|ENG   -- set language persistently
+# Usage: wellutils [global options] <command> [args]
+#        wellutils --lang RU|EN    -- set language persistently
 #        wellutils --help          -- show help
+
+# Must run before anything bash-4-only is parsed (macOS ships bash 3.2).
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    echo "wellutils: bash >= 4.0 required, found ${BASH_VERSION:-none}." >&2
+    echo "wellutils: this is a Linux tool suite (reads /proc and /sys); on macOS it is not supported." >&2
+    exit 1
+fi
 set -euo pipefail
 
-_WU_DIR="$(dirname "$(readlink -f "$0")")"
+_wu_self="$0"
+_wu_real="$(readlink -f -- "$_wu_self" 2>/dev/null || true)"
+[[ -n "$_wu_real" ]] || _wu_real="$_wu_self"
+_WU_DIR="$(cd -- "$(dirname -- "$_wu_real")" 2>/dev/null && pwd || dirname -- "$_wu_real")"
 _WU_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
 
-# ─── Shared libs ────────────────────────────────────────────────
-_WU_LIB="$_WU_DIR/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$_WU_DIR/../share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-source "$_WU_LIB"
-_WU_BOX="$_WU_DIR/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="$_WU_DIR/../share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] && source "$_WU_BOX"
+# ─── Shared libs (own dir first, then ../share/wellutils, then system) ──
+_WU_BOOT_DIR="$_WU_DIR"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_DIR")/share/wellutils"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
+if [[ ! -f "$_WU_BOOT_DIR/bootstrap.sh" ]]; then
+    echo "wellutils: cannot find the shared libraries (bootstrap.sh); reinstall wellutils" >&2
+    exit 1
+fi
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box
 
-_WU_VERSION="1.4.0"
+_WU_VERSION=""
+if [[ -r "$_WU_BOOT_DIR/VERSION" ]]; then
+    IFS= read -r _WU_VERSION < "$_WU_BOOT_DIR/VERSION" || true
+    _WU_VERSION="${_WU_VERSION//[[:space:]]/}"
+fi
+[[ -n "$_WU_VERSION" ]] || _WU_VERSION="1.4.0"
+
+# no escape codes when piped or when NO_COLOR is set
+if [[ ! -t 1 || -n "${NO_COLOR:-}" || "${TERM:-}" == "dumb" ]]; then
+    R="" G="" Y="" B="" M="" C="" W="" DIM="" BOLD="" RESET=""
+fi
 
 show_help() {
     local ttl pad
@@ -46,7 +63,7 @@ show_help() {
     printf '    %sblock%s     -- %s\n' "$G" "$RESET" "$(t cmd_block)"
     printf '    %smem%s       -- %s\n' "$G" "$RESET" "$(t cmd_mem)"
     printf '    %smod%s       -- %s\n' "$G" "$RESET" "$(t cmd_mod)"
-    printf '    %swellsensors%s -- %s\n' "$G" "$RESET" "$(t cmd_sensors)"
+    printf '    %ssensors%s   -- %s\n' "$G" "$RESET" "$(t cmd_sensors)"
     printf '    %shw%s         -- %s\n' "$G" "$RESET" "$(t cmd_hw)"
     printf '    %sper%s        -- %s\n' "$G" "$RESET" "$(t cmd_per)"
     printf '    %sgpu%s        -- %s\n' "$G" "$RESET" "$(t cmd_gpu)"
@@ -98,61 +115,93 @@ set_lang() {
     esac
 }
 
-# Parse args
+# ─── Parse args ─────────────────────────────────────────────────
+# Global output flags may precede the command (`wellutils --json mem`);
+# they are forwarded to the tool. `--lang X` without a command stays the
+# legacy "set language persistently" action.
 CMD=""
+FWD=()
+LANG_ARG=""
+WANT_HELP=0
+WANT_VERSION=0
+
+_wu_norm_lang() {
+    local l
+    l=$(printf '%s' "$1" | LC_ALL=C tr '[:lower:]' '[:upper:]')
+    [[ "$l" == "ENG" ]] && l="EN"
+    printf '%s' "$l"
+}
 
 while [[ $# -gt 0 ]]; do
-    [[ -n "$CMD" ]] && break    # rest of args belong to the tool
     case "$1" in
         --lang|-l)
             [[ $# -lt 2 || "$2" == -* ]] && { printf '  %s%s:%s --lang %s\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_set_lang)"; exit 1; }
-            shift
-            set_lang "$1"
-            exit 0
-            ;;
-        --help|-h)
-            show_help
-            exit 0
-            ;;
-        --version|-V)
-            printf '%s %s\n' "wellutils" "$_WU_VERSION"
-            exit 0
-            ;;
-        usb|wellusb|wusb)          CMD="wellusb";     shift ;;
-        pci|wellpci|wpci)          CMD="wellpci";     shift ;;
-        block|wellblock|wblock)    CMD="wellblock";   shift ;;
-        mem|wellmem|wmem|ram|wellram|wram) CMD="wellmem"; shift ;;
-        mod|wellmod|wmod)          CMD="wellmod";     shift ;;
-        sensors|wellsensors|wsensors|wtemp) CMD="wellsensors"; shift ;;
-        hw|wellhw|whw)             CMD="wellhw";      shift ;;
-        per|wellper|wper)          CMD="wellper";     shift ;;
-        gpu|wellgpu|wgpu)          CMD="wellgpu";     shift ;;
-        cpu|wellcpu|wcpu)          CMD="wellcpu";     shift ;;
-        fetch|wellfetch|wfetch)    CMD="wellfetch";   shift ;;
-        up|wellup|wup)             CMD="wellup";      shift ;;
-        net|wellnet|wnet)          CMD="wellnet";     shift ;;
-        power|wellpower|wpower|wbatt) CMD="wellpower"; shift ;;
-        doctor|welldoctor|wdoc|wdoctor) CMD="welldoctor"; shift ;;
-        html|report|whtml)            CMD="whtml";      shift ;;
-        self-update|selfupdate)    CMD="wellup";      set -- --self-update "${@:2}" ;;
+            LANG_ARG="$(_wu_norm_lang "$2")"; shift 2; continue ;;
+        --lang=*)
+            LANG_ARG="$(_wu_norm_lang "${1#*=}")"; shift; continue ;;
+        --color)
+            [[ $# -ge 2 ]] || { printf 'wellutils: --color needs always|auto|never\n' >&2; exit 2; }
+            FWD+=("$1" "$2"); shift 2; continue ;;
+        --color=*|--plain|--box|--json|--short|--html|--no-emoji|--emoji|--debug)
+            FWD+=("$1"); shift; continue ;;
+        --help|-h)    WANT_HELP=1; shift; continue ;;
+        --version|-V) WANT_VERSION=1; shift; continue ;;
+        usb|wellusb|wusb)          CMD="wellusb" ;;
+        pci|wellpci|wpci)          CMD="wellpci" ;;
+        block|wellblock|wblock)    CMD="wellblock" ;;
+        mem|wellmem|wmem|ram|wellram|wram) CMD="wellmem" ;;
+        mod|wellmod|wmod)          CMD="wellmod" ;;
+        sensors|wellsensors|wsensors|wtemp) CMD="wellsensors" ;;
+        hw|wellhw|whw)             CMD="wellhw" ;;
+        per|wellper|wper)          CMD="wellper" ;;
+        gpu|wellgpu|wgpu)          CMD="wellgpu" ;;
+        cpu|wellcpu|wcpu)          CMD="wellcpu" ;;
+        fetch|wellfetch|wfetch)    CMD="wellfetch" ;;
+        up|wellup|wup)             CMD="wellup" ;;
+        net|wellnet|wnet)          CMD="wellnet" ;;
+        power|wellpower|wpower|wbatt) CMD="wellpower" ;;
+        doctor|welldoctor|wdoc|wdoctor) CMD="welldoctor" ;;
+        html|report|whtml)         CMD="whtml" ;;
+        self-update|selfupdate)    CMD="wellup"; FWD+=("--self-update") ;;
         *)
             printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$1"
             show_help
             exit 2
             ;;
     esac
+    shift
+    break    # the rest of the arguments belong to the tool
 done
 
 if [[ -z "$CMD" ]]; then
+    if (( WANT_VERSION )); then
+        printf '%s %s\n' "wellutils" "$_WU_VERSION"
+        exit 0
+    fi
+    if [[ -n "$LANG_ARG" ]] && (( ! WANT_HELP )); then
+        set_lang "$LANG_ARG"
+        exit 0
+    fi
+    case "$LANG_ARG" in RU|EN) WELLUTILS_LANG="$LANG_ARG" ;; esac
     show_help
     exit 0
 fi
 
-# Prefer PATH; fall back to the repo checkout next to this launcher.
-if command -v "$CMD" >/dev/null 2>&1; then
-    exec "$CMD" "$@"
-elif [[ -x "$_WU_DIR/$CMD" ]]; then
-    exec "$_WU_DIR/$CMD" "$@"
+# one-shot language for this run (tool accepts ru|en|auto)
+if [[ -n "$LANG_ARG" ]]; then
+    case "$LANG_ARG" in
+        RU|EN|AUTO) FWD=(--lang "$(printf '%s' "$LANG_ARG" | LC_ALL=C tr '[:upper:]' '[:lower:]')" ${FWD[@]+"${FWD[@]}"}) ;;
+        *) printf '  %s%s:%s %s\n\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_error_lang "$LANG_ARG")"; exit 1 ;;
+    esac
+fi
+(( WANT_HELP )) && FWD+=(--help)
+(( WANT_VERSION )) && FWD+=(--version)
+
+# Prefer the tool next to this launcher (same install / checkout), then PATH.
+if [[ -f "$_WU_DIR/$CMD" && -x "$_WU_DIR/$CMD" ]]; then
+    exec "$_WU_DIR/$CMD" ${FWD[@]+"${FWD[@]}"} "$@"
+elif command -v "$CMD" >/dev/null 2>&1; then
+    exec "$CMD" ${FWD[@]+"${FWD[@]}"} "$@"
 else
     printf '  %s%s: %s "%s"\n\n' "$R" "$(t launcher_error)" "$(t launcher_error_cmd)" "$CMD"
     exit 127

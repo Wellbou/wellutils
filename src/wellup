@@ -60,26 +60,38 @@ detect_pm() {
         _UP_OS="${PRETTY_NAME:-${NAME:-unknown Linux}}"
         id="${ID:-}" id_like="${ID_LIKE:-}"
     fi
+    # Termux: its own apt wrapper, never root
+    if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then
+        _UP_OS="Termux (Android)"
+        if command -v pkg >/dev/null 2>&1; then _UP_PM="pkg"; return 0; fi
+    fi
     case "$id" in
-        arch|manjaro|endeavouros|cachyos|artix)        c=pacman ;;
-        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux) c=dnf ;;
-        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan) c=apt-get ;;
+        arch|manjaro|endeavouros|cachyos|artix|garuda|arcolinux) c=pacman ;;
+        fedora|rhel|centos|rocky|almalinux|nobara|eurolinux|ol|amzn) c=dnf ;;
+        debian|ubuntu|bodhi|linuxmint|pop|elementary|zorin|kali|mx|devuan|raspbian|parrot|neon) c=apt-get ;;
         opensuse*|sles|sled)                            c=zypper ;;
-        alpine)                                         c=apk ;;
+        alpine|postmarketos)                            c=apk ;;
         void)                                           c=xbps-install ;;
-        gentoo|calculate)                               c=emerge ;;
+        gentoo|calculate|funtoo)                        c=emerge ;;
+        solus)                                          c=eopkg ;;
+        openwrt)                                        c=opkg ;;
+        clear-linux-os)                                 c=swupd ;;
     esac
-    case " $id_like " in
-        *" arch "*)     c=pacman ;;
-        *" fedora "*|*" rhel "*|*" centos "*) c=dnf ;;
-        *" debian "*|*" ubuntu "*) c=apt-get ;;
-        *" suse "*)     c=zypper ;;
-    esac
+    if [[ -z "$c" ]]; then
+        case " $id_like " in
+            *" arch "*)     c=pacman ;;
+            *" fedora "*|*" rhel "*|*" centos "*) c=dnf ;;
+            *" debian "*|*" ubuntu "*) c=apt-get ;;
+            *" suse "*)     c=zypper ;;
+        esac
+    fi
+    # CentOS 7 & co: dnf family without dnf -> yum
+    if [[ "$c" == dnf ]] && ! command -v dnf >/dev/null 2>&1 && command -v yum >/dev/null 2>&1; then c=yum; fi
     if [[ -n "$c" ]] && command -v "$c" >/dev/null 2>&1; then
         _UP_PM="$c"
         return 0
     fi
-    for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge; do
+    for c in pacman dnf yum apt-get apt zypper apk xbps-install emerge eopkg opkg swupd; do
         if command -v "$c" >/dev/null 2>&1; then
             _UP_PM="$c"
             return 0
@@ -116,8 +128,20 @@ pm_check() {
                 [[ ${#arr[@]} -ge 2 ]] || continue
                 [[ "${arr[1]}" =~ [0-9] ]] || continue
                 UP_LINES+=("${arr[0]}||${arr[1]}")
-            done < <(dnf check-update 2>/dev/null || true) ;;
-        apt-get|apt)
+            done < <("$_UP_PM" -q check-update 2>/dev/null || true) ;;
+        eopkg)
+            while IFS= read -r line; do
+                [[ -z "$line" || "$line" == *"No packages"* ]] && continue
+                UP_LINES+=("${line%% *}||")
+            done < <(eopkg list-upgrades 2>/dev/null || true) ;;
+        opkg)
+            local nm rest
+            while IFS= read -r line; do
+                [[ "$line" == *" - "* ]] || continue
+                nm="${line%% - *}"; rest="${line#* - }"
+                UP_LINES+=("$nm|${rest% - *}|${rest##* - }")
+            done < <(opkg list-upgradable 2>/dev/null || true) ;;
+        apt-get|apt|pkg)
             local nm old rest
             while IFS= read -r line; do
                 [[ "$line" == *"/"* ]] || continue
@@ -193,10 +217,12 @@ pm_check() {
 
 # ─── Root helper ───────────────────────────────────────────────
 run_priv() {
-    if [[ "$(id -u)" -eq 0 ]]; then
-        "$@"
+    if [[ "$_UP_PM" == "pkg" || "$(id -u)" -eq 0 ]]; then
+        "$@"     # Termux: the app user owns $PREFIX, no root needed
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$@"
+    elif command -v doas >/dev/null 2>&1; then
+        doas "$@"
     else
         printf '%s\n' "$(t upd_need_root)" >&2
         return 3
@@ -206,24 +232,30 @@ run_priv() {
 pm_update() {
     case "$_UP_PM" in
         pacman)        run_priv pacman -Syu --noconfirm ;;
-        dnf|yum)       run_priv dnf upgrade -y ;;
+        dnf)           run_priv dnf upgrade -y ;;
+        yum)           run_priv yum update -y ;;
         apt-get|apt)   run_priv apt-get update -y && run_priv apt-get full-upgrade -y ;;
+        pkg)           run_priv pkg upgrade -y ;;
         zypper)        run_priv zypper --non-interactive update ;;
         apk)           run_priv apk update && run_priv apk upgrade ;;
-        xbps-install)  run_priv xbps-install -Su ;;
+        xbps-install)  if (( _UP_YES )); then run_priv xbps-install -Suy; else run_priv xbps-install -Su; fi ;;
         emerge)        run_priv emerge -uDN --with-bdeps=y @world ;;
+        eopkg)         run_priv eopkg upgrade -y ;;
+        opkg)          run_priv opkg update && { opkg list-upgradable 2>/dev/null | while IFS=' ' read -r p _; do [[ -n "$p" ]] && run_priv opkg upgrade "$p"; done; } ;;
+        swupd)         run_priv swupd update ;;
+        *)             return 1 ;;
     esac
 }
 
 # ─── JSON output (check-only) ──────────────────────────────────
 json_out() {
-    local count="${#UP_LINES[@]}" first=1 name from to rest
+    local count="${#UP_LINES[@]}" first=1 name from to rest row
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "package_manager": "%s",\n' "$(json_esc "$_UP_PM")"
     printf '  "os": "%s",\n' "$(json_esc "$_UP_OS")"
     printf '  "updates_available": %d,\n' "$count"
     printf '  "updates": [\n'
-    for row in "${UP_LINES[@]}"; do
+    for row in ${UP_LINES[@]+"${UP_LINES[@]}"}; do
         name="${row%%|*}"; rest="${row#*|}"; from="${rest%%|*}"; to="${rest#*|}"
         (( first )) || printf ',\n'
         first=0
@@ -245,7 +277,7 @@ up_system_box() {
 
 up_list_box() {
     local row name from to rest
-    for row in "${UP_LINES[@]}"; do
+    for row in ${UP_LINES[@]+"${UP_LINES[@]}"}; do
         name="${row%%|*}"; rest="${row#*|}"; from="${rest%%|*}"; to="${rest#*|}"
         if [[ -n "$from" && -n "$to" ]]; then
             _LINES+=("$Y$name$RESET  $DIM$from$RESET -> $G$to$RESET")
@@ -273,41 +305,123 @@ confirm_update() {
 }
 
 # ─── Self-update: wellutils itself, from GitHub ────────────────
+# Flow: detect install prefix from our own lib dir -> refuse checkouts and
+# package-manager-owned installs -> resolve the newest tag (same logic as
+# install.sh) -> compare with raw/<tag>/src/VERSION -> download exactly that
+# tag -> (optional SHA256SUMS check) -> run the tree's own install.sh
+# --prefix=<detected> --no-deps. No hand-kept file lists here.
+#
+# WELLUTILS_SELF_SRC=<dir>  use a local source tree instead of GitHub
+#                           (offline / testing); must contain src/VERSION.
 SELF_REPO="${WELLUTILS_REPO:-Wellbou/wellutils}"
 SELF_RAW="${WELLUTILS_RAW:-https://raw.githubusercontent.com/$SELF_REPO}"
+SELF_API="${WELLUTILS_API:-https://api.github.com/repos/$SELF_REPO}"
 SELF_LIB=""
+SELF_PREFIX=""
 SELF_LOCAL=""
 SELF_REMOTE=""
-SELF_ALIASES="wellusb=wusb wellpci=wpci wellblock=wblock wellcpu=wcpu wellgpu=wgpu wellmem=wmem wellmem=wram wellmem=wellram wellmod=wmod wellsensors=wsensors wellsensors=wtemp wellhw=whw wellper=wper wellfetch=wfetch wellup=wup"
+SELF_TAG=""
+SELF_SRC=""
+SELF_OWNER=""
+_WU_SELF_TMP=""
+
+# download URL -> FILE ("-" = stdout) with curl or wget
+self_dl() {
+    local url="$1" out="$2" tmo="${3:-60}"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --max-time "$tmo" "$url" -o "$out"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -T "$tmo" -O "$out" "$url"
+    else
+        return 127
+    fi
+}
+
+# Pure-bash version compare (busybox sort has no -V). rc 0 if $1 > $2.
+ver_gt() {
+    local a="${1#v}" b="${2#v}" i x y
+    local -a A=() B=()
+    IFS='.-_' read -r -a A <<< "$a" || true
+    IFS='.-_' read -r -a B <<< "$b" || true
+    for (( i=0; i < ${#A[@]} || i < ${#B[@]}; i++ )); do
+        x="${A[i]:-0}" y="${B[i]:-0}"
+        if [[ "$x" =~ ^[0-9]+$ && "$y" =~ ^[0-9]+$ ]]; then
+            (( 10#$x > 10#$y )) && return 0
+            (( 10#$x < 10#$y )) && return 1
+        else
+            [[ "$x" > "$y" ]] && return 0
+            [[ "$x" < "$y" ]] && return 1
+        fi
+    done
+    return 1
+}
 
 self_detect() {
-    SELF_LIB="$(dirname "$_WU_LIB")"
-    if [[ -f "$SELF_LIB/VERSION" ]]; then
-        SELF_LOCAL="$(tr -d '[:space:]' < "$SELF_LIB/VERSION")"
+    SELF_LIB="$_WU_BOOT_DIR"
+    SELF_LOCAL=""
+    if [[ -r "$SELF_LIB/VERSION" ]]; then
+        IFS= read -r SELF_LOCAL < "$SELF_LIB/VERSION" || true
+        SELF_LOCAL="${SELF_LOCAL//[[:space:]]/}"
     fi
+    if [[ "$SELF_LIB" == */share/wellutils ]]; then
+        SELF_PREFIX="${SELF_LIB%/share/wellutils}"
+        [[ -n "$SELF_PREFIX" ]] || SELF_PREFIX="/"
+    else
+        SELF_PREFIX=""
+    fi
+}
+
+# Installed by a distro package? Then the package manager must update it.
+self_pkg_owner() {
+    local f="$SELF_LIB/lang.sh"
+    SELF_OWNER=""
+    [[ -e "$SELF_LIB/wellutils.manifest" ]] && return 1   # our installer
+    if command -v pacman >/dev/null 2>&1 && pacman -Qqo "$f" >/dev/null 2>&1; then
+        SELF_OWNER="pacman"
+    elif command -v dpkg >/dev/null 2>&1 && dpkg -S "$f" >/dev/null 2>&1; then
+        SELF_OWNER="dpkg"
+    elif command -v rpm >/dev/null 2>&1 && rpm -qf "$f" >/dev/null 2>&1; then
+        SELF_OWNER="rpm"
+    elif [[ "$SELF_LIB" == /usr/share/wellutils ]]; then
+        SELF_OWNER="package"
+    fi
+    [[ -n "$SELF_OWNER" ]]
+}
+
+self_resolve_tag() {
+    local line best=""
+    if [[ -n "${WELLUTILS_REF:-}" ]]; then
+        SELF_TAG="$WELLUTILS_REF"; return 0
+    fi
+    # newest tag, not /releases/latest (a stale Release can be far behind)
+    while IFS= read -r line; do
+        line="${line##*:}"; line="${line//[[:space:]\"]/}"
+        [[ "$line" == v[0-9]* ]] || continue
+        if [[ -z "$best" ]] || ver_gt "$line" "$best"; then best="$line"; fi
+    done < <(self_dl "$SELF_API/tags?per_page=100" - 20 2>/dev/null \
+             | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' || true)
+    SELF_TAG="${best:-main}"
 }
 
 self_fetch() {
-    local url="$SELF_RAW/src/VERSION"
-    local out
-    if [[ "$SELF_RAW" == /* ]]; then
-        [[ -f "$url" ]] || return 1
-        out="$(cat "$url")"
-    elif command -v curl >/dev/null 2>&1; then
-        out="$(curl -fsSL --max-time 20 "$url" 2>/dev/null)" \
-            || out="$(curl -fsSL -H 'Accept: application/vnd.github.raw' --max-time 20 "https://api.github.com/repos/$SELF_REPO/contents/src/VERSION" 2>/dev/null)" \
-            || out="$(curl -fsSL --max-time 20 "https://api.github.com/repos/$SELF_REPO/contents/src/VERSION" 2>/dev/null | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | tr -d '[:space:]' | base64 -d 2>/dev/null)"
-    elif command -v wget >/dev/null 2>&1; then
-        out="$(wget -qO- --timeout=20 "$url")"
+    local out="" d
+    SELF_REMOTE=""
+    d="${WELLUTILS_SELF_SRC:-}"
+    # legacy: WELLUTILS_RAW pointing at a local directory
+    [[ -z "$d" && "$SELF_RAW" == /* ]] && d="$SELF_RAW"
+    if [[ -n "$d" ]]; then
+        [[ -r "$d/src/VERSION" ]] || return 1
+        IFS= read -r out < "$d/src/VERSION" || true
+        SELF_TAG="local"
     else
-        return 1
+        command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || return 1
+        self_resolve_tag
+        out="$(self_dl "$SELF_RAW/$SELF_TAG/src/VERSION" - 20 2>/dev/null)" || out=""
     fi
-    SELF_REMOTE="$(printf '%s' "$out" | tr -d '[:space:]' | head -c 100)"
-    [[ -n "$SELF_REMOTE" ]] || return 1
-}
-
-ver_gt() {
-    [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]
+    out="${out//[[:space:]]/}"
+    out="${out:0:100}"
+    [[ "$out" =~ ^[0-9A-Za-z._-]+$ ]] || return 1
+    SELF_REMOTE="$out"
 }
 
 self_status() {
@@ -326,86 +440,64 @@ self_status() {
     fi
 }
 
-self_acquire() {
-    local tmp url
-    if [[ "$SELF_RAW" == /* ]]; then
-        echo "$SELF_RAW"
-        return 0
-    fi
-    tmp="$(mktemp -d)"
-    _WU_SELF_TMP="$tmp"
-    trap '[[ -n "$_WU_SELF_TMP" ]] && rm -rf -- "$_WU_SELF_TMP"' EXIT
-    url="https://codeload.github.com/$SELF_REPO/tar.gz/refs/heads/main"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --max-time 60 "$url" -o "$tmp/wellutils.tar.gz"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$tmp/wellutils.tar.gz" --timeout=60 "$url"
-    else
-        rm -rf "$tmp"
-        return 1
-    fi
-    tar -xzf "$tmp/wellutils.tar.gz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
-    find "$tmp" -maxdepth 1 -type d ! -name "$tmp" | tail -n1
+# Verify the tarball against a SHA256SUMS release asset when one exists.
+# rc 0 = ok or nothing to verify, 1 = mismatch.
+self_verify() {
+    local tarball="$1" sums="$_WU_SELF_TMP/SHA256SUMS" want="" have="" line
+    command -v sha256sum >/dev/null 2>&1 || return 0
+    self_dl "https://github.com/$SELF_REPO/releases/download/$SELF_TAG/SHA256SUMS" "$sums" 30 2>/dev/null || return 0
+    while IFS= read -r line; do
+        case "$line" in
+            *.tar.gz) want="${line%% *}"; break ;;
+        esac
+    done < "$sums"
+    [[ -n "$want" ]] || return 0
+    have="$(sha256sum "$tarball")"; have="${have%% *}"
+    [[ "$have" == "$want" ]]
 }
 
-self_write() {
-    if [[ "$(id -u)" -eq 0 || -w "$(dirname "$2")" ]]; then
-        install -D "$@"
-    elif command -v sudo >/dev/null 2>&1; then
-        sudo install -D "$@"
+# Sets SELF_SRC. Runs in the main shell: the tmp dir and its trap live in
+# self_main, so nothing is deleted behind our back.
+self_acquire() {
+    local url e v=""
+    SELF_SRC=""
+    if [[ -n "${WELLUTILS_SELF_SRC:-}" ]]; then
+        SELF_SRC="$WELLUTILS_SELF_SRC"
+    elif [[ "$SELF_RAW" == /* ]]; then
+        SELF_SRC="$SELF_RAW"
     else
-        printf '%s\n' "$(t upd_need_root)" >&2
-        return 1
+        if [[ "$SELF_TAG" == "main" || "$SELF_TAG" == "master" ]]; then
+            url="https://codeload.github.com/$SELF_REPO/tar.gz/refs/heads/$SELF_TAG"
+        else
+            url="https://codeload.github.com/$SELF_REPO/tar.gz/refs/tags/$SELF_TAG"
+        fi
+        self_dl "$url" "$_WU_SELF_TMP/wellutils.tar.gz" 120 || return 1
+        if ! self_verify "$_WU_SELF_TMP/wellutils.tar.gz"; then
+            printf '  %s%s%s\n' "$R" "$(t updu_sum_fail)" "$RESET" >&2
+            return 1
+        fi
+        tar -xzf "$_WU_SELF_TMP/wellutils.tar.gz" -C "$_WU_SELF_TMP" || return 1
+        for e in "$_WU_SELF_TMP"/*/; do
+            [[ -d "$e" && -f "$e/install.sh" ]] && { SELF_SRC="${e%/}"; break; }
+        done
     fi
+    [[ -n "$SELF_SRC" && -f "$SELF_SRC/install.sh" && -f "$SELF_SRC/src/VERSION" ]] || return 1
+    # exactly the version we compared against
+    IFS= read -r v < "$SELF_SRC/src/VERSION" || true
+    v="${v//[[:space:]]/}"
+    [[ "$v" == "$SELF_REMOTE" ]] || return 1
 }
 
 self_install_to() {
-    local src="$1" prefix bin mandir compdir licdir name f base
-    prefix="${SELF_LIB%/share/wellutils}"
-    bin="$prefix/bin"
-    mandir="$prefix/share/man/man1"
-    licdir="$prefix/share/licenses/wellutils"
-    compdir="$prefix/share/bash-completion/completions"
-    if [[ "$prefix" == "/usr" || "$prefix" == "/usr/local" ]] && [[ -d /usr/share/bash-completion/completions ]]; then
-        compdir="/usr/share/bash-completion/completions"
-    elif [[ "$prefix" == "/usr" || "$prefix" == "/usr/local" ]] && [[ -d /etc/bash_completion.d ]]; then
-        compdir="/etc/bash_completion.d"
-    fi
-
-    for f in "$src"/src/well*; do
-        [[ -f "$f" && -x "$f" ]] || continue
-        name="${f##*/}"
-        [[ "$name" == well* ]] || continue
-        self_write -m755 "$f" "$bin/$name" || return 1
-    done
-    for f in lang.sh box.sh cli.sh jedec.sh wfetch_art.py logo.png VERSION; do
-        [[ -f "$src/src/$f" ]] || continue
-        self_write -m644 "$src/src/$f" "$SELF_LIB/$f" || return 1
-    done
-    [[ -f "$src/src/LICENSE" ]] && { self_write -m644 "$src/src/LICENSE" "$licdir/LICENSE" || return 1; }
-    for f in "$src"/src/*.1; do
-        [[ -f "$f" ]] || continue
-        self_write -m644 "$f" "$mandir/${f##*/}" || return 1
-    done
-    for f in "$src"/src/*.bash; do
-        [[ -f "$f" ]] || continue
-        name="${f##*/}"
-        self_write -m644 "$f" "$compdir/${name%.bash}" || return 1
-    done
-    for a in $SELF_ALIASES; do
-        base="${a%%=*}"
-        if [[ "$(id -u)" -eq 0 || -w "$bin" ]]; then
-            ln -sf "$bin/$base" "$bin/${a#*=}"
-        elif command -v sudo >/dev/null 2>&1; then
-            sudo ln -sf "$bin/$base" "$bin/${a#*=}"
-        fi
-    done
+    local src="$1"
+    WELLUTILS_LOCAL=1 WELLUTILS_PREFIX="" bash "$src/install.sh" \
+        --prefix="$SELF_PREFIX" --no-deps </dev/null
 }
 
 self_info_box() {
     _LINES+=("$BOLD$(t updu_current)$RESET  $W${SELF_LOCAL:-?}$RESET")
     _LINES+=("$BOLD$(t updu_latest)$RESET  $G${SELF_REMOTE:-?}$RESET")
-    _LINES+=("$BOLD$(t updu_prefix)$RESET  $DIM${SELF_LIB%/share/wellutils}$RESET")
+    _LINES+=("$BOLD$(t updu_prefix)$RESET  $DIM${SELF_PREFIX:-$SELF_LIB}$RESET")
 }
 
 json_self_out() {
@@ -414,17 +506,30 @@ json_self_out() {
     printf ',\n  "self_update": {\n'
     printf '    "current": "%s",\n' "$(json_esc "${SELF_LOCAL:-}")"
     printf '    "latest": "%s",\n' "$(json_esc "${SELF_REMOTE:-}")"
+    printf '    "tag": "%s",\n' "$(json_esc "${SELF_TAG:-}")"
     printf '    "status": "%s",\n' "$(json_esc "$status")"
-    printf '    "prefix": "%s"\n' "$(json_esc "${SELF_LIB%/share/wellutils}")"
+    printf '    "owner": "%s",\n' "$(json_esc "${SELF_OWNER:-}")"
+    printf '    "prefix": "%s"\n' "$(json_esc "${SELF_PREFIX:-$SELF_LIB}")"
     printf '  }\n'
     wu_json_end
 }
 
+self_footer() {
+    printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+}
+
 self_main() {
     self_detect
-    if [[ -f "$SELF_LIB/wellup" ]]; then
+    if [[ -f "$SELF_LIB/wellup" || -z "$SELF_PREFIX" ]]; then
+        if [[ "$_WU_JSON" == "1" ]]; then json_self_out "checkout"; return 0; fi
         printf '  %s\n' "$(t updu_checkout)" >&2
-        exit 0
+        return 0
+    fi
+    if self_pkg_owner; then
+        if [[ "$_WU_JSON" == "1" ]]; then json_self_out "package-managed"; return 0; fi
+        printf '  %s (%s)\n' "$(t updu_pkg_owned)" "$SELF_OWNER" >&2
+        printf '  %s\n' "$(t updu_pkg_hint)" >&2
+        return 0
     fi
 
     if ! self_fetch; then
@@ -444,14 +549,14 @@ self_main() {
 
     if [[ "$status" == "up-to-date" || "$status" == "newer-local" ]]; then
         printf '\n  %s%s%s\n' "$G" "$(t updu_up_to_date)" "$RESET"
-        printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        self_footer
         return 0
     fi
 
     printf '\n  %s%s %s%s\n' "$G" "$(t updu_update)" "$RESET" "$SELF_REMOTE"
 
     if [[ "$_UP_CHECK" == "1" ]]; then
-        printf '\n  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        self_footer
         return 0
     fi
 
@@ -460,14 +565,23 @@ self_main() {
         return 0
     fi
 
+    local tmpbase="${TMPDIR:-/tmp}"
+    [[ -d "$tmpbase" && -w "$tmpbase" ]] || tmpbase="${PREFIX:+$PREFIX/tmp}"
+    [[ -n "$tmpbase" && -d "$tmpbase" && -w "$tmpbase" ]] || tmpbase="${HOME:-.}"
+    _WU_SELF_TMP="$(mktemp -d "$tmpbase/wellup-self.XXXXXX")" \
+        || { printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"; return 3; }
+    trap '[[ -n "$_WU_SELF_TMP" && -d "$_WU_SELF_TMP" ]] && rm -rf -- "$_WU_SELF_TMP"' EXIT
     trap 'printf "\n  %s\n\n" "$(t upd_aborted)"; exit 130' INT
     printf '  %s\n\n' "$(t updu_applying)"
-    local src
-    src="$(self_acquire)" || { printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"; return 3; }
-    if self_install_to "$src"; then
+    if ! self_acquire; then
         trap - INT
-        printf '\n  %s%s %s%s\n\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
-        printf '  %sWellUp v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        printf '\n  %s%s%s\n\n' "$R" "$(t updu_error)" "$RESET"
+        return 3
+    fi
+    if self_install_to "$SELF_SRC"; then
+        trap - INT
+        printf '\n  %s%s %s%s\n' "$G" "$(t updu_done)" "$RESET" "$SELF_REMOTE"
+        self_footer
         return 0
     else
         trap - INT

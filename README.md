@@ -17,7 +17,7 @@
   [![Language: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](src/wfetch_art.py)
   [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
-  [![Version: 1.4.0](https://img.shields.io/badge/Version-1.4.0-22272E)](PKGBUILD)
+  [![Version: 1.4.0-54](https://img.shields.io/badge/Version-1.4.0--54-22272E)](PKGBUILD)
   [![License: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](src/LICENSE)
 
 </div>
@@ -26,17 +26,19 @@
 
 ## What it is
 
-Fifteen single-file tools that tell you what your machine is doing: USB
+Sixteen single-file tools that tell you what your machine is doing: USB
 and PCI devices, block storage, memory, CPU topology, graphics, kernel
-modules, temperatures, peripherals, network, power and a health
-aggregator. Every tool shares the same CLI - same flags, same exit
-codes, same box-drawing output. A launcher (`wellutils`) ties them
-together, and short aliases (`wusb`, `wpci`, `wmem`, ...) are
-installed alongside.
+modules, temperatures, peripherals, network, power, a health
+aggregator and an offline HTML report. On Linux every tool shares the
+same core CLI - the same common flags, the same exit codes, the same
+box-drawing output. A launcher (`wellutils`) ties them together, and
+short aliases (`wusb`, `wpci`, `wmem`, ...) are installed alongside.
 
-The same interface ships as a single PowerShell file for Windows.
-No WSL, no admin rights, no installers - data comes from CIM/WMI
-(which you don't really need, it's beyond raw):
+A smaller version of the same interface ships as a single PowerShell
+file for Windows. No WSL, no admin rights, no installers - data comes
+from CIM/WMI. To be honest, the Windows port is quite basic: it has no
+`--json`, `--short` or `--html`, so on Windows you mostly just look at
+the output:
 
 ```
 $ well fetch
@@ -76,13 +78,28 @@ drops the tools into `/usr/local/bin`:
 curl -fsSL https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
 ```
 
-> **Bare Alpine:** the base image ships neither `bash` nor `curl`, and
-> `install.sh` itself needs both. Install them first:
-> `apk add bash curl`.
+No `curl`? `wget` works just as well:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/Wellbou/wellutils/main/install.sh | bash
+```
+
+> **Bare Alpine:** the base image ships no `bash`, and `install.sh`
+> needs it (plus `curl` or `wget`). Install it first: `apk add bash curl`.
 
 Skip the dependency step with `--no-deps` (tools degrade gracefully:
-no S.M.A.R.T., no sensor readings, no vendor-ID names). Use
-`--prefix=/path` for a rootless install into your own directory.
+no S.M.A.R.T., no sensor readings, no vendor-ID names).
+
+- **Rootless:** `./install.sh --prefix=$HOME/.local` puts everything
+  into your home directory, no sudo needed. Make sure `~/.local/bin` is
+  in your `PATH`.
+- **Termux (Android):** works without root; the installer uses `pkg`
+  and installs into Termux's own `$PREFIX`. Some data (S.M.A.R.T.,
+  dmidecode, part of sysfs) is simply not visible to apps on Android,
+  so those sections stay empty.
+- **NixOS:** the installer copies files only and defaults to
+  `~/.local`; add the dependencies you want (`smartmontools`,
+  `pciutils`, `lm_sensors`, ...) through your Nix configuration.
 
 ### From source (git clone)
 
@@ -143,7 +160,8 @@ Nothing runs as administrator; all data is read via CIM/WMI.
 
 ## Usage
 
-Every tool shares one CLI:
+Every Linux tool shares one core CLI (a few tools add their own flags
+on top; `--help` of each tool lists them):
 
 ```
 tool [options]
@@ -157,7 +175,12 @@ tool [options]
       --no-emoji           drop emoji icons
       --emoji               force emoji icons
       --json               machine-readable JSON on stdout
+      --short              one-line status (only the "live" tools)
+      --html               standalone HTML page
       --debug              shell tracing
+
+Exit codes: 0 ok, 2 bad CLI, 3 runtime error
+(welldoctor: 0 healthy, 1 warnings, 2 critical, 3 runtime error)
 ```
 
 Every tool can emit JSON - pipe it into `jq`, or save it for an
@@ -189,7 +212,8 @@ wblock sdb        # by device node
 wblock /dev/sdb
 ```
 
-Every tool has a man page (`man wellper`) and bash completion.
+Every tool has a man page (`man wellper`) and bash, zsh and fish
+completions.
 
 ## Tools
 
@@ -215,7 +239,8 @@ Every tool has a man page (`man wellper`) and bash completion.
 Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wcpu`, `wgpu`, `wmem`/`wram`/`wellram`, `wmod`, `wsensors`/`wtemp`,
 `whw`, `wper`, `wfetch`, `wup`, `wnet`, `wpower`/`wbatt`,
-`wdoc`/`wdoctor`. The launcher accepts them too:
+`wdoc`/`wdoctor`. `whtml` answers to `wellutils html` and
+`wellutils report` as well. The launcher accepts all of them:
 `wellutils wram --plain`.
 
 `wellup` asks for confirmation before applying updates; pass `--yes`
@@ -279,6 +304,43 @@ full tutorial - watchdogs, cron checks, inventory diffs - lives in
 [`docs/SCRIPTING.md`](docs/SCRIPTING.md), and the real output of every
 tool is in [SAMPLES.md](SAMPLES.md).
 
+## New in 1.4.0-54
+
+This one is mostly about making wellutils work on machines other than
+mine. I tried to go through as many odd setups as I could; some of them
+I could only check on paper, so if something still breaks for you,
+please tell me.
+
+- Frames and emoji: the width engine was rewritten. Frames are now
+  straight on every tool (wide and narrow emoji, Cyrillic, CJK), and
+  tools use the real terminal width instead of guessing.
+- Runs on more systems: busybox, Alpine/musl, old Debian with mawk,
+  Termux on Android, ARM boards, Asahi Macs and POWER machines. CPU
+  and board names are read from the device tree where there is no
+  SMBIOS.
+- SMBIOS junk like "To Be Filled By O.E.M." or "Not Specified" is
+  filtered out instead of being printed as if it were a real name.
+- JEDEC decoding fix: the parity bit was handled wrong, so Samsung,
+  SK Hynix, Kingston, Crucial and other vendors were not decoded. They
+  are now.
+- `wellusb` now scans USB devices natively from sysfs.
+- `welldoctor` no longer raises a false "S.M.A.R.T. FAILED": it used to
+  match a column header of the smartctl table. It also treats systemd
+  inside containers as unavailable instead of "all fine", and `--short`
+  now returns the same 0/1/2 exit codes as the other modes.
+- Many crash fixes: `wellnet` on laptops with Wi-Fi, `wellmem` with ECC
+  memory, `wellfetch --all`, and more.
+- Installer fixes: `parse.sh` is installed now (tools failed to start
+  without it), Termux and NixOS support, correct completion paths,
+  `curl` or `wget`.
+- `whtml`: all values are escaped properly (a strange device name can
+  no longer break the page), write errors are reported with exit code
+  3, and it runs noticeably faster.
+- Completions are generated from each tool's `--help`, so they finally
+  match the real flags; the launcher gets completions too.
+- Big speedups overall: far fewer subprocesses in loops, which is very
+  noticeable on slow netbooks and SBCs.
+
 ## New in 1.4.0-47
 
 - `wellutils` launcher now lists `whtml` as a top-level command (it was
@@ -321,13 +383,18 @@ aliases: `wsensors`, `wtemp`. See wellutils(1) for the full list.
 - **S.M.A.R.T. health in `wellblock`.** The per-disk view checks
   overall health and flags failing critical attributes (reallocated
   sectors, pending and uncorrectable errors, CRC errors) in colour.
-- **Same options everywhere.** One CLI, one output style, one set of
-  exit codes - on Linux and Windows alike.
+- **Same core options on every Linux tool.** One CLI, one output
+  style, one set of exit codes. The Windows port follows the same look
+  and the basic flags, but has no `--json`, `--short` or `--html`.
 
 ## Dependencies
 
-**Required:** `bash`, `python`, `coreutils`, `procps-ng` (on
-Debian/Ubuntu the package names differ: `procps`, `python3`).
+**Required:** `bash` 4.0 or newer, `coreutils` (busybox is fine),
+`procps-ng` (`procps` on Debian/Ubuntu). For the installer: `curl` or
+`wget`.
+
+**Python is optional:** only `whtml` and the PNG logo of `wellfetch`
+(`--png`) need `python3`. Everything else is plain bash.
 
 **Optional:** `pciutils` (PCI descriptions), `hwdata` (USB ID
 database), `smartmontools` (wellsensors and wellblock S.M.A.R.T.),

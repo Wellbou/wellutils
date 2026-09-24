@@ -3,3 +3,4 @@ pkg/
 backups/
 patch_lookup.py
 NOTES.md
+.makepkg/

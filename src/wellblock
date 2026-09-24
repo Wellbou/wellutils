@@ -11,194 +11,361 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
-_WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, /dev/sda)"
+_WU_EXTRA_HELP="  [N|device]            disk detail: index or name (sda, nvme0n1, md0, /dev/sda)"
 _WU_EXTRA_PARSE="_wblock_arg"
 
+command -v date >/dev/null 2>&1 || date() { printf '%s' '1970-01-01 00:00:00'; }
 
 # ─── CLI arg: optional disk index or name ────────────────────────
+# Anything that exists under /sys/block is accepted (xvda, md0, dm-0,
+# nbd0, zd0, mmcblk0, vda, nvme0n1, sr0 ...), with or without /dev/.
 _WU_DISK_ARG=""
 _wblock_arg() {
-    case "$1" in
-        /dev/*) _WU_DISK_ARG="${1#/dev/}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
-        sd*|hd*|vd*|nvme*|mmcblk*|sr*) _WU_DISK_ARG="$1"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+    local a="$1" b
+    # /dev/disk/by-id/..., /dev/mapper/... -> kernel name
+    if [[ "$a" == /dev/*/* && -L "$a" ]]; then b=$(readlink -f -- "$a" 2>/dev/null) || b=$a; a=$b; fi
+    b=${a#/dev/}
+    if [[ -n "$b" && "$b" != */* && "$b" != -* && -d "/sys/block/$b" ]]; then
+        _WU_DISK_ARG="$b"; _WU_EXTRA_CONSUMED=1; return 0
+    fi
+    case "$a" in
+        # Device-looking names are reported as "not found" (exit 3) later.
+        /dev/*|sd*|hd*|vd*|xvd*|nvme*|mmcblk*|sr*|md[0-9]*|dm-*|nbd*|zd*|loop*|zram*)
+            _WU_DISK_ARG="$b"; _WU_EXTRA_CONSUMED=1; return 0 ;;
         *[!0-9]*|"") return 1 ;;
-        *) _WU_DISK_ARG="$1"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        *) _WU_DISK_ARG="$a"; _WU_EXTRA_CONSUMED=1; return 0 ;;
     esac
 }
 
 # ─── Helpers ─────────────────────────────────────────────────────
+# fmt_size BYTES [VAR] -- "465.8 GB" (binary units, one decimal), no forks.
 fmt_size() {
-    local bytes=$1
-    if (( bytes >= 1073741824 )); then
-        printf '%s GB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1073741824}")"
-    elif (( bytes >= 1048576 )); then
-        printf '%s MB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1048576}")"
-    elif (( bytes >= 1024 )); then
-        printf '%s KB' "$(awk "BEGIN {printf \"%.1f\", $bytes/1024}")"
-    else
-        printf '%d B' "$bytes"
+    local b=$1 u="" d r out
+    [[ "$b" =~ ^[0-9]+$ ]] || b=0
+    if   (( b >= 1099511627776 )); then u=TB; d=1099511627776
+    elif (( b >= 1073741824 ));    then u=GB; d=1073741824
+    elif (( b >= 1048576 ));       then u=MB; d=1048576
+    elif (( b >= 1024 ));          then u=KB; d=1024
     fi
+    if [[ -z "$u" ]]; then out="$b B"
+    else
+        r=$(( (b * 10 + d / 2) / d ))
+        out="$(( r / 10 )).$(( r % 10 )) $u"
+    fi
+    if [[ -n "${2:-}" ]]; then printf -v "$2" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
-# Ordered list of physical disk sysfs paths (summary + index resolution).
-wblock_disks() {
-    local glob dev
-    for glob in /sys/block/sd? /sys/block/sd?? /sys/block/hd? /sys/block/vd? /sys/block/nvme* /sys/block/mmcblk*; do
-        for dev in $glob; do
-            [[ -d "$dev" ]] || continue
-            local bn
-            bn=$(basename "$dev")
-            [[ "$bn" == loop* || "$bn" == ram* || "$bn" == sr* ]] && continue
-            [[ "$bn" == mmcblk*boot* ]] && continue
-            printf '%s\n' "$dev"
+# _wb_rd FILE VAR [DEFAULT] -- trimmed first line of a sysfs file.
+_wb_rd() {
+    local __x=""
+    if wu_read "$1" __x; then wu_trim "$__x" __x; else __x="${3:-}"; fi
+    printf -v "$2" '%s' "$__x"
+}
+
+# Physical disks, ordered (summary + index resolution). The order is kept
+# compatible with older releases (sd? sd?? hd? vd? nvme* mmcblk*) so that
+# "wellblock 0" keeps pointing at the same disk; new kinds come after.
+_WB_DISKS=() _WB_DISKS_DONE=0
+wblock_scan() {
+    (( _WB_DISKS_DONE )) && return 0; _WB_DISKS_DONE=1
+    local g d bn sz hid
+    local -A seen=()
+    for g in '/sys/block/sd[a-z]' '/sys/block/sd[a-z][a-z]' '/sys/block/sd[a-z][a-z][a-z]' '/sys/block/hd*' \
+             '/sys/block/vd*' '/sys/block/xvd*' '/sys/block/nvme*' '/sys/block/mmcblk*' '/sys/block/mtdblock*' \
+             '/sys/block/ubiblock*' '/sys/block/pmem*' '/sys/block/md*' '/sys/block/dm-*' '/sys/block/nbd*' \
+             '/sys/block/rbd*' '/sys/block/zd*' '/sys/block/bcache*'; do
+        for d in $g; do
+            [[ -d "$d" ]] || continue
+            bn=${d##*/}
+            [[ -n "${seen[$bn]+x}" ]] && continue
+            seen[$bn]=1
+            case "$bn" in mmcblk*boot*|mmcblk*rpmb) continue ;; esac
+            # NVMe native multipath: per-path nodes (nvme0c0n1) are hidden.
+            hid=0; wu_read "$d/hidden" hid || hid=0
+            [[ "$hid" == 1 ]] && continue
+            case "$bn" in
+                md*|dm-*|nbd*|zd*|rbd*|bcache*)
+                    sz=0; wu_read "$d/size" sz || sz=0
+                    [[ "$sz" =~ ^[0-9]+$ ]] && (( sz > 0 )) || continue ;;
+            esac
+            _WB_DISKS+=("$d")
         done
     done
+    return 0
 }
 
-disk_model() {
-    local dev="$1" model="" name_file="$dev/device/name"
-    local model_file="$dev/device/model"
-    if [[ -e "$model_file" ]]; then
-        model=$(cat "$model_file" 2>/dev/null | xargs) || model=""
+# /proc/self/mounts parsed once: device -> "fstype<TAB>mountpoint".
+declare -A _WB_MNT=()
+_WB_MNT_DONE=0
+_wb_mounts() {
+    (( _WB_MNT_DONE )) && return 0; _WB_MNT_DONE=1
+    local src mp fs rest real
+    if [[ -r /proc/self/mounts ]]; then
+        while read -r src mp fs rest; do
+            [[ "$src" == /dev/* ]] || continue
+            # octal escapes (\040 space, \011 tab, \134 backslash)
+            [[ "$mp" == *\\* ]] && printf -v mp '%b' "$mp"
+            real=$src
+            if [[ -L "$src" ]]; then real=$(readlink -f -- "$src" 2>/dev/null) || real=$src; fi
+            real=${real#/dev/}
+            [[ -n "${_WB_MNT[$real]+x}" ]] || _WB_MNT[$real]="$fs"$'\t'"$mp"
+        done < /proc/self/mounts
     fi
-    if [[ -z "$model" && -e "$name_file" ]]; then
-        model=$(cat "$name_file" 2>/dev/null | xargs) || model=""
+    if [[ -r /proc/swaps ]]; then
+        while read -r src rest; do
+            [[ "$src" == /dev/* ]] || continue
+            real=$src
+            if [[ -L "$src" ]]; then real=$(readlink -f -- "$src" 2>/dev/null) || real=$src; fi
+            real=${real#/dev/}
+            [[ -n "${_WB_MNT[$real]+x}" ]] || _WB_MNT[$real]="swap"$'\t'"[SWAP]"
+        done < /proc/swaps
     fi
-    # USB-SATA adapters often split SCSI INQUIRY across vendor/model
-    # fields, producing a truncated sysfs model (e.g. "8CS" for
-    # "ST9320328CS"). Fall back to smartctl when the name is too short.
-    if [[ ${#model} -lt 5 && -b "/dev/$(basename "$dev")" ]] && command -v smartctl &>/dev/null; then
-        local full
-        full=$(root_run smartctl -i "/dev/$(basename "$dev")" 2>/dev/null \
-               | awk -F': ' '/^Device Model:/{print $2; exit}') || true
-        full=$(printf '%s' "$full" | xargs)
-        [[ ${#full} -gt ${#model} ]] && model="$full"
+}
+
+# _wb_udev SYSDIR -- read the udev db once per device: sets _U_MODEL,
+# _U_SERIAL, _U_FSTYPE, _U_BUS, _U_TYPE.
+_wb_udev() {
+    _U_MODEL="" _U_SERIAL="" _U_FSTYPE="" _U_BUS="" _U_TYPE=""
+    local mm="" l
+    wu_read "$1/dev" mm || return 0
+    [[ -r "/run/udev/data/b$mm" ]] || return 0
+    while IFS= read -r l; do
+        case "$l" in
+            E:ID_MODEL=*)        _U_MODEL=${l#E:ID_MODEL=}; _U_MODEL=${_U_MODEL//_/ } ;;
+            E:ID_SERIAL_SHORT=*) _U_SERIAL=${l#E:ID_SERIAL_SHORT=} ;;
+            E:ID_FS_TYPE=*)      _U_FSTYPE=${l#E:ID_FS_TYPE=} ;;
+            E:ID_BUS=*)          _U_BUS=${l#E:ID_BUS=} ;;
+            E:ID_TYPE=*)         _U_TYPE=${l#E:ID_TYPE=} ;;
+        esac
+    done < "/run/udev/data/b$mm"
+}
+
+# _wb_part_info PARTNAME SYSDIR -- sets _P_FS / _P_MP (no lsblk needed).
+_wb_part_info() {
+    _wb_mounts
+    local e="${_WB_MNT[$1]:-}"
+    _P_FS="" _P_MP=""
+    if [[ -n "$e" ]]; then _P_FS=${e%%$'\t'*}; _P_MP=${e#*$'\t'}; fi
+    if [[ -z "$_P_FS" ]]; then _wb_udev "$2"; _P_FS=$_U_FSTYPE; fi
+    return 0
+}
+
+# Partitions of a disk (sysfs children that carry a "partition" file).
+_wb_parts() {
+    local dev="$1" p
+    _WB_PARTS=()
+    for p in "$dev"/*/; do
+        p=${p%/}
+        [[ -e "$p/partition" ]] && _WB_PARTS+=("$p")
+    done
+    return 0
+}
+
+_WB_SMARTCTL=0
+command -v smartctl >/dev/null 2>&1 && _WB_SMARTCTL=1
+# _wb_smart_ok -- smartctl present and we can actually run it privileged.
+_wb_smart_ok() {
+    (( _WB_SMARTCTL )) || return 1
+    wu_root_init
+    (( _WU_ROOT ))
+}
+
+# Collect everything about one disk into _D_* (shared by text and JSON).
+wblock_info() {
+    local dev="$1" v
+    _D_NAME=${dev##*/}
+    _wb_rd "$dev/size" v 0; [[ "$v" =~ ^[0-9]+$ ]] || v=0
+    _D_BYTES=$(( v * 512 ))
+    _wb_rd "$dev/removable" _D_REM 0; [[ "$_D_REM" == 1 ]] || _D_REM=0
+    _wb_rd "$dev/queue/rotational" _D_ROT ""
+    case "$_D_ROT" in 0|1) ;; *) _D_ROT="" ;; esac
+    _wb_udev "$dev"
+    _D_MODEL=$_U_MODEL _D_SERIAL="" _D_BUS=$_U_BUS
+    if [[ -z "$_D_MODEL" ]]; then
+        _wb_rd "$dev/device/model" _D_MODEL ""
+        [[ -z "$_D_MODEL" ]] && _wb_rd "$dev/device/name" _D_MODEL ""
     fi
-    printf '%s' "${model:-$(t hw_unknown)}"
+    [[ -z "$_D_MODEL" && "$_D_NAME" == md* ]] && { _wb_rd "$dev/md/level" v ""; [[ -n "$v" ]] && _D_MODEL="Linux RAID ($v)"; }
+    [[ -z "$_D_MODEL" && "$_D_NAME" == dm-* ]] && _wb_rd "$dev/dm/name" _D_MODEL ""
+    _wb_rd "$dev/device/serial" _D_SERIAL ""
+    [[ -z "$_D_SERIAL" ]] && _D_SERIAL=$_U_SERIAL
+    wu_junk "$_D_SERIAL" && _D_SERIAL=""
+    _D_FW=""
+    _wb_rd "$dev/device/firmware_rev" _D_FW ""
+    [[ -z "$_D_FW" ]] && _wb_rd "$dev/device/fwrev" _D_FW ""
+    [[ -z "$_D_FW" ]] && _wb_rd "$dev/device/rev" _D_FW ""
+    # Type key (JSON "type") + label for text.
+    case "$_D_NAME" in
+        nvme*)      _D_TYPE=nvme ;;
+        mmcblk*)    v=""; _wb_rd "$dev/device/type" v ""
+                    if [[ "$v" == SD ]]; then _D_TYPE=sd; else _D_TYPE=emmc; fi ;;
+        md*)        _D_TYPE=raid ;;
+        dm-*)       _D_TYPE=dm ;;
+        nbd*|rbd*)  _D_TYPE=network ;;
+        zd*)        _D_TYPE=zvol ;;
+        mtdblock*|ubiblock*) _D_TYPE=flash ;;
+        zram*|loop*|ram*) _D_TYPE=virtual ;;
+        *)          if (( _D_REM )) || [[ "$_D_BUS" == usb ]]; then _D_TYPE=removable
+                    elif [[ "$_D_ROT" == 0 ]]; then _D_TYPE=ssd
+                    elif [[ "$_D_ROT" == 1 ]]; then _D_TYPE=hdd
+                    else _D_TYPE=unknown; fi ;;
+    esac
+}
+
+# Short model (<5 chars): USB-SATA bridges often split the INQUIRY string.
+_wb_model_fix() {
+    local full=""
+    [[ ${#_D_MODEL} -ge 5 ]] && return 0
+    _wb_smart_ok || return 0
+    [[ -b "/dev/$_D_NAME" ]] || return 0
+    _wb_smartinfo
+    [[ ${#_S_MODEL} -gt ${#_D_MODEL} ]] && _D_MODEL=$_S_MODEL
+    return 0
+}
+
+# smartctl -i once per disk (cached): model + serial.
+_S_FOR="" _S_MODEL="" _S_SERIAL=""
+_wb_smartinfo() {
+    [[ "$_S_FOR" == "$_D_NAME" ]] && return 0
+    _S_FOR=$_D_NAME _S_MODEL="" _S_SERIAL=""
+    _wb_smart_ok || return 0
+    local out l
+    out=$(wu_root_run smartctl -i "/dev/$_D_NAME" 2>/dev/null) || true
+    while IFS= read -r l; do
+        case "$l" in
+            "Device Model:"*|"Model Number:"*|"Product:"*) [[ -z "$_S_MODEL" ]] && wu_trim "${l#*:}" _S_MODEL ;;
+            "Serial Number:"*|"Serial number:"*) wu_trim "${l#*:}" _S_SERIAL ;;
+        esac
+    done <<< "$out"
+}
+
+_wb_type_label() {   # sets _TL / _TC / _TI from _D_TYPE
+    case "$_D_TYPE" in
+        removable) _TL=$(t blk_removable); _TC=$M;   _TI='⏏' ;;
+        ssd)       _TL=$(t blk_ssd);       _TC=$G;   _TI='⚡' ;;
+        nvme)      _TL="NVMe $(t blk_ssd)"; _TC=$G;  _TI='⚡' ;;
+        hdd)       _TL=$(t blk_hdd);       _TC=$Y;   _TI='💿' ;;
+        emmc)      _TL="eMMC";             _TC=$G;   _TI='💾' ;;
+        sd)        _TL="SD";               _TC=$M;   _TI='💾' ;;
+        raid)      _TL="RAID";             _TC=$B;   _TI='🗄' ;;
+        dm)        _TL="device-mapper";    _TC=$B;   _TI='🧱' ;;
+        network)   _TL="$(t blk_network)"; _TC=$B;   _TI='🌐' ;;
+        zvol)      _TL="ZFS zvol";         _TC=$B;   _TI='🧱' ;;
+        flash)     _TL="Flash";            _TC=$G;   _TI='💾' ;;
+        virtual)   _TL="$(t blk_virtual_one)"; _TC=$DIM; _TI='🔄' ;;
+        *)         _TL=$(t blk_smart_unknown); _TC=$DIM; _TI='💿' ;;
+    esac
 }
 
 # ─── Detail: S.M.A.R.T. via smartctl ─────────────────────────────
-root_run() {
-    if (( EUID == 0 )); then "$@"
-    elif sudo -n true 2>/dev/null; then sudo -n "$@"
-    else "$@"; fi
+_WB_SMART_OUT="" _WB_SMART_FOR=""
+_wb_smart_fetch() {
+    [[ "$_WB_SMART_FOR" == "$1" ]] && return 0
+    _WB_SMART_FOR=$1 _WB_SMART_OUT=""
+    _wb_smart_ok || return 0
+    # smartctl exits non-zero on error bits but still prints the report.
+    _WB_SMART_OUT=$(wu_root_run smartctl -a "/dev/$1" 2>/dev/null) || true
+}
+
+# _wb_smart_parse -- from $_WB_SMART_OUT: _SM_AVAIL, _SM_OVERALL, _SM_SEAGATE,
+# _SM_ATTRS (id|name|val|worst|thr|raw lines), NVMe _SM_TEMP/_SM_USED/_SM_SPARE.
+_wb_smart_parse() {
+    local out="$_WB_SMART_OUT" l inb=0 id name flag val worst thr typ upd when raw
+    _SM_AVAIL=0 _SM_OVERALL="" _SM_SEAGATE=0 _SM_ATTRS="" _SM_TEMP="" _SM_USED="" _SM_SPARE=""
+    [[ -n "$out" ]] || return 0
+    [[ "$out" == *"SMART overall-health"* || "$out" == *"SMART Health Information"* ]] && _SM_AVAIL=1
+    while IFS= read -r l; do
+        case "$l" in
+            *"SMART overall-health self-assessment test result:"*) wu_trim "${l##*:}" _SM_OVERALL; continue ;;
+            "Vendor:"*|*Seagate*|"Device Model:"*ST[0-9]*) _SM_SEAGATE=1 ;;
+            "Vendor Specific SMART Attributes"*) inb=1; continue ;;
+            "SMART Error Log"*|"SMART Self-test log"*) inb=0 ;;
+            "Temperature:"*)      [[ -z "$_SM_TEMP" ]] && { wu_trim "${l#*:}" _SM_TEMP; _SM_TEMP=${_SM_TEMP%% *}; } ;;
+            "Percentage Used:"*)  wu_trim "${l#*:}" _SM_USED; _SM_USED=${_SM_USED%\%} ;;
+            "Available Spare:"*)  wu_trim "${l#*:}" _SM_SPARE; _SM_SPARE=${_SM_SPARE%\%} ;;
+        esac
+        (( inb )) || continue
+        read -r id name flag val worst thr typ upd when raw <<< "$l"
+        [[ "$id" =~ ^[0-9]+$ && "$name" =~ ^[A-Za-z_] ]] || continue
+        _SM_ATTRS+="$id|$name|$val|$worst|$thr|$raw"$'\n'
+    done <<< "$out"
+    [[ "$_SM_TEMP" =~ ^[0-9]+$ ]] || _SM_TEMP=""
+    _SM_ATTRS=${_SM_ATTRS%$'\n'}
 }
 
 wblock_smart() {
-    local devnode="/dev/$(basename "$_WU_DETAIL_DEV")"
-    if ! command -v smartctl &>/dev/null; then
+    if (( ! _WB_SMARTCTL )); then
         pline "${DIM}$(t blk_smart_na)${RESET}"
         return
     fi
-
-    local out
-    # smartctl exits non-zero on error bits but still prints the report.
-    out=$(root_run smartctl -a "$devnode" 2>/dev/null) || true
-
-    # Seagate drives encode attrs 1 & 7 as composite raw values:
-    #   high 32 bits = error count, low 32 bits = total operations.
-    local _SM_SEAGATE=0
-    grep -qi 'Vendor:\|Seagate\|^Device Model:.*ST[0-9]' <<< "$out" && _SM_SEAGATE=1
-
-    # S.M.A.R.T. unavailable for the device (e.g. USB card readers)
-    if ! grep -q 'SMART overall-health' <<< "$out" && ! grep -q 'SMART Health Information' <<< "$out"; then
+    wu_root_init
+    if (( ! _WU_ROOT )); then
+        pline "${DIM}$(t blk_smart_na)${RESET}"
+        return
+    fi
+    _wb_smart_fetch "${_WU_DETAIL_DEV##*/}"
+    _wb_smart_parse
+    if (( ! _SM_AVAIL )); then
         pline "${DIM}$(t blk_smart_no)${RESET}"
         return
     fi
+    local risk=0 verdict
+    [[ "$_SM_OVERALL" == FAILED* ]] && risk=2
 
-    local risk=0 overall
-    overall=$(awk '/SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$out")
-    [[ "$overall" == "FAILED" ]] && risk=2
-
-    local attrs=""
-    attrs=$(awk '
-        /^Vendor Specific SMART Attributes/ { inattrs=1; next }
-        inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
-            id=$1; name=$2; val=$4; worst=$5; thr=$6
-            raw=$10; for (i=11; i<=NF; i++) raw=raw " " $i
-            gsub(/^[[:space:]]+|[[:space:]]+$/, "", raw)
-            printf "%s|%s|%s|%s|%s|%s\n", id, name, val, worst, thr, raw
-        }
-        inattrs && /^SMART Error Log/ { exit }
-    ' <<< "$out")
-
-    if [[ -z "$attrs" ]]; then
+    if [[ -z "$_SM_ATTRS" ]]; then
         # NVMe: report the key health fields instead of an attribute table
-        local temp="" used="" spare="" verdict padl e label value
-        temp=$(awk '/^Temperature:[[:space:]]+[0-9]+/ {print $2; exit}' <<< "$out")
-        used=$(awk '/^Percentage Used:/ {gsub(/%/,"",$3); print $3; exit}' <<< "$out")
-        spare=$(awk '/^Available Spare:/ {gsub(/%/,"",$3); print $3; exit}' <<< "$out")
         if (( risk )); then verdict="${R}$(t blk_smart_fail)${RESET}"
         else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
-
-        local -a rows=()
-        label="$(t blk_smart_health)"; maxl=${#label}
-        rows+=("$label|$verdict")
-        [[ -n "$temp" ]] && { label="$(t blk_attr_temp)"; rows+=("$label|${W}${temp}°C${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
-        [[ -n "$used" ]] && { label="$(t blk_nvme_used)"; rows+=("$label|${W}${used}%${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
-        [[ -n "$spare" ]] && { label="$(t blk_nvme_spare)"; rows+=("$label|${W}${spare}%${RESET}"); (( ${#label} > maxl )) && maxl=${#label}; }
-        padl=$(( maxl + 1 ))
-        for e in "${rows[@]}"; do
-            label="${e%%|*}"; value="${e#*|}"
-            _LINES+=( "  $(_emu '📊') ${BOLD}${W}$(_wu_pad_r "${label}:" "$padl")${RESET} $value" )
-        done
-        return
+        pline_hw "$(_emu '📊')" "$(t blk_smart_health)" "$verdict"
+        [[ -n "$_SM_TEMP" ]]  && pline_hw "$(_emu '📊')" "$(t blk_attr_temp)" "${W}${_SM_TEMP}°C${RESET}"
+        [[ -n "$_SM_USED" ]]  && pline_hw "$(_emu '📊')" "$(t blk_nvme_used)" "${W}${_SM_USED}%${RESET}"
+        [[ -n "$_SM_SPARE" ]] && pline_hw "$(_emu '📊')" "$(t blk_nvme_spare)" "${W}${_SM_SPARE}%${RESET}"
+        return 0
     fi
 
-    # First pass: any risky attribute with a nonzero value raises attention.
-    local id name val worst thr raw
+    local id name val worst thr raw r1
     while IFS='|' read -r id name val worst thr raw; do
         case "$id" in
             5|187|197|198|200|201)
-                [[ "$raw" =~ ^[0-9] ]] && (( ${raw%% *} + 0 > 0 )) && (( risk < 1 )) && risk=1 ;;
+                r1=${raw%% *}
+                [[ "$r1" =~ ^[0-9]+$ ]] && (( 10#$r1 > 0 )) && (( risk < 1 )) && risk=1 ;;
         esac
-    done <<< "$attrs"
+    done <<< "$_SM_ATTRS"
 
-    local verdict
     if   (( risk == 2 )); then verdict="${R}$(t blk_smart_fail)${RESET}"
     elif (( risk == 1 )); then verdict="${Y}$(t blk_health_warn)${RESET}"
     else verdict="${G}$(t blk_smart_pass)${RESET}"; fi
 
-    # Readable readout: health verdict + curated attributes, values aligned
-    # to the longest label. Risky attributes are always shown (with the raw
-    # name if not curated); obscure attributes are dropped.
-    local -a rows=() _shown_labels=()
-    local label="" value="" shown=0 maxl
-    label="$(t blk_smart_health)"
-    maxl=${#label}
-    rows+=("$label|$verdict")
+    # Curated attributes; risky ones always shown (raw name if not curated).
+    local -a rows_l=() rows_v=()
+    local label value shown=0 i dup
     while IFS='|' read -r id name val worst thr raw; do
         label=$(sm_attr_label "$id")
         if [[ -z "$label" ]]; then
             case "$id" in 5|187|197|198|200|201) label="$name" ;; *) continue ;; esac
         fi
-        # Deduplicate: skip if this label was already emitted (e.g. attrs 190 & 194 both → "Temperature").
-        local _dup=0 _sl
-        for _sl in ${_shown_labels[@]+"${_shown_labels[@]}"}; do [[ "$_sl" == "$label" ]] && { _dup=1; break; }; done
-        (( _dup )) && continue
-        _shown_labels+=("$label")
+        dup=0
+        for (( i=0; i<${#rows_l[@]}; i++ )); do [[ "${rows_l[i]}" == "$label" ]] && { dup=1; break; }; done
+        (( dup )) && continue
         raw="${raw%% *}"
         value=$(sm_attr_value "$id" "$raw")
         case "$id" in
             5|187|197|198|200|201)
-                if [[ "$raw" =~ ^[0-9] ]] && (( raw + 0 > 0 )); then
+                if [[ "$raw" =~ ^[0-9]+$ ]] && (( 10#$raw > 0 )); then
                     value="${Y}${value}${RESET}  ${Y}$(t blk_smart_risk)${RESET}"
                 else
                     value="${G}${value}${RESET}"
                 fi ;;
             *)  value="${W}${value}${RESET}" ;;
         esac
-        rows+=("$label|$value")
-        (( ${#label} > maxl )) && maxl=${#label}
+        rows_l+=("$label") rows_v+=("$value")
         shown=1
-    done <<< "$attrs"
+    done <<< "$_SM_ATTRS"
 
     if (( shown )); then
-        local padl e
-        padl=$(( maxl + 1 ))
-        for e in "${rows[@]}"; do
-            label="${e%%|*}"; value="${e#*|}"
-            _LINES+=( "  $(_emu '📊') ${BOLD}${W}$(_wu_pad_r "${label}:" "$padl")${RESET} $value" )
+        pline_hw "$(_emu '📊')" "$(t blk_smart_health)" "$verdict"
+        for (( i=0; i<${#rows_l[@]}; i++ )); do
+            pline_hw "$(_emu '📊')" "${rows_l[i]}" "${rows_v[i]}"
         done
     else
         pline "${DIM}$(t blk_smart_no)${RESET}"
@@ -208,362 +375,256 @@ wblock_smart() {
 # Translated label for a known S.M.A.R.T. attribute id; empty = not surfaced.
 sm_attr_label() {
     case "$1" in
-        1)   printf '%s' "$(t blk_attr_reread)" ;;
-        7)   printf '%s' "$(t blk_attr_seekerr)" ;;
-        5)   printf '%s' "$(t blk_attr_realloc)" ;;
-        9)   printf '%s' "$(t blk_attr_poh)" ;;
-        12)  printf '%s' "$(t blk_attr_pcc)" ;;
-        163) printf '%s' "$(t blk_attr_maxerase)" ;;
-        164) printf '%s' "$(t blk_attr_avgerase)" ;;
-        184) printf '%s' "$(t blk_attr_endtoend)" ;;
-        187) printf '%s' "$(t blk_attr_uncorr)" ;;
-        188) printf '%s' "$(t blk_attr_timeout)" ;;
-        190) printf '%s' "$(t blk_attr_temp)" ;;
-        194) printf '%s' "$(t blk_attr_temp)" ;;
-        197) printf '%s' "$(t blk_attr_pending)" ;;
-        198) printf '%s' "$(t blk_attr_offline)" ;;
-        199) printf '%s' "$(t blk_attr_crc)" ;;
-        200) printf '%s' "$(t blk_attr_multi)" ;;
-        231) printf '%s' "$(t blk_attr_life)" ;;
-        241) printf '%s' "$(t blk_attr_written)" ;;
-        242) printf '%s' "$(t blk_attr_read)" ;;
+        1)   t blk_attr_reread ;;
+        7)   t blk_attr_seekerr ;;
+        5)   t blk_attr_realloc ;;
+        9)   t blk_attr_poh ;;
+        12)  t blk_attr_pcc ;;
+        163) t blk_attr_maxerase ;;
+        164) t blk_attr_avgerase ;;
+        184) t blk_attr_endtoend ;;
+        187) t blk_attr_uncorr ;;
+        188) t blk_attr_timeout ;;
+        190|194) t blk_attr_temp ;;
+        197) t blk_attr_pending ;;
+        198) t blk_attr_offline ;;
+        199) t blk_attr_crc ;;
+        200) t blk_attr_multi ;;
+        231) t blk_attr_life ;;
+        241) t blk_attr_written ;;
+        242) t blk_attr_read ;;
     esac
 }
 
 # Human-formatted raw value for a known attribute id.
 sm_attr_value() {
-    local id="$1" raw="$2"
+    local id="$1" raw="$2" _hi _lo
     [[ "$raw" =~ ^[0-9]+$ ]] || { printf '%s' "$raw"; return; }
     case "$id" in
         9)   printf '%s h' "$((10#$raw))" ;;
         190|194) printf '%s°C' "$((10#$raw))" ;;
         241|242) fmt_size $(( 10#$raw * 512 )) ;;
-        1|7) if [[ "${_SM_SEAGATE:-0}" == "1" ]]; then
-                 local _hi _lo
-                 _hi=$(( (10#$raw) >> 32 ))
-                 _lo=$(( (10#$raw) & 0xFFFFFFFF ))
-                 printf '%s / %s ops' "$_hi" "$_lo"
-             else
-                 printf '%s' "$((10#$raw))"
-             fi ;;
-        188) if [[ "${_SM_SEAGATE:-0}" == "1" ]]; then
-                  local _hi _lo
-                  _hi=$(( (10#$raw) >> 32 ))
-                  _lo=$(( (10#$raw) & 0xFFFFFFFF ))
-                  printf '%s / %s cmds' "$_hi" "$_lo"
-              else
-                  printf '%s' "$((10#$raw))"
-              fi ;;
+        1|7|188)
+            if [[ "${_SM_SEAGATE:-0}" == "1" ]]; then
+                _hi=$(( (10#$raw) >> 32 )); _lo=$(( (10#$raw) & 0xFFFFFFFF ))
+                if [[ "$id" == 188 ]]; then printf '%s / %s cmds' "$_hi" "$_lo"
+                else printf '%s / %s ops' "$_hi" "$_lo"; fi
+            else
+                printf '%s' "$((10#$raw))"
+            fi ;;
         *)   printf '%s' "$((10#$raw))" ;;
     esac
 }
 
 # ─── Detail view ─────────────────────────────────────────────────
+# Raw section for the re-framer: "┌─── title" / "│ row" / "└".
+_wb_section() {
+    local icon="$1" title="$2" fn="$3" l
+    _LINES=()
+    "$fn"
+    _wu_hw_layout
+    printf '  %s┌───%s %s%s%s%s\n' "$C" "$RESET" "${icon:+$icon }" "$BOLD" "$title" "$RESET"
+    for l in ${_LINES[@]+"${_LINES[@]}"}; do printf '  %s│%s%s\n' "$C" "$RESET" "$l"; done
+    printf '  %s└┘%s\n' "$C" "$RESET"
+}
+
 wblock_detail() {
-    local dev="$1" devnode="/dev/$(basename "$dev")"
-    local bn
-    bn=$(basename "$dev")
+    local dev="$1"
     _WU_DETAIL_DEV="$dev"
+    wblock_info "$dev"
+    _wb_model_fix
+    printf '\n  %s╔═╗%s\n' "$C" "$RESET"
+    printf '  %s║%s  %s%s%s%s\n' "$C" "$RESET" "$(_ic '💾')" "${BOLD}${W}" "wellblock -- /dev/${dev##*/}" "$RESET"
+    printf '  %s╚═╝%s\n' "$C" "$RESET"
 
-    box_header "$(_emu '💾')" "wellblock" "$devnode"
+    _wb_section "$(_emu '📊')" "$(t blk_detail)" detail_info
+    _wb_section "$(_emu '🗂')" "$(t blk_parts)" detail_parts
+    _wb_section "$(_emu '🛡')" "$(t blk_smart)" wblock_smart
 
-    box "$(_emu '📊')" "$(t blk_detail)" detail_info
-    box "$(_emu '🗂')" "$(t blk_parts)" detail_parts
-    box "$(_emu '🛡')" "$(t blk_smart)" wblock_smart
-
-    printf '\n  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellBlock v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 detail_info() {
-    local dev=$_WU_DETAIL_DEV bn
-    bn=$(basename "$dev")
-    local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
-    size_bytes=$(( size_bytes * 512 ))
-    size_human=$(fmt_size "$size_bytes")
-
-    local rotational
-    rotational=$(cat "$dev/queue/rotational" 2>/dev/null || true)
-    [[ -z "$rotational" ]] && rotational=$(lsblk -ndo ROTA "/dev/$bn" 2>/dev/null | xargs) || true
-    local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
-    if [[ "$removable" == "1" ]]; then
-        type_label="$(t blk_removable)"; type_color="$M"
-    elif [[ "$rotational" == "0" ]]; then
-        type_label="$(t blk_ssd)"; type_color="$G"
-    elif [[ "$rotational" == "1" ]]; then
-        type_label="$(t blk_hdd)"; type_color="$Y"
-    else
-        type_label="$(t blk_unknown)"; type_color="$DIM"
+    local size_human transport=""
+    fmt_size "$_D_BYTES" size_human
+    _wb_type_label
+    if [[ -z "$_D_SERIAL" ]]; then _wb_smartinfo; _D_SERIAL=$_S_SERIAL; fi
+    if command -v lsblk >/dev/null 2>&1; then
+        transport=$(lsblk -dn -o TRAN "/dev/$_D_NAME" 2>/dev/null) || transport=""
+        wu_trim "$transport" transport
     fi
-
-    serial=""
-    [[ -e "$dev/device/serial" ]] && serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || true
-    # USB-SATA adapters often omit the sysfs serial; fall back to smartctl.
-    if [[ -z "$serial" ]] && command -v smartctl &>/dev/null; then
-        serial=$(root_run smartctl -i "/dev/$bn" 2>/dev/null \
-                 | awk -F': ' '/^Serial Number:/{print $2; exit}') || true
-        serial=$(printf '%s' "$serial" | xargs)
-    fi
-    fwrev=""
-    [[ -e "$dev/device/fwrev" ]] && fwrev=$(cat "$dev/device/fwrev" 2>/dev/null | xargs) || true
-    [[ -e "$dev/device/firmware_rev" ]] && fwrev=$(cat "$dev/device/firmware_rev" 2>/dev/null | xargs) || true
-    transport=""
-    if command -v lsblk &>/dev/null; then
-        transport=$(lsblk -dn -o TRAN "/dev/$bn" 2>/dev/null) || true
-    fi
-
-    pline_hw "$(_emu '💾')" "$(t blk_model)" "$(disk_model "$dev")"
-    pline_hw "$(_emu '🔢')" "$(t blk_serial)" "${serial:-$(t blk_smart_unknown)}"
-    [[ -n "$fwrev" ]] && pline_hw "$(_emu '📝')" "$(t blk_firmware)" "$fwrev"
+    [[ -z "$transport" ]] && transport=$_D_BUS
+    pline_hw "$(_emu '💾')" "$(t blk_model)" "${_D_MODEL:-$(t hw_unknown)}"
+    pline_hw "$(_emu '🔢')" "$(t blk_serial)" "${_D_SERIAL:-$(t blk_smart_unknown)}"
+    [[ -n "$_D_FW" ]] && pline_hw "$(_emu '📝')" "$(t blk_firmware)" "$_D_FW"
     pline_hw "$(_emu '📏')" "$(t blk_size)" "$size_human"
-    pline_hw "$(_emu '🏷')" "$(t blk_type)" "$type_color$type_label$RESET"
-    [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}" || true
+    pline_hw "$(_emu '🏷')" "$(t blk_type)" "$_TC$_TL$RESET"
+    [[ -n "$transport" ]] && pline_hw "$(_emu '🔌')" "$(t blk_transport)" "${transport%% *}"
+    return 0
 }
 
 detail_parts() {
-    local dev=$_WU_DETAIL_DEV bn
-    bn=$(basename "$dev")
-    local found=0 part
-    for part in "$dev"/${bn}*; do
-        [[ -d "$part" ]] || continue
-        local pname
-        pname=$(basename "$part")
-        [[ "$pname" == "$bn" ]] && continue
-
-        local psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
-        psize_bytes=$(( psize_bytes * 512 ))
-        local psize_human
-        psize_human=$(fmt_size "$psize_bytes")
-
-        local fstype="" mountpoint=""
-        if command -v lsblk &>/dev/null; then
-            local lsblk_out
-            lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
-            fstype=$(echo "$lsblk_out" | awk '{print $1}')
-            mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
-        fi
-
-        local mp_icon=""
-        [[ -n "$mountpoint" ]] && mp_icon="$(_emu '📁')"
-        [[ "$fstype" == "swap" || "$mountpoint" == "[SWAP]" ]] && mp_icon="$(_emu '🔄')"
-
-        local line="  ├─ ${BOLD}${W}${pname}${RESET}  ${DIM}${psize_human}${RESET}"
-        [[ -n "$fstype" ]] && line="$line  $fstype"
-        [[ -n "$mountpoint" ]] && line="$line  ${mp_icon}-> ${G}${mountpoint}${RESET}"
+    local dev=$_WU_DETAIL_DEV p pname v psize line mp_icon
+    _wb_parts "$dev"
+    for p in ${_WB_PARTS[@]+"${_WB_PARTS[@]}"}; do
+        pname=${p##*/}
+        _wb_rd "$p/size" v 0; [[ "$v" =~ ^[0-9]+$ ]] || v=0
+        fmt_size $(( v * 512 )) psize
+        _wb_part_info "$pname" "$p"
+        mp_icon=""
+        [[ -n "$_P_MP" ]] && mp_icon="$(_emu '📁')"
+        [[ "$_P_FS" == swap || "$_P_MP" == "[SWAP]" ]] && mp_icon="$(_emu '🔄')"
+        line="  ├─ ${BOLD}${W}${pname}${RESET}  ${DIM}${psize}${RESET}"
+        [[ -n "$_P_FS" ]] && line+="  $_P_FS"
+        [[ -n "$_P_MP" ]] && line+="  ${mp_icon}-> ${G}${_P_MP}${RESET}"
         _LINES+=( "$line" )
-        found=1
     done
-    (( found )) || _LINES+=( "  ${DIM}$(t blk_smart_unknown)${RESET}" )
+    (( ${#_WB_PARTS[@]} )) || _LINES+=( "  ${DIM}$(t blk_smart_unknown)${RESET}" )
+    return 0
+}
+
+# ─── Disk argument resolution ────────────────────────────────────
+wblock_resolve() {
+    local dev n=0
+    _WB_TARGET=""
+    wblock_scan
+    if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
+        for dev in ${_WB_DISKS[@]+"${_WB_DISKS[@]}"}; do
+            if (( n == 10#$_WU_DISK_ARG )); then _WB_TARGET="$dev"; break; fi
+            n=$(( n + 1 ))
+        done
+    elif [[ -d "/sys/block/$_WU_DISK_ARG" ]]; then
+        _WB_TARGET="/sys/block/$_WU_DISK_ARG"
+    fi
+    if [[ -z "$_WB_TARGET" ]]; then
+        printf '%s: disk %s not found\n' "$_WU_TOOLNAME" "$_WU_DISK_ARG" >&2
+        exit 3
+    fi
+}
+
+_wb_jbool() { case "$1" in 1) printf true ;; 0) printf false ;; *) printf null ;; esac; }
+
+# JSON partitions array for $1 (indent $2); adds to _WB_NPARTS.
+_wb_json_parts() {
+    local dev="$1" ind="$2" p pname v first=1
+    _wb_parts "$dev"
+    for p in ${_WB_PARTS[@]+"${_WB_PARTS[@]}"}; do
+        pname=${p##*/}
+        _wb_rd "$p/size" v 0; [[ "$v" =~ ^[0-9]+$ ]] || v=0
+        _wb_part_info "$pname" "$p"
+        _WB_NPARTS=$(( _WB_NPARTS + 1 ))
+        (( first )) && first=0 || printf ',\n'
+        printf '%s{ "name": "%s", "size_bytes": %d, "fs_type": "%s", "mountpoint": "%s" }' \
+            "$ind" "$(json_esc "$pname")" $(( v * 512 )) "$(json_esc "$_P_FS")" "$(json_esc "$_P_MP")"
+    done
+    return 0
 }
 
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
-    local target_dev="" dev
-    if [[ -n "$_WU_DISK_ARG" ]]; then
-        if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
-            local n=0
-            while IFS= read -r dev; do
-                if (( n == 10#$_WU_DISK_ARG )); then target_dev="$dev"; break; fi
-                n=$(( n + 1 ))
-            done < <(wblock_disks)
-        else
-            for dev in $(wblock_disks); do
-                if [[ "$(basename "$dev")" == "$_WU_DISK_ARG" ]]; then target_dev="$dev"; break; fi
-            done
-        fi
-        if [[ -z "$target_dev" ]]; then
-            printf '%s: disk %s not found\n' "$_WU_TOOLNAME" "$_WU_DISK_ARG" >&2
-            exit 3
-        fi
-    fi
-
+    [[ -n "$_WU_DISK_ARG" ]] && wblock_resolve
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
+    _WB_NPARTS=0
 
-    if [[ -n "$target_dev" ]]; then
-        local bn size_bytes model serial rotational removable dtype
-        bn=$(basename "$target_dev")
-        size_bytes=$(cat "$target_dev/size" 2>/dev/null || echo "0")
-        size_bytes=$(( size_bytes * 512 ))
-        model=$(disk_model "$target_dev")
-        serial=""
-        if [[ -e "$target_dev/device/serial" ]]; then
-            serial=$(cat "$target_dev/device/serial" 2>/dev/null | xargs) || serial=""
-        fi
-        rotational=$(cat "$target_dev/queue/rotational" 2>/dev/null || true)
-        [[ -z "$rotational" ]] && rotational=$(lsblk -ndo ROTA "/dev/$bn" 2>/dev/null | xargs) || true
-        removable=$(cat "$target_dev/removable" 2>/dev/null || echo "0")
-
-        dtype="unknown"
-        if [[ "$removable" == "1" ]]; then dtype="usb"
-        elif [[ "$bn" == nvme* ]]; then dtype="nvme"
-        elif [[ "$rotational" == "1" ]]; then dtype="hdd"
-        elif [[ "$rotational" == "0" ]]; then dtype="ssd"; fi
-
-        local smart_avail=0 smart_health=""
-        local _s_seagate=0 smart_attrs_json="" _s_afirst=1
-        if command -v smartctl &>/dev/null; then
-            local sout sattrs srisk=0 s_overall
-            sout=$(root_run smartctl -a "/dev/$bn" 2>/dev/null) || true
-            # USB-SATA adapters often omit the sysfs serial; pull from smartctl.
-            if [[ -z "$serial" && -n "$sout" ]]; then
-                serial=$(awk -F': ' '/^Serial Number:/{print $2; exit}' <<< "$sout" | xargs)
+    if [[ -n "$_WU_DISK_ARG" ]]; then
+        local dev="$_WB_TARGET"
+        wblock_info "$dev"
+        _wb_model_fix
+        local smart_avail=0 smart_health="" attrs="" afirst=1 srisk=0
+        if _wb_smart_ok; then
+            _wb_smart_fetch "$_D_NAME"
+            _wb_smart_parse
+            if [[ -z "$_D_SERIAL" && -n "$_WB_SMART_OUT" ]]; then
+                local l
+                while IFS= read -r l; do
+                    case "$l" in "Serial Number:"*|"Serial number:"*) wu_trim "${l#*:}" _D_SERIAL; break ;; esac
+                done <<< "$_WB_SMART_OUT"
             fi
-            # Detect Seagate: composite raw values for attrs 1, 7, 188.
-            grep -qi 'Vendor:\|Seagate\|^Device Model:.*ST[0-9]' <<< "$sout" && _s_seagate=1
-            if [[ -n "$sout" ]] && { grep -q 'SMART overall-health' <<< "$sout" || grep -q 'SMART Health Information' <<< "$sout"; }; then
+            if (( _SM_AVAIL )); then
                 smart_avail=1
-                s_overall=$(awk '/^SMART overall-health self-assessment test result:/{print $6; exit}' <<< "$sout")
-                [[ "$s_overall" == "FAILED" ]] && srisk=2
-                sattrs=$(awk '
-                    /^Vendor Specific SMART Attributes/ { inattrs=1; next }
-                    inattrs && /^[[:space:]]*[0-9]+[[:space:]]+[A-Za-z_]/ {
-                        id=$1; name=$2; val=$4; worst=$5; thr=$6
-                        raw=$10; for (i=11; i<=NF; i++) raw=raw " " $i
-                        gsub(/^[[:space:]]+|[[:space:]]+$/, "", raw)
-                        printf "%s|%s|%s|%s|%s|%s\n", id, name, val, worst, thr, raw
-                    }
-                    inattrs && /^SMART Error Log/ { exit }
-                ' <<< "$sout")
-                local sid sname sval sworst sthr sraw sdec
+                [[ "$_SM_OVERALL" == FAILED* ]] && srisk=2
+                local sid sname sval sworst sthr sraw rv sdec
                 while IFS='|' read -r sid sname sval sworst sthr sraw; do
                     [[ "$sid" =~ ^[0-9]+$ && "$sval" =~ ^[0-9]+$ && "$sworst" =~ ^[0-9]+$ && "$sthr" =~ ^[0-9]+$ ]] || continue
-                    local _sraw_val="${sraw%% *}"
-                    [[ "$_sraw_val" =~ ^[0-9]+$ ]] || _sraw_val=0
-                    # Risk check
-                    case "$sid" in
-                        5|187|197|198|200|201)
-                            if (( _sraw_val > 0 )); then (( srisk < 1 )) && srisk=1; fi ;;
-                    esac
-                    # Decode Seagate composite raw values for attrs 1, 7, 188.
+                    rv=${sraw%% *}; [[ "$rv" =~ ^[0-9]+$ ]] || rv=0
+                    case "$sid" in 5|187|197|198|200|201) (( 10#$rv > 0 && srisk < 1 )) && srisk=1 ;; esac
                     sdec=""
-                    case "$sid" in
-                        1|7|188) if [[ "$_s_seagate" == "1" ]]; then
-                                     local _hi _lo
-                                     _hi=$(( _sraw_val >> 32 ))
-                                     _lo=$(( _sraw_val & 0xFFFFFFFF ))
-                                     printf -v sdec '%d / %d' "$_hi" "$_lo"
-                                 fi ;;
-                    esac
-                    (( _s_afirst )) && _s_afirst=0 || smart_attrs_json+=","
-                    smart_attrs_json+="{\"id\":$sid,\"name\":\"$(json_esc "$sname")\",\"value\":$sval,\"worst\":$sworst,\"threshold\":$sthr,\"raw\":\"$(json_esc "${sdec:-${_sraw_val}}")\"}"
-                done <<< "$sattrs"
-                case "$srisk" in
-                    2) smart_health="FAILED" ;;
-                    1) smart_health="WARN" ;;
-                    0) smart_health="PASSED" ;;
-                esac
+                    if [[ "$_SM_SEAGATE" == 1 ]]; then
+                        case "$sid" in 1|7|188) printf -v sdec '%d / %d' $(( 10#$rv >> 32 )) $(( 10#$rv & 0xFFFFFFFF )) ;; esac
+                    fi
+                    (( afirst )) && afirst=0 || attrs+=","
+                    attrs+="{\"id\":$sid,\"name\":\"$(json_esc "$sname")\",\"value\":$((10#$sval)),\"worst\":$((10#$sworst)),\"threshold\":$((10#$sthr)),\"raw\":\"$(json_esc "${sdec:-$((10#$rv))}")\"}"
+                done <<< "$_SM_ATTRS"
+                case "$srisk" in 2) smart_health=FAILED ;; 1) smart_health=WARN ;; *) smart_health=PASSED ;; esac
             fi
         fi
-
+        local jtype=$_D_TYPE
+        # Detail view historically said "usb" for removable media.
+        [[ "$jtype" == removable ]] && jtype=usb
         printf ',\n  "disk": {\n'
-        printf '    "name": "%s",\n' "$(json_esc "$bn")"
-        printf '    "path": "/dev/%s",\n' "$(json_esc "$bn")"
-        printf '    "size_bytes": %d,\n' "$size_bytes"
-        printf '    "model": "%s",\n' "$(json_esc "$model")"
-        printf '    "serial": "%s",\n' "$(json_esc "$serial")"
-        printf '    "rotational": %s,\n' "$rotational"
-        printf '    "removable": %s,\n' "$removable"
-        printf '    "type": "%s",\n' "$dtype"
-        printf '    "smart": { "available": %s, "health": "%s"' "$smart_avail" "$(json_esc "$smart_health")"
-        if [[ -n "$smart_attrs_json" ]]; then
-            printf ', "attributes": [%s]' "$smart_attrs_json"
-        fi
+        printf '    "name": "%s",\n' "$(json_esc "$_D_NAME")"
+        printf '    "path": "/dev/%s",\n' "$(json_esc "$_D_NAME")"
+        printf '    "size_bytes": %d,\n' "$_D_BYTES"
+        printf '    "model": "%s",\n' "$(json_esc "$_D_MODEL")"
+        printf '    "serial": "%s",\n' "$(json_esc "$_D_SERIAL")"
+        printf '    "firmware": "%s",\n' "$(json_esc "$_D_FW")"
+        printf '    "rotational": %s,\n' "$(_wb_jbool "$_D_ROT")"
+        printf '    "removable": %s,\n' "$(_wb_jbool "$_D_REM")"
+        printf '    "type": "%s",\n' "$jtype"
+        printf '    "kind": "%s",\n' "$_D_TYPE"
+        printf '    "bus": "%s",\n' "$(json_esc "$_D_BUS")"
+        printf '    "smart": { "available": %s, "health": "%s"' "$smart_avail" "$smart_health"
+        [[ -n "$attrs" ]] && printf ', "attributes": [%s]' "$attrs"
         printf ' },\n'
         printf '    "partitions": [\n'
-        local first=1 part pname psize_bytes fstype mountpoint lsblk_out
-        for part in "$target_dev"/${bn}*; do
-            [[ -d "$part" ]] || continue
-            pname=$(basename "$part")
-            [[ "$pname" == "$bn" ]] && continue
-            psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
-            psize_bytes=$(( psize_bytes * 512 ))
-            fstype="" mountpoint=""
-            if command -v lsblk &>/dev/null; then
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
-                fstype=$(echo "$lsblk_out" | awk '{print $1}')
-                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
-            fi
-            (( first )) && first=0 || printf ',\n'
-            printf '    { "name": "%s", "size_bytes": %d, "fs_type": "%s", "mountpoint": "%s" }' \
-                "$(json_esc "$pname")" "$psize_bytes" "$(json_esc "$fstype")" "$(json_esc "$mountpoint")"
-        done
+        _wb_json_parts "$dev" '      '
         printf '\n    ]\n'
-        printf '  }\n'
+        printf '  }'
         wu_json_end
         return 0
     fi
 
+    wblock_scan
     printf ',\n  "disks": [\n'
-    local first=1 total_disks=0 total_parts=0 total_bytes=0
-    while IFS= read -r dev; do
+    local first=1 total_disks=0 total_bytes=0 dev
+    for dev in ${_WB_DISKS[@]+"${_WB_DISKS[@]}"}; do
+        wblock_info "$dev"
         total_disks=$(( total_disks + 1 ))
-        local bn size_bytes model serial rotational removable
-        bn=$(basename "$dev")
-        size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
-        size_bytes=$(( size_bytes * 512 ))
-        model=$(disk_model "$dev")
-        serial=""
-        if [[ -e "$dev/device/serial" ]]; then
-            serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || serial=""
-        fi
-        rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
-        removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
-
-        local dtype
-        if [[ "$removable" == "1" ]]; then dtype="removable"
-        elif [[ "$rotational" == "0" ]]; then dtype="ssd"
-        else dtype="hdd"; fi
-
+        total_bytes=$(( total_bytes + _D_BYTES ))
         (( first )) && first=0 || printf ',\n'
         printf '    {\n'
-        printf '      "name": "%s",\n' "$(json_esc "$bn")"
-        printf '      "path": "/dev/%s",\n' "$(json_esc "$bn")"
-        printf '      "size_bytes": %d,\n' "$size_bytes"
-        printf '      "model": "%s",\n' "$(json_esc "$model")"
-        printf '      "serial": "%s",\n' "$(json_esc "$serial")"
-        printf '      "rotational": %s,\n' "$rotational"
-        printf '      "removable": %s,\n' "$removable"
-        printf '      "type": "%s",\n' "$dtype"
+        printf '      "name": "%s",\n' "$(json_esc "$_D_NAME")"
+        printf '      "path": "/dev/%s",\n' "$(json_esc "$_D_NAME")"
+        printf '      "size_bytes": %d,\n' "$_D_BYTES"
+        printf '      "model": "%s",\n' "$(json_esc "$_D_MODEL")"
+        printf '      "serial": "%s",\n' "$(json_esc "$_D_SERIAL")"
+        printf '      "rotational": %s,\n' "$(_wb_jbool "$_D_ROT")"
+        printf '      "removable": %s,\n' "$(_wb_jbool "$_D_REM")"
+        printf '      "type": "%s",\n' "$_D_TYPE"
+        printf '      "kind": "%s",\n' "$_D_TYPE"
         printf '      "partitions": [\n'
-        local pfirst=1 part pname psize_bytes fstype mountpoint lsblk_out
-        for part in "$dev"/${bn}*; do
-            [[ -d "$part" ]] || continue
-            pname=$(basename "$part")
-            [[ "$pname" == "$bn" ]] && continue
-            psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
-            psize_bytes=$(( psize_bytes * 512 ))
-            total_parts=$(( total_parts + 1 ))
-            fstype="" mountpoint=""
-            if command -v lsblk &>/dev/null; then
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
-                fstype=$(echo "$lsblk_out" | awk '{print $1}')
-                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
-            fi
-            (( pfirst )) && pfirst=0 || printf ',\n'
-            printf '        { "name": "%s", "size_bytes": %d, "fs_type": "%s", "mountpoint": "%s" }' \
-                "$(json_esc "$pname")" "$psize_bytes" "$(json_esc "$fstype")" "$(json_esc "$mountpoint")"
-        done
+        _wb_json_parts "$dev" '        '
         printf '\n      ]\n'
         printf '    }'
-        total_bytes=$(( total_bytes + size_bytes ))
-    done < <(wblock_disks)
-    printf '\n  ],\n'
-
-    printf '  "virtual": [\n'
-    first=1
-    local vdev vbn vsize_bytes
-    for vdev in /sys/block/zram* /sys/block/loop*; do
-        [[ -d "$vdev" ]] || continue
-        vbn=$(basename "$vdev")
-        vsize_bytes=$(cat "$vdev/size" 2>/dev/null || echo "0")
-        [[ "$vbn" == loop* && "$vsize_bytes" == 0 ]] && continue
-        vsize_bytes=$(( vsize_bytes * 512 ))
-        (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "size_bytes": %d, "kind": "%s" }' \
-            "$(json_esc "$vbn")" "$vsize_bytes" "$([[ "$vbn" == loop* ]] && printf 'loop' || printf 'zram')"
     done
     printf '\n  ],\n'
 
-    printf '  "summary": { "disks": %d, "partitions": %d, "total_bytes": %d }\n' "$total_disks" "$total_parts" "$total_bytes"
+    printf '  "virtual": ['
+    first=1
+    local vdev vbn v
+    for vdev in /sys/block/zram* /sys/block/loop* /sys/block/ram*; do
+        [[ -d "$vdev" ]] || continue
+        vbn=${vdev##*/}
+        _wb_rd "$vdev/size" v 0; [[ "$v" =~ ^[0-9]+$ ]] || v=0
+        (( v > 0 )) || continue
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
+        printf '    { "name": "%s", "size_bytes": %d, "kind": "%s" }' \
+            "$(json_esc "$vbn")" $(( v * 512 )) "${vbn%%[0-9]*}"
+    done
+    (( first )) || printf '\n  '
+    printf '],\n'
+
+    printf '  "summary": { "disks": %d, "partitions": %d, "total_bytes": %d }' "$total_disks" "$_WB_NPARTS" "$total_bytes"
     wu_json_end
 }
 
@@ -571,196 +632,110 @@ json_out() {
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
 
-    local line
-    line=$(printf '═%.0s' {1..80})
-
     if [[ -n "$_WU_DISK_ARG" ]]; then
-        local target_dev="" dev
-        if [[ "$_WU_DISK_ARG" =~ ^[0-9]+$ ]]; then
-            local n=0
-            while IFS= read -r dev; do
-                if (( n == 10#$_WU_DISK_ARG )); then target_dev="$dev"; break; fi
-                n=$(( n + 1 ))
-            done < <(wblock_disks)
-        else
-            for dev in $(wblock_disks); do
-                if [[ "$(basename "$dev")" == "$_WU_DISK_ARG" ]]; then target_dev="$dev"; break; fi
-            done
-        fi
-        if [[ -z "$target_dev" ]]; then
-            printf '%s: disk %s not found\n' "$_WU_TOOLNAME" "$_WU_DISK_ARG" >&2
-            exit 3
-        fi
-        _WU_DETAIL_DEV="$target_dev"
-        wblock_detail "$target_dev"
+        wblock_resolve
+        wblock_detail "$_WB_TARGET"
         return
     fi
 
-    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    local hw_title hw_ic hw_pad
-    hw_title="wellblock -- $(t blk_title)"
-    hw_ic="$(_ic '💾')"
-    hw_pad=$(( 82 - 5 - ${#hw_title} ))
-    [[ -z "$hw_ic" ]] && hw_pad=$(( hw_pad + 3 ))
-    (( hw_pad < 1 )) && hw_pad=1
-    printf '  %s║%s  %s%s%s%*s%s║%s\n' "$C" "$RESET" "$hw_ic" "${BOLD}${W}" "$hw_title" "$hw_pad" "" "$RESET" "$C"
-    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+    printf '\n  %s╔═╗%s\n' "$C" "$RESET"
+    printf '  %s║%s  %s%s%s%s\n' "$C" "$RESET" "$(_ic '💾')" "${BOLD}${W}" "wellblock -- $(t blk_title)" "$RESET"
+    printf '  %s╚═╝%s\n' "$C" "$RESET"
 
+    wblock_scan
     local total_disks=0 total_parts=0 total_bytes=0 dev
-    while IFS= read -r dev; do
+    local smart_ok=0
+    _wb_smart_ok && smart_ok=1
+
+    # Column widths by display width (Cyrillic labels, long models).
+    local wl=0 wm=0 wmod=0 _WU_VL
+    local -a r_name=() r_icon=() r_lbl=() r_col=() r_model=() r_size=() r_ser=() r_dev=() r_rem=()
+    for dev in ${_WB_DISKS[@]+"${_WB_DISKS[@]}"}; do
+        wblock_info "$dev"
+        _wb_model_fix
+        _wb_type_label
+        r_dev+=("$dev") r_name+=("/dev/$_D_NAME") r_icon+=("$(_emu "$_TI")") r_lbl+=("$_TL") r_col+=("$_TC")
+        r_model+=("${_D_MODEL:-$(t hw_unknown)}") r_ser+=("$_D_SERIAL") r_rem+=("$_D_TYPE")
+        local sh; fmt_size "$_D_BYTES" sh; r_size+=("$sh")
+        total_bytes=$(( total_bytes + _D_BYTES ))
         total_disks=$(( total_disks + 1 ))
-    done < <(wblock_disks)
+        _wu_vislen_v "/dev/$_D_NAME"; (( _WU_VL > wm )) && wm=$_WU_VL
+        _wu_vislen_v "$_TL"; (( _WU_VL > wl )) && wl=$_WU_VL
+        _wu_vislen_v "${r_model[${#r_model[@]}-1]}"; (( _WU_VL > wmod )) && wmod=$_WU_VL
+    done
+    (( wmod > 40 )) && wmod=40
 
-    printf '\n  %s┌───%s '"$(_ic "📊")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t blk_summary)" "$RESET"
+    printf '\n  %s┌───%s %s%s%s%s\n' "$C" "$RESET" "$(_ic '📊')" "$BOLD" "$(t blk_summary)" "$RESET"
     printf '  %s│%s\n' "$C" "$RESET"
-
-    while IFS= read -r dev; do
-        local bn
-        bn=$(basename "$dev")
-
-        local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
-        size_bytes=$(( size_bytes * 512 ))
-
-        local model
-        model=$(disk_model "$dev")
-        local serial=""
-        if [[ -e "$dev/device/serial" ]]; then
-            serial=$(cat "$dev/device/serial" 2>/dev/null | xargs) || serial=""
-        fi
-
-        local rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo "1")
-        local removable=$(cat "$dev/removable" 2>/dev/null || echo "0")
-
-        local type_icon type_label type_color
-        if [[ "$removable" == "1" ]]; then
-            type_icon="$(_emu '⏏')"
-            type_label="$(t blk_removable)"
-            type_color="$M"
-        elif [[ "$rotational" == "0" ]]; then
-            type_icon="$(_emu '⚡')"
-            type_label="$(t blk_ssd)"
-            type_color="$G"
-        else
-            type_icon="$(_emu '💿')"
-            type_label="$(t blk_hdd)"
-            type_color="$Y"
-        fi
-
-        local size_human
-        size_human=$(fmt_size "$size_bytes")
-        total_bytes=$(( total_bytes + size_bytes ))
-
-        # Disk health badge (fast -H check, skip removable)
-        local health_badge=""
-        if [[ "$removable" != "1" ]] && command -v smartctl &>/dev/null; then
-            local smart_h
-            smart_h=$(root_run smartctl -H "/dev/$bn" 2>/dev/null) || true
-            case "$smart_h" in
-                *PASSED*)            health_badge=" ${G}✓${RESET}" ;;
-                *FAILED*)            health_badge=" ${R}✗${RESET}" ;;
-                *"SMART not supported"*) health_badge="" ;;
-                *)                   health_badge="" ;;
+    local i p pname v psize health_badge smart_h icon
+    for (( i=0; i<total_disks; i++ )); do
+        dev=${r_dev[i]}
+        health_badge=""
+        if (( smart_ok )) && [[ "${r_rem[i]}" != removable && "${r_rem[i]}" != sd ]]; then
+            case "${r_rem[i]}" in raid|dm|network|zvol|flash) ;; *)
+                smart_h=$(wu_root_run smartctl -H "${r_name[i]}" 2>/dev/null) || true
+                case "$smart_h" in
+                    *PASSED*|*"Health Status: OK"*) health_badge=" ${G}✓${RESET}" ;;
+                    *FAILED*)                       health_badge=" ${R}✗${RESET}" ;;
+                esac ;;
             esac
         fi
+        icon=${r_icon[i]}; [[ -n "$icon" ]] && icon+=" "
+        printf '  %s│%s  %s%s%s%s  %s%s%s  %s%s%s  %s%s%s%s\n' \
+            "$C" "$RESET" "$icon" "$BOLD$W" "$(_wu_pad_r "${r_name[i]}" "$wm")" "$RESET" \
+            "${r_col[i]}" "$(_wu_pad_r "${r_lbl[i]}" "$wl")" "$RESET" \
+            "$G" "$(_wu_pad_r "${r_model[i]}" "$wmod")" "$RESET" \
+            "$DIM" "$(printf '%9s' "${r_size[i]}")" "$RESET" "$health_badge"
+        [[ -n "${r_ser[i]}" ]] && printf '  %s│%s     %s%s: %s%s\n' "$C" "$RESET" "$DIM" "$(t blk_serial)" "${r_ser[i]}" "$RESET"
 
-        printf '  %s│%s  %s %s%s%s%s  %s%-20s%s  %s%s%s  %s%8s%s%s\n' \
-            "$C" "$RESET" "$type_icon" "$BOLD" "$W" "/dev/$bn" "$RESET" \
-            "$type_color" "$type_label" "$RESET" \
-            "$G" "$model" "$RESET" \
-            "$DIM" "$size_human" "$RESET" \
-            "$health_badge"
-
-        if [[ -n "$serial" ]]; then
-            printf '  %s│%s     %s%s: %s%s\n' "$C" "$RESET" "$DIM" "$(t blk_serial)" "$serial" "$RESET"
-        fi
-
-        for part in "$dev"/${bn}*; do
-            [[ -d "$part" ]] || continue
-            local pname
-            pname=$(basename "$part")
-            [[ "$pname" == "$bn" ]] && continue
-
-            local psize_bytes=$(cat "$part/size" 2>/dev/null || echo "0")
-            psize_bytes=$(( psize_bytes * 512 ))
-            local psize_human
-            psize_human=$(fmt_size "$psize_bytes")
+        _wb_parts "$dev"
+        for p in ${_WB_PARTS[@]+"${_WB_PARTS[@]}"}; do
+            pname=${p##*/}
+            _wb_rd "$p/size" v 0; [[ "$v" =~ ^[0-9]+$ ]] || v=0
+            fmt_size $(( v * 512 )) psize
             total_parts=$(( total_parts + 1 ))
-
-            local fstype="" mountpoint=""
-            if command -v lsblk &>/dev/null; then
-                local lsblk_out
-                lsblk_out=$(lsblk -n -o FSTYPE,MOUNTPOINT "/dev/$pname" 2>/dev/null | head -1) || true
-                fstype=$(echo "$lsblk_out" | awk '{print $1}')
-                mountpoint=$(echo "$lsblk_out" | awk '{print $2}')
-            fi
-
-            local mp_icon=""
-            [[ -n "$mountpoint" ]] && mp_icon="$(_emu '📁')"
-            [[ "$fstype" == "swap" || "$mountpoint" == "[SWAP]" ]] && mp_icon="$(_emu '🔄')"
-
-            printf '  %s│%s     %s├─ %s%s%s  %s%8s%s' \
-                "$C" "$RESET" "$DIM" "$BOLD" "$W" "$pname" "$DIM" "$psize_human" "$RESET"
-
-            if [[ -n "$fstype" ]]; then
-                printf '  %s%s%s' "$C" "$fstype" "$RESET"
-            fi
-            if [[ -n "$mountpoint" ]]; then
-                printf '  -> %s%s%s' "$G" "$mountpoint" "$RESET"
-            fi
+            _wb_part_info "$pname" "$p"
+            printf '  %s│%s     %s├─ %s%s%s  %s%8s%s' "$C" "$RESET" "$DIM" "$BOLD$W" "$pname" "$RESET" "$DIM" "$psize" "$RESET"
+            [[ -n "$_P_FS" ]] && printf '  %s%s%s' "$C" "$_P_FS" "$RESET"
+            [[ -n "$_P_MP" ]] && printf '  -> %s%s%s' "$G" "$_P_MP" "$RESET"
             printf '\n'
         done
-
         printf '  %s│%s\n' "$C" "$RESET"
-    done < <(wblock_disks)
-
-    local has_special=0
-    for dev in /sys/block/zram* /sys/block/loop*; do
-        [[ -d "$dev" ]] || continue
-        local _bn _sz
-        _bn=$(basename "$dev")
-        if [[ "$_bn" == loop* ]]; then
-            _sz=$(cat "$dev/size" 2>/dev/null || echo "0")
-            [[ "$_sz" == 0 ]] && continue
-        fi
-        has_special=1
-        break
     done
+    (( total_disks )) || printf '  %s│%s  %s%s%s\n' "$C" "$RESET" "$DIM" "$(t blk_none)" "$RESET"
+    printf '  %s└┘%s\n' "$C" "$RESET"
 
+    local vdev vbn vsz vicon has_special=0
+    for vdev in /sys/block/zram* /sys/block/loop* /sys/block/ram*; do
+        [[ -d "$vdev" ]] || continue
+        vbn=${vdev##*/}
+        _wb_rd "$vdev/size" vsz 0; [[ "$vsz" =~ ^[0-9]+$ ]] || vsz=0
+        (( vsz > 0 )) || continue
+        if (( ! has_special )); then
+            printf '  %s┌───%s %s%s%s%s\n' "$C" "$RESET" "$(_ic '🔄')" "$BOLD" "$(t blk_virtual)" "$RESET"
+            printf '  %s│%s\n' "$C" "$RESET"
+            has_special=1
+        fi
+        fmt_size $(( vsz * 512 )) psize
+        vicon="$(_emu '🔄')"; [[ "$vbn" == loop* ]] && vicon="$(_emu '📀')"
+        [[ -n "$vicon" ]] && vicon+=" "
+        _wb_part_info "$vbn" "$vdev"
+        printf '  %s│%s  %s%s%s%s  %s%s%s%s\n' "$C" "$RESET" "$vicon" "$BOLD$W" "$vbn" "$RESET" "$DIM" "$psize" "$RESET" \
+            "${_P_MP:+  -> ${G}${_P_MP}${RESET}}"
+    done
     if (( has_special )); then
-        printf '  %s┌───%s '"$(_ic "🔄")"'%s%s%s\n' "$C" "$RESET" "$BOLD" "$(t blk_virtual)" "$RESET"
         printf '  %s│%s\n' "$C" "$RESET"
-
-        for dev in /sys/block/zram* /sys/block/loop*; do
-            [[ -d "$dev" ]] || continue
-            local bn
-            bn=$(basename "$dev")
-
-            local size_bytes=$(cat "$dev/size" 2>/dev/null || echo "0")
-            [[ "$bn" == loop* && "$size_bytes" == 0 ]] && continue
-            size_bytes=$(( size_bytes * 512 ))
-            local size_human
-            size_human=$(fmt_size "$size_bytes")
-
-            local icon="$(_emu '🔄')"
-            [[ "$bn" == loop* ]] && icon="$(_emu '📀')"
-
-            printf '  %s│%s  %s %s%s%s  %s%s%s\n' \
-                "$C" "$RESET" "$icon" "$BOLD" "$W" "$bn" "$DIM" "$size_human" "$RESET"
-        done
-
-        printf '  %s│%s\n' "$C" "$RESET"
+        printf '  %s└┘%s\n' "$C" "$RESET"
     fi
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..82})" "$RESET"
-
     local total_human
-    total_human=$(fmt_size "$total_bytes")
-    printf '\n  %s│%s  '"$(_ic "📊")"'%s%s:%s %d %s  |  %d %s  |  %s\n' \
-        "$C" "$RESET" "$BOLD" "$(t blk_total)" "$W" \
+    fmt_size "$total_bytes" total_human
+    printf '\n  %s%s%s:%s %d %s  |  %d %s  |  %s\n' \
+        "$(_ic '📊')" "$BOLD" "$(t blk_total)" "$RESET" \
         "$total_disks" "$(t blk_disks)" "$total_parts" "$(t blk_partitions)" "$total_human"
 
     printf '\n  %s%s %s%s\n\n' "$DIM" "$(_emu '💡')" "$(t blk_hint)" "$RESET"
-    printf '  %sWellBlock v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '  %sWellBlock v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

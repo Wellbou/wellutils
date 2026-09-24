@@ -1,137 +1,259 @@
 #!/usr/bin/env bash
 # gen-completions.sh -- generate bash/zsh/fish completions for all wellutils
-# tools from one flag table. Run from the repo root:  tools/gen-completions.sh
+# tools. Run from the repo root:  tools/gen-completions.sh
+#
+# Flags are NOT kept in a hand-written table any more (it drifted: --watch
+# instead of --cli, --short offered where the tool rejects it, ...). They are
+# parsed from each tool's own `--help`, so completions always match reality.
+# Launcher subcommands and aliases are parsed from src/wellutils.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# tool|name|extra flags (space separated, may be empty)
-TABLE='
-wellusb|WellUSB|--json --plain --box --no-emoji --emoji
-wellpci|WellPCI|--all --json --plain --box --no-emoji --emoji
-wellblock|WellBlock|--json --smart --dump --all --plain --box --no-emoji --emoji
-wellmem|WellMem|--json --short --html --plain --box --no-emoji --emoji
-wellmod|WellMod|--deps --filter --json --plain --box --no-emoji --emoji
-wellsensors|WellSensors|--watch --interval --sections --json --short --html --plain --box --no-emoji --emoji
-wellhw|WellHW|--json --snapshot --diff --html --plain --box --no-emoji --emoji
-wellper|WellPer|--groups --sections --terse --strict --json --plain --box --no-emoji --emoji
-wellgpu|WellGPU|--json --short --plain --box --no-emoji --emoji
-wellcpu|WellCPU|--json --short --html --plain --box --no-emoji --emoji
-wellfetch|WellFetch|--logo --no-logo --png --logo-width --key --custom --all --full --json --short --html --plain --box --no-emoji --emoji
-wellup|WellUp|--check --list --yes --pacnew --self-update --self --json --short --html --plain --box --no-emoji --emoji
-wellnet|WellNet|--json --short --html --plain --box --no-emoji --emoji
-wellpower|WellPower|--json --short --html --plain --box --no-emoji --emoji
-welldoctor|WellDoctor|--json --html --plain --box --no-emoji --emoji
-'
+TOOLS="wellusb wellpci wellblock wellmem wellmod wellsensors wellhw wellper
+wellgpu wellcpu wellfetch wellup wellnet wellpower welldoctor whtml"
 
+# ─── help parser ────────────────────────────────────────────────
+# Emits one record per option line:  longs|shorts|kind|choices|desc
+#   kind: none | choice | file | ofile (optional file) | module | free | ofree
+# Option lines start with 1-8 spaces then "-"; the spec is separated from the
+# description by 2+ spaces. Continuation lines (no leading dash) are skipped.
+parse_help() {
+    local tool="$1" short_ok="$2"
+    NO_COLOR=1 WELLUTILS_LANG=EN "./src/$tool" --help 2>/dev/null | awk -v short_ok="$short_ok" '
+    /^ {1,8}-/ {
+        line = $0; sub(/^ +/, "", line)
+        spec = line; desc = ""
+        if (match(line, /  +/)) { spec = substr(line, 1, RSTART - 1); desc = substr(line, RSTART + RLENGTH) }
+        gsub(/,/, " ", spec)
+        n = split(spec, tok, / +/)
+        longs = ""; shorts = ""; arg = ""
+        for (i = 1; i <= n; i++) {
+            t = tok[i]
+            if (t == "") continue
+            if (t ~ /^--[a-z]/)      { sub(/=.*/, "", t); longs = longs (longs == "" ? "" : " ") substr(t, 3) }
+            else if (t ~ /^-[a-zA-Z]$/) shorts = shorts (shorts == "" ? "" : " ") substr(t, 2)
+            else if (arg == "")         arg = t
+        }
+        if (longs == "" && shorts == "") next
+        if (longs == "short" && short_ok != "1") next
+        if (longs == "lang" && shorts == "") shorts = "l"   # cli.sh accepts -l too
+        # first-line-only descriptions: drop a dangling "(..." or trailing comma
+        if (index(desc, "(") && !index(desc, ")")) sub(/ *\(.*/, "", desc)
+        sub(/[,;] *$/, "", desc)
+        kind = "none"; ch = ""
+        if (arg ~ /\|/ && arg !~ /^\[/)  { kind = "choice"; ch = arg; gsub(/\|/, " ", ch) }
+        else if (arg ~ /^\[.*FILE/)      kind = "ofile"
+        else if (arg ~ /^\[/)            kind = "ofree"
+        else if (arg ~ /FILE/)           kind = "file"
+        else if (arg ~ /^MODULE/)        kind = "module"
+        else if (arg != "")              kind = "free"
+        gsub(/\|/, "/", desc)
+        printf "%s|%s|%s|%s|%s\n", longs, shorts, kind, ch, desc
+    }'
+}
+
+# Does the help advertise a positional [N|device] argument (wellblock)?
+has_devarg() { NO_COLOR=1 "./src/$1" --help 2>/dev/null | grep -q '^ *\[N|device\]'; }
+
+# ─── bash ───────────────────────────────────────────────────────
 gen_bash() {
-    local tool="$1" opts="$2"
-    cat <<EOF
-# bash completion for $tool
-# Part of wellutils by wellbou_
-
-_$tool() {
-    local cur prev
-    COMPREPLY=()
-    cur="\${COMP_WORDS[COMP_CWORD]}"
-    prev="\${COMP_WORDS[COMP_CWORD-1]}"
-
-    local opts="--help -h --version -V --lang --lang= --color --color= $opts --debug --"
-
-    case "\$prev" in
-        --lang|-l)
-            COMPREPLY=( \$(compgen -W "ru en auto" -- "\$cur") )
-            return 0
-            ;;
-        --color)
-            COMPREPLY=( \$(compgen -W "always never auto" -- "\$cur") )
-            return 0
-            ;;
-    esac
-
-    case "\$cur" in
-        -*)
-            COMPREPLY=( \$(compgen -W "\$opts" -- "\$cur") )
-            return 0
-            ;;
-    esac
-
-    return 0
+    local tool="$1" recs="$2" devarg="$3"
+    local opts="" choice_cases="" file_flags="" free_flags="" mod_flags=""
+    local longs shorts kind ch desc l s pats
+    while IFS='|' read -r longs shorts kind ch desc; do
+        [[ -z "$longs$shorts" ]] && continue
+        pats=""
+        for l in $longs; do opts+="--$l "; pats+="${pats:+|}--$l"; done
+        for s in $shorts; do opts+="-$s "; pats+="${pats:+|}-$s"; done
+        case "$kind" in
+            choice) choice_cases+="        $pats) COMPREPLY=( \$(compgen -W \"$ch\" -- \"\$cur\") ); return 0 ;;"$'\n' ;;
+            file)   file_flags+="${file_flags:+|}$pats" ;;
+            module) mod_flags+="${mod_flags:+|}$pats" ;;
+            free)   free_flags+="${free_flags:+|}$pats" ;;
+        esac
+    done <<< "$recs"
+    opts="${opts% }"
+    {
+        printf '# bash completion for %s\n# Part of wellutils by wellbou_\n# Generated by tools/gen-completions.sh from `%s --help` -- do not edit.\n\n' "$tool" "$tool"
+        printf '_%s() {\n' "$tool"
+        printf '    local cur prev\n    COMPREPLY=()\n'
+        printf '    cur="${COMP_WORDS[COMP_CWORD]}"\n    prev="${COMP_WORDS[COMP_CWORD-1]}"\n\n'
+        printf '    local opts="%s"\n\n' "$opts"
+        printf '    case "$prev" in\n'
+        printf '%s' "$choice_cases"
+        [[ -n "$file_flags" ]] && printf '        %s) COMPREPLY=( $(compgen -f -- "$cur") ); return 0 ;;\n' "$file_flags"
+        [[ -n "$mod_flags" ]]  && printf '        %s) COMPREPLY=( $(compgen -W "$(cut -d" " -f1 /proc/modules 2>/dev/null)" -- "$cur") ); return 0 ;;\n' "$mod_flags"
+        [[ -n "$free_flags" ]] && printf '        %s) return 0 ;;\n' "$free_flags"
+        printf '    esac\n\n'
+        printf '    case "$cur" in\n'
+        printf '        --*=*)\n'
+        printf '            local flag="${cur%%%%=*}" val="${cur#*=}"\n'
+        printf '            case "$flag" in\n'
+        while IFS='|' read -r longs shorts kind ch desc; do
+            for l in $longs; do
+                case "$kind" in
+                    choice) printf '                --%s) COMPREPLY=( $(compgen -P "$flag=" -W "%s" -- "$val") ) ;;\n' "$l" "$ch" ;;
+                    file|ofile) printf '                --%s) COMPREPLY=( $(compgen -P "$flag=" -f -- "$val") ) ;;\n' "$l" ;;
+                esac
+            done
+        done <<< "$recs"
+        printf '            esac\n            return 0 ;;\n'
+        printf '        -*) COMPREPLY=( $(compgen -W "$opts" -- "$cur") ); return 0 ;;\n'
+        printf '    esac\n'
+        if [[ "$devarg" == 1 ]]; then
+            printf '    local d devs=""\n'
+            printf '    for d in /sys/block/*; do d=${d##*/}; case "$d" in loop*|ram*|zram*) ;; *) devs+="$d " ;; esac; done\n'
+            printf '    COMPREPLY=( $(compgen -W "$devs" -- "$cur") )\n'
+        fi
+        printf '    return 0\n}\n\ncomplete -F _%s %s\n' "$tool" "$tool"
+    }
 }
 
-complete -F _$tool $tool
-EOF
-}
+# ─── zsh ────────────────────────────────────────────────────────
+# Each spec is emitted single-quoted; description characters that are special
+# inside _arguments specs ([ ] :) are backslash-escaped, quotes dropped.
+zq() { local d="$1"; d=${d//\'/}; d=${d//\\/}; d=${d//\[/\\[}; d=${d//\]/\\]}; d=${d//:/\\:}; printf '%s' "$d"; }
 
 gen_zsh() {
-    local tool="$1" name="$2" extra="$3"
-    local args="--help[show help] --version[show version] --lang=[output language]: :(ru en auto) --color=[colorize output]: :(always auto never)"
-    local o
-    for o in $extra; do
-        args+=" ${o%%=*}[]"
-    done
-    args+=" --debug[shell tracing] --"
-    cat <<EOF
-#compdef $tool
-# zsh completion for $tool
-# Part of wellutils by wellbou_
-
-_${tool}() {
-    _arguments -S \\
-        $(printf '%s' "$args" | sed 's/ --/ \\\n        --/g')
+    local tool="$1" recs="$2" devarg="$3"
+    local longs shorts kind ch desc l s d act
+    printf '#compdef %s\n# zsh completion for %s\n# Part of wellutils by wellbou_\n# Generated by tools/gen-completions.sh from `%s --help` -- do not edit.\n\n' "$tool" "$tool" "$tool"
+    printf '_%s() {\n    _arguments -s \\\n' "$tool"
+    while IFS='|' read -r longs shorts kind ch desc; do
+        [[ -z "$longs$shorts" ]] && continue
+        d=$(zq "$desc")
+        case "$kind" in
+            choice) act=":value:($ch)" ;;
+            file|ofile) act=':file:_files' ;;
+            module) act=':module:( ${${(f)"$(</proc/modules)"}%% *} )' ;;
+            free|ofree) act=':value: ' ;;
+            *) act="" ;;
+        esac
+        for l in $longs; do
+            case "$kind" in
+                none)         printf "        '--%s[%s]' \\\\\n" "$l" "$d" ;;
+                ofile|ofree)  printf "        '--%s=-[%s]%s' \\\\\n" "$l" "$d" "$act" ;;
+                *)            printf "        '--%s=[%s]%s' \\\\\n" "$l" "$d" "$act" ;;
+            esac
+        done
+        for s in $shorts; do
+            case "$kind" in
+                none)         printf "        '-%s[%s]' \\\\\n" "$s" "$d" ;;
+                ofile|ofree)  printf "        '-%s-[%s]%s' \\\\\n" "$s" "$d" "$act" ;;
+                *)            printf "        '-%s+[%s]%s' \\\\\n" "$s" "$d" "$act" ;;
+            esac
+        done
+    done <<< "$recs"
+    if [[ "$devarg" == 1 ]]; then
+        printf "        '1::disk (index or name):( \${\${(f)\"\$(print -l /sys/block/*(N:t))\"}:#(loop|ram|zram)*} )'\n"
+    else
+        printf "        '*: :'\n"
+    fi
+    printf '}\n\n_%s "$@"\n' "$tool"
 }
 
-_$tool "\$@"
-EOF
-}
+# ─── fish ───────────────────────────────────────────────────────
+fq() { local d="$1"; d=${d//\\/\\\\}; d=${d//\'/\\\'}; printf "'%s'" "$d"; }
 
 gen_fish() {
-    local tool="$1" name="$2" extra="$3"
-    cat <<EOF
-# fish completion for $tool
-# Part of wellutils by wellbou_
-
-complete -c $tool -f
-complete -c $tool -s h -l help -d 'show help'
-complete -c $tool -l version -d 'show version'
-complete -c $tool -l lang -x -a 'ru en auto' -d 'output language'
-complete -c $tool -l color -x -a 'always auto never' -d 'colorize output'
-EOF
-    local o
-    for o in $extra; do
-        printf 'complete -c %s -l %s -d "%s"\n' "$tool" "${o%%=*}" "${o#--}" | sed 's/ -d "--/ -d "/'
-    done
-    printf 'complete -c %s -l debug -d "shell tracing"\n' "$tool"
+    local tool="$1" recs="$2" devarg="$3"
+    local longs shorts kind ch desc l s line
+    printf '# fish completion for %s\n# Part of wellutils by wellbou_\n# Generated by tools/gen-completions.sh from `%s --help` -- do not edit.\n\n' "$tool" "$tool"
+    printf 'complete -c %s -f\n' "$tool"
+    while IFS='|' read -r longs shorts kind ch desc; do
+        [[ -z "$longs$shorts" ]] && continue
+        line="complete -c $tool"
+        for l in $longs; do line+=" -l $l"; done
+        for s in $shorts; do line+=" -s $s"; done
+        case "$kind" in
+            choice) line+=" -x -a $(fq "$ch")" ;;
+            file)   line+=" -r -F" ;;
+            ofile)  line+=" -F" ;;
+            module) line+=" -x -a '(string replace -r \" .*\" \"\" < /proc/modules)'" ;;
+            free)   line+=" -x" ;;
+        esac
+        printf '%s -d %s\n' "$line" "$(fq "$desc")"
+    done <<< "$recs"
+    if [[ "$devarg" == 1 ]]; then
+        printf "complete -c %s -n 'not string match -q -- \"-*\" (commandline -ct)' -a '(path basename /sys/block/* 2>/dev/null | string match -v -r \"^(loop|ram|zram)\")' -d 'disk'\n" "$tool"
+    fi
 }
 
 mkdir -p src/completions/zsh src/completions/fish
-while IFS='|' read -r tool name extra; do
-    [[ -z "$tool" || "$tool" == \#* ]] && continue
-    base_opts="--json --short --html --plain --box --no-emoji --emoji"
-    # avoid duplicates already listed in the table row
-    row_opts=""
-    for o in $extra; do
-        case " $base_opts " in *" $o "*) ;; *) row_opts+="$o " ;; esac
-    done
-    all="$row_opts$base_opts"
-    gen_bash  "$tool" "$all"   > "src/$tool.bash"
-    gen_zsh   "$tool" "$name" "$all" > "src/completions/zsh/_$tool"
-    gen_fish  "$tool" "$name" "$all" > "src/completions/fish/$tool.fish"
-    echo "generated: $tool ($tool.bash, zsh, fish)"
-done <<< "$TABLE"
+for tool in $TOOLS; do
+    short_ok=0
+    grep -q '^_WU_SHORT_OK=1' "src/$tool" && short_ok=1
+    recs=$(parse_help "$tool" "$short_ok")
+    [[ -n "$recs" ]] || { echo "gen-completions: $tool --help produced no options" >&2; exit 1; }
+    devarg=0; has_devarg "$tool" && devarg=1
+    gen_bash "$tool" "$recs" "$devarg" > "src/$tool.bash"
+    gen_zsh  "$tool" "$recs" "$devarg" > "src/completions/zsh/_$tool"
+    gen_fish "$tool" "$recs" "$devarg" > "src/completions/fish/$tool.fish"
+    echo "generated: $tool ($(wc -l <<< "$recs") options; short=$short_ok)"
+done
 
-# launcher completion lists subcommands
-cat > src/wellutils.bash <<'EOF'
-# bash completion for wellutils
-# Part of wellutils by wellbou_
+# ─── launcher: subcommands + aliases from src/wellutils ─────────
+# Lines look like:   usb|wellusb|wusb)   CMD="wellusb"; shift ;;
+launcher_map=$(sed -n 's/^ *\([a-z|-]*\)) *CMD="\([a-z]*\)".*/\1 \2/p' src/wellutils)
+[[ -n "$launcher_map" ]] || { echo "gen-completions: cannot parse launcher subcommands" >&2; exit 1; }
+subcmds="" cases=""
+while read -r pats tool; do
+    subcmds+="${pats//|/ } "
+    cases+="        $pats) tool=$tool ;;"$'\n'
+done <<< "$launcher_map"
+subcmds="${subcmds% }"
+launcher_opts="--help -h --version -V --lang -l"
 
-_wellutils() {
-    local cur subcmds
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    subcmds="usb pci block mem mod sensors hw per gpu cpu fetch up net power doctor self-update --help --version --lang --color --plain --box --no-emoji --json --debug --"
-    COMPREPLY=( $(compgen -W "$subcmds" -- "$cur") )
-    return 0
-}
-complete -F _wellutils wellutils
-EOF
-echo "generated: wellutils (wellutils.bash)"
+{
+    printf '# bash completion for wellutils (launcher)\n# Part of wellutils by wellbou_\n'
+    printf '# Generated by tools/gen-completions.sh -- do not edit.\n\n'
+    printf '_wellutils() {\n'
+    printf '    local cur tool=""\n    COMPREPLY=()\n    cur="${COMP_WORDS[COMP_CWORD]}"\n'
+    printf '    if (( COMP_CWORD == 1 )); then\n'
+    printf '        COMPREPLY=( $(compgen -W "%s %s" -- "$cur") )\n' "$subcmds" "$launcher_opts"
+    printf '        return 0\n    fi\n'
+    printf '    case "${COMP_WORDS[1]}" in\n'
+    printf '        --lang|-l) COMPREPLY=( $(compgen -W "RU EN ru en" -- "$cur") ); return 0 ;;\n'
+    printf '%s' "$cases"
+    printf '        *) return 0 ;;\n    esac\n'
+    printf '    # Delegate to the tool completion (load it on demand).\n'
+    printf '    declare -F "_$tool" >/dev/null 2>&1 || { declare -F _completion_loader >/dev/null 2>&1 && _completion_loader "$tool"; }\n'
+    printf '    declare -F "_$tool" >/dev/null 2>&1 || return 0\n'
+    printf '    local -a words=("$tool" "${COMP_WORDS[@]:2}")\n'
+    printf '    COMP_WORDS=("${words[@]}"); COMP_CWORD=$(( COMP_CWORD - 1 ))\n'
+    printf '    "_$tool"\n'
+    printf '}\ncomplete -F _wellutils wellutils\n'
+} > src/wellutils.bash
+
+{
+    printf '#compdef wellutils\n# zsh completion for wellutils (launcher)\n# Part of wellutils by wellbou_\n'
+    printf '# Generated by tools/gen-completions.sh -- do not edit.\n\n'
+    printf '_wellutils() {\n'
+    printf '    local -a subcmds\n    subcmds=(%s)\n' "$subcmds"
+    printf '    if (( CURRENT == 2 )); then\n'
+    printf "        _alternatives 'commands:command:(\$subcmds)' 'options:option:(%s)'\n" "$launcher_opts"
+    printf '        return\n    fi\n'
+    printf '    local tool=""\n    case "$words[2]" in\n'
+    printf '        --lang|-l) _values language RU EN; return ;;\n'
+    printf '%s' "$cases"
+    printf '        *) return 1 ;;\n    esac\n'
+    printf '    words=("$tool" "${(@)words[3,-1]}"); (( CURRENT-- ))\n'
+    printf '    (( $+functions[_$tool] )) || autoload -Uz "_$tool" 2>/dev/null\n'
+    printf '    (( $+functions[_$tool] )) && "_$tool"\n'
+    printf '}\n\n_wellutils "$@"\n'
+} > src/completions/zsh/_wellutils
+
+{
+    printf '# fish completion for wellutils (launcher)\n# Part of wellutils by wellbou_\n'
+    printf '# Generated by tools/gen-completions.sh -- do not edit.\n\n'
+    printf 'complete -c wellutils -f\n'
+    printf "complete -c wellutils -n '__fish_is_first_arg' -a %s\n" "$(fq "$subcmds")"
+    printf "complete -c wellutils -n '__fish_is_first_arg' -s h -l help -d 'show help'\n"
+    printf "complete -c wellutils -n '__fish_is_first_arg' -s V -l version -d 'show version'\n"
+    printf "complete -c wellutils -n '__fish_is_first_arg' -s l -l lang -x -a 'RU EN' -d 'set default language'\n"
+    # after a subcommand: reuse the tool's own completion
+    while read -r pats tool; do
+        printf "complete -c wellutils -n '__fish_seen_subcommand_from %s' -a '(complete -C\"%s \"(commandline -ct))'\n" "${pats//|/ }" "$tool"
+    done <<< "$launcher_map"
+} > src/completions/fish/wellutils.fish
+echo "generated: wellutils (bash, zsh, fish)"

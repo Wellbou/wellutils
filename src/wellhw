@@ -99,16 +99,24 @@ else:
 }
 
 do_snapshot() {
-    local f="$_HW_SNAP_FILE"
-    local dir; dir=$(dirname "$f")
-    mkdir -p "$dir" 2>/dev/null || true
-    json_out | _hw_filter_py > "$f" || { printf 'wellhw: snapshot failed\n' >&2; return 3; }
+    local f="$_HW_SNAP_FILE" dir tmp
+    command -v python3 >/dev/null 2>&1 || { printf 'wellhw: %s\n' "$(t hw_need_python)" >&2; return 3; }
+    dir=$(dirname -- "$f")
+    mkdir -p -- "$dir" 2>/dev/null || true
+    # Never truncate an existing snapshot: build it next to the target and
+    # only move it into place once the whole pipeline succeeded.
+    tmp="${f}.tmp.$$"
+    if ! json_out | _hw_filter_py > "$tmp" 2>/dev/null || [[ ! -s "$tmp" ]]; then
+        rm -f -- "$tmp"; printf 'wellhw: snapshot failed\n' >&2; return 3
+    fi
+    mv -f -- "$tmp" "$f" || { rm -f -- "$tmp"; printf 'wellhw: snapshot failed\n' >&2; return 3; }
     printf '%s %s\n' "$(t hw_snap_saved):" "$f"
 }
 
 do_diff() {
     local f="$_HW_SNAP_FILE" tmp_old tmp_new rc=0 changed=1
     [[ -r "$f" ]] || { printf 'wellhw: %s %s\n' "$(t hw_snap_missing):" "$f" >&2; return 3; }
+    command -v python3 >/dev/null 2>&1 || { printf 'wellhw: %s\n' "$(t hw_need_python)" >&2; return 3; }
     tmp_old=$(mktemp) tmp_new=$(mktemp)
     cp "$f" "$tmp_old"
     if ! json_out | _hw_filter_py > "$tmp_new"; then
@@ -127,377 +135,534 @@ do_diff() {
 
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
-command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
-command -v df     >/dev/null 2>&1 || df()     { :; }
-command -v uptime >/dev/null 2>&1 || uptime() { :; }
-command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
 # JEDEC JEP106 RAM vendor codes (loaded after guards since it's optional)
 _WU_JEDEC="$_WU_BOOT_DIR/jedec.sh"
 [[ -f "$_WU_JEDEC" ]] || _WU_JEDEC="/usr/share/wellutils/jedec.sh"
 [[ -f "$_WU_JEDEC" ]] && source "$_WU_JEDEC"
 
-
 # ─── Helpers ────────────────────────────────────────────────────
-root_run() {
-    if (( EUID == 0 )); then "$@"
-    elif sudo -n true 2>/dev/null; then sudo -n "$@"
-    else "$@"; fi
+# _hw_clean STR VAR -- trim + blank SMBIOS placeholders (never "PN: Unknown").
+_hw_clean() {
+    local __v
+    wu_trim "${1//$'\r'/}" __v
+    if wu_junk "$__v"; then __v=""
+    else
+        case "${__v,,}" in
+            "not applicable"|"x.x"|"other"|"<bad index>"|"bad index"|"type2 - board version"|\
+            "type2 - board vendor name1"|"type2 - board product name1"|"rev x.0x"|"123456789abc") __v="" ;;
+        esac
+    fi
+    printf -v "$2" '%s' "$__v"
+}
+
+# _hw_norm_manuf STR VAR -- SMBIOS/SPD vendor field -> JEDEC name when possible.
+#   "Bank 5, Hex 0xCD" -> 04CD, "80AD000080AD" -> 80AD, "0x80CE" -> 80CE,
+#   0000/FFFF -> "" ; the 4-hex id is then resolved via wu_jedec_decode.
+_hw_norm_manuf() {
+    local __m __h="" __d
+    _hw_clean "$1" __m
+    if [[ "$__m" =~ ^[Bb]ank[[:space:]]*([0-9]+),?[[:space:]]*[Hh]ex[[:space:]]*(0[xX])?([0-9A-Fa-f]{2})$ ]]; then
+        local __b=$(( 10#${BASH_REMATCH[1]} ))
+        (( __b >= 1 )) || __b=1
+        printf -v __h '%02X%s' $(( __b - 1 )) "${BASH_REMATCH[3]^^}"
+    elif [[ "$__m" =~ ^(0[xX])?([0-9A-Fa-f]{4})$ ]]; then
+        __h=${BASH_REMATCH[2]^^}
+    elif [[ "$__m" =~ ^([0-9A-Fa-f]{4})([0-9A-Fa-f]{4}|[0-9A-Fa-f]{8}|[0-9A-Fa-f]{12})$ ]]; then
+        __h=${BASH_REMATCH[1]^^}
+    fi
+    if [[ -n "$__h" ]]; then
+        case "$__h" in 0000|FFFF|7F7F) __m="" ;; *)
+            __m=$__h
+            if declare -F wu_jedec_decode >/dev/null && __d=$(wu_jedec_decode "$__h"); then
+                [[ -n "$__d" ]] && __m=$__d
+            fi ;;
+        esac
+    fi
+    printf -v "$2" '%s' "$__m"
+}
+
+# _hw_mb_txt MB VAR -- "8 GiB" / "1.5 GiB" / "512 MiB"
+_hw_mb_txt() {
+    local __mb=$1 __o
+    if (( __mb >= 1024 )); then
+        if (( __mb % 1024 == 0 )); then __o="$(( __mb / 1024 )) GiB"
+        else __o="$(( __mb / 1024 )).$(( (__mb % 1024) * 10 / 1024 )) GiB"; fi
+    else __o="${__mb} MiB"; fi
+    printf -v "$2" '%s' "$__o"
+}
+
+# _hw_human BYTES VAR -- same rounding as lsblk (465.8G, 8G, 512B) so the
+# JSON "size" stays identical to what older releases got from lsblk.
+_hw_human() {
+    local __b=$1 __e=0 __u="" __d __f=0 __us=(B K M G T P E)
+    local __i=0
+    while (( __i < 6 && __b >= (1 << (__e + 10)) )); do __e=$(( __e + 10 )); __i=$(( __i + 1 )); done
+    __u=${__us[__i]}
+    if (( __e == 0 )); then printf -v "$2" '%dB' "$__b"; return; fi
+    __d=$(( __b >> __e ))
+    __f=$(( __b & ((1 << __e) - 1) ))
+    if (( __f )); then
+        __f=$(( ((__f >> (__e - 10)) + 50) / 100 ))
+        (( __f == 10 )) && { __d=$(( __d + 1 )); __f=0; }
+    fi
+    if (( __f )); then printf -v "$2" '%d.%d%s' "$__d" "$__f" "$__u"
+    else printf -v "$2" '%d%s' "$__d" "$__u"; fi
+}
+
+# _hw_plural N -> module/modules (RU: модуль/модуля/модулей)
+_hw_plural() {
+    local n=$1 k=many
+    if (( n % 10 == 1 && n % 100 != 11 )); then k=one
+    elif (( n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) )); then k=few; fi
+    t "mem_module_$k"
+}
+
+# ─── Collectors (one implementation shared by text, JSON, snapshot) ──
+_HW_CPU_DONE=0 HW_CPU_MODEL="" HW_CPU_CORES="" HW_CPU_THREADS=""
+hw_collect_cpu() {
+    (( _HW_CPU_DONE )) && return 0; _HW_CPU_DONE=1
+    HW_CPU_MODEL=$(wu_cpu_model_generic)
+    local t=0 c=0 cc=0 line key val phys="" 
+    local -A seen=()
+    if [[ -r /proc/cpuinfo ]]; then
+        while IFS= read -r line; do
+            key=${line%%:*}; key=${key%"${key##*[![:space:]]}"}
+            val=${line#*:}; val=${val#"${val%%[![:space:]]*}"}
+            case "$key" in
+                processor) [[ "$val" =~ ^[0-9]+$ ]] && t=$(( t + 1 )) ;;
+                "physical id") phys=$val ;;
+                "core id") [[ -n "${seen["$phys:$val"]+x}" ]] || { seen["$phys:$val"]=1; c=$(( c + 1 )); } ;;
+                "cpu cores") [[ "$val" =~ ^[0-9]+$ ]] && (( cc == 0 )) && cc=$val ;;
+            esac
+        done < /proc/cpuinfo
+    fi
+    if (( t == 0 )); then
+        t=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 1)
+        [[ "$t" =~ ^[0-9]+$ ]] || t=1
+    fi
+    (( c == 0 )) && c=$cc
+    (( c == 0 || c > t )) && c=$t
+    HW_CPU_CORES=$c HW_CPU_THREADS=$t
+}
+
+_HW_GPU_DONE=0 HW_GPU="" HW_GPU_VENDOR=""
+hw_collect_gpu() {
+    (( _HW_GPU_DONE )) && return 0; _HW_GPU_DONE=1
+    local line bus vendor device aib
+    if command -v lspci >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            case "$line" in *'"VGA compatible controller'*|*'"3D controller'*|*'"Display controller'*) ;; *) continue ;; esac
+            bus=${line%% *}
+            IFS='"' read -r _ _ _ vendor _ device _ <<< "$line"
+            [[ -z "$device" ]] && { device=$vendor; vendor=""; }
+            aib=$(gpu_aib_vendor "$bus")
+            HW_GPU="${aib:+$aib }${device}" HW_GPU_VENDOR=$vendor
+            return 0
+        done < <(lspci -mmnn 2>/dev/null)
+    fi
+    # No lspci: PCI class 03xx straight from sysfs + pci.ids.
+    local d cls vid did nm
+    for d in /sys/bus/pci/devices/*; do
+        wu_read "$d/class" cls || continue
+        [[ "$cls" == 0x03* ]] || continue
+        wu_read "$d/vendor" vid; wu_read "$d/device" did
+        nm=$(wu_pci_name "$vid" "$did")
+        aib=$(gpu_aib_vendor "${d##*/}")
+        HW_GPU="${aib:+$aib }${nm:-[${vid#0x}:${did#0x}]}"
+        return 0
+    done
+    # SoC GPUs (vc4/v3d, panfrost, lima, msm, etnaviv, apple, ...): DRM
+    # driver name, plus the DT compatible string when there is one.
+    local c drv comp out="" seen=" "
+    for c in /sys/class/drm/card[0-9]*; do
+        [[ "${c##*/}" == *-* ]] && continue
+        [[ -e "$c/device/driver" ]] || continue
+        drv=$(readlink "$c/device/driver" 2>/dev/null) || continue
+        drv=${drv##*/}
+        [[ "$seen" == *" $drv "* ]] && continue
+        seen+="$drv "
+        comp=""
+        [[ -r "$c/device/of_node/compatible" ]] && { IFS= read -r -d '' comp < "$c/device/of_node/compatible" || true; }
+        out+="${out:+, }${drv}${comp:+ ($comp)}"
+    done
+    HW_GPU=$out
+}
+
+_HW_BOARD_DONE=0 HW_B_VENDOR="" HW_B_NAME="" HW_B_VERSION="" HW_BIOS_VENDOR="" HW_BIOS_VER="" HW_BIOS_DATE=""
+hw_collect_board() {
+    (( _HW_BOARD_DONE )) && return 0; _HW_BOARD_DONE=1
+    local r f v
+    local id=/sys/class/dmi/id
+    for f in board_vendor:HW_B_VENDOR board_name:HW_B_NAME board_version:HW_B_VERSION \
+             bios_vendor:HW_BIOS_VENDOR bios_version:HW_BIOS_VER bios_date:HW_BIOS_DATE; do
+        r=""; wu_read "$id/${f%%:*}" r || r=""
+        _hw_clean "$r" v; printf -v "${f#*:}" '%s' "$v"
+    done
+    # Laptops/NUCs often blank the baseboard but fill the system fields.
+    if [[ -z "$HW_B_NAME" ]]; then
+        r=""; wu_read "$id/product_name" r || r=""; _hw_clean "$r" HW_B_NAME
+        if [[ -n "$HW_B_NAME" && -z "$HW_B_VENDOR" ]]; then
+            r=""; wu_read "$id/sys_vendor" r || r=""; _hw_clean "$r" HW_B_VENDOR
+        fi
+    fi
+    # No DMI at all (ARM/PPC/MIPS/RISC-V boards, Asahi): device-tree model.
+    if [[ -z "$HW_B_VENDOR$HW_B_NAME" ]]; then
+        r=$(wu_dt_model); _hw_clean "$r" HW_B_NAME
+    fi
+}
+
+# RAM slots: parallel arrays, filled from dmidecode, else decode-dimms.
+_HW_RAM_DONE=0
+HW_R_LOC=() HW_R_MB=() HW_R_SIZE=() HW_R_TYPE=() HW_R_SPEED=() HW_R_MANUF=() HW_R_PN=() HW_R_FORM=() HW_R_SERIAL=() HW_R_CSPEED=()
+HW_RAM_TOTAL_MB=0
+
+_hw_ram_add() {  # loc mb type speed(running) manuf pn form serial [rated-speed]
+    local sz; _hw_mb_txt "$2" sz
+    HW_R_LOC+=("$1") HW_R_MB+=("$2") HW_R_SIZE+=("$sz") HW_R_TYPE+=("$3") HW_R_SPEED+=("$4")
+    HW_R_MANUF+=("$5") HW_R_PN+=("$6") HW_R_FORM+=("$7") HW_R_SERIAL+=("$8") HW_R_CSPEED+=("${9:-}")
+    HW_RAM_TOTAL_MB=$(( HW_RAM_TOTAL_MB + $2 ))
+}
+
+_hw_ram_dmi() {
+    local line inb=0 v k
+    local s_mb=0 s_type="" s_speed="" s_cspeed="" s_manuf="" s_pn="" s_form="" s_loc="" s_ser=""
+    _hw_mflush() {
+        if (( inb && s_mb > 0 )); then
+            _hw_norm_manuf "$s_manuf" s_manuf
+            [[ -z "$s_loc" ]] && s_loc="DIMM $(( ${#HW_R_LOC[@]} + 1 ))"
+            _hw_ram_add "$s_loc" "$s_mb" "$s_type" "${s_cspeed:-$s_speed}" "$s_manuf" "$s_pn" "$s_form" "$s_ser" "$s_speed"
+        fi
+        inb=0 s_mb=0 s_type="" s_speed="" s_cspeed="" s_manuf="" s_pn="" s_form="" s_loc="" s_ser=""
+    }
+    while IFS= read -r line; do
+        line=${line%$'\r'}
+        case "$line" in
+            "Memory Device") _hw_mflush; inb=1; continue ;;
+            Handle\ *|"") [[ "$line" == Handle\ * ]] && _hw_mflush; continue ;;
+        esac
+        (( inb )) || continue
+        # Anchor on the leading tab: "Volatile Size", "Non-Volatile Size",
+        # "Cache Size", "Logical Size", "Type Detail", "Configured ..." differ.
+        [[ "$line" == $'\t'*': '* || "$line" == $'\t'*':' ]] || continue
+        k=${line#$'\t'}; k=${k%%:*}
+        v=${line#*:}
+        case "$k" in
+            Size)            _hw_clean "$v" v; s_mb=0; [[ -n "$v" ]] && s_mb=$(wu_size_mb "$v") ;;
+            Type)            _hw_clean "$v" s_type ;;
+            Speed)           _hw_clean "$v" v; s_speed=$(wu_speed "$v") ;;
+            "Configured Memory Speed"|"Configured Clock Speed") _hw_clean "$v" v; s_cspeed=$(wu_speed "$v") ;;
+            Manufacturer)    s_manuf=$v ;;
+            "Part Number")   _hw_clean "$v" s_pn ;;
+            "Serial Number") _hw_clean "$v" s_ser ;;
+            "Form Factor")   _hw_clean "$v" s_form ;;
+            Locator)         _hw_clean "$v" s_loc ;;
+        esac
+    done <<< "$_WU_DMIDECODE"
+    _hw_mflush
+    unset -f _hw_mflush
+}
+
+_hw_ram_spd() {
+    command -v decode-dimms >/dev/null 2>&1 || return 0
+    local dout line v
+    wu_root_init
+    if (( _WU_ROOT )); then dout=$(wu_root_run decode-dimms 2>/dev/null) || dout=""
+    else dout=$(decode-dimms 2>/dev/null) || dout=""; fi
+    [[ "$dout" == *"Decoding EEPROM"* ]] || return 0
+    local inb=0 _s=0 _m="" _p="" _f="" _t="" _sp="" n=0
+    _dflush() {
+        if (( inb && _s > 0 )); then
+            n=$(( n + 1 ))
+            _hw_norm_manuf "$_m" _m
+            _hw_ram_add "DIMM $n" "$_s" "${_t:-DDR}" "$_sp" "$_m" "$_p" "${_f:-UDIMM}" ""
+        fi
+        inb=0 _s=0 _m="" _p="" _f="" _t="" _sp=""
+    }
+    while IFS= read -r line; do
+        case "$line" in
+            "Decoding EEPROM"*) _dflush; inb=1 ;;
+            "Size "*)                     _hw_clean "${line#Size}" v; _s=$(wu_size_mb "$v") ;;
+            "Module Manufacturer"*)       _m=${line#Module Manufacturer} ;;
+            "Part Number"*)               _hw_clean "${line#Part Number}" _p ;;
+            "Module Type"*)               _hw_clean "${line#Module Type}" _f ;;
+            "Fundamental Memory type"*)   _hw_clean "${line#Fundamental Memory type}" _t; _t=${_t% SDRAM} ;;
+            "Memory Type"*)               _hw_clean "${line#Memory Type}" _t; _t=${_t% SDRAM} ;;
+            "Maximum module speed"*)      _sp=$(wu_speed "${line#Maximum module speed}") ;;
+        esac
+    done <<< "$dout"
+    _dflush
+    unset -f _dflush
+}
+
+hw_collect_ram() {
+    (( _HW_RAM_DONE )) && return 0; _HW_RAM_DONE=1
+    [[ -n "$_WU_DMIDECODE" ]] && _hw_ram_dmi
+    (( ${#HW_R_LOC[@]} )) || _hw_ram_spd
+    return 0
+}
+
+# _hw_udev_model SYSDIR VAR -- full model from the udev db (sysfs model is
+# truncated to 16 chars for SCSI/SATA). Empty when udev is absent.
+_hw_udev_model() {
+    local __mm="" __l __m=""
+    wu_read "$1/dev" __mm || { printf -v "$2" '%s' ""; return 1; }
+    if [[ -r "/run/udev/data/b$__mm" ]]; then
+        while IFS= read -r __l; do
+            case "$__l" in E:ID_MODEL=*) __m=${__l#E:ID_MODEL=}; __m=${__m//_/ }; break ;; esac
+        done < "/run/udev/data/b$__mm"
+    fi
+    printf -v "$2" '%s' "$__m"
+    [[ -n "$__m" ]]
+}
+
+# Storage: one lsblk call in C locale with raw byte sizes, or /sys/block.
+_HW_ST_DONE=0 HW_S_NAME=() HW_S_MODEL=() HW_S_SIZE=()
+_hw_st_skip() { case "$1" in loop*|zram*|sr*|ram*|fd*|"") return 0 ;; esac; return 1; }
+hw_collect_storage() {
+    (( _HW_ST_DONE )) && return 0; _HW_ST_DONE=1
+    local line name size model hs re='^NAME="([^"]*)" SIZE="([0-9]*)" MODEL="(.*)"$'
+    if command -v lsblk >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            [[ "$line" =~ $re ]] || continue
+            name=${BASH_REMATCH[1]} size=${BASH_REMATCH[2]} model=${BASH_REMATCH[3]}
+            _hw_st_skip "$name" && continue
+            [[ -n "$size" && "$size" != 0 ]] || continue
+            model=${model//\\x20/ }; model=${model//\\x22/\"}; model=${model//\\x5c/\\}
+            wu_trim "$model" model
+            _hw_human "$size" hs
+            HW_S_NAME+=("$name") HW_S_MODEL+=("$model") HW_S_SIZE+=("$hs")
+        done < <(LC_ALL=C lsblk -dnb -P -o NAME,SIZE,MODEL 2>/dev/null)
+        (( ${#HW_S_NAME[@]} )) && return 0
+    fi
+    local d
+    for d in /sys/block/*; do
+        name=${d##*/}
+        _hw_st_skip "$name" && continue
+        [[ "$name" == mmcblk*boot* || "$name" == mmcblk*rpmb ]] && continue
+        size=0; wu_read "$d/size" size || continue
+        [[ "$size" =~ ^[0-9]+$ ]] && (( size > 0 )) || continue
+        _hw_udev_model "$d" model || { wu_read "$d/device/model" model || wu_read "$d/device/name" model || model=""; }
+        wu_trim "$model" model
+        _hw_human $(( size * 512 )) hs
+        HW_S_NAME+=("$name") HW_S_MODEL+=("$model") HW_S_SIZE+=("$hs")
+    done
+    return 0
+}
+
+HW_N_NAME=() HW_N_OP=() HW_N_MAC=() _HW_NET_DONE=0
+hw_collect_net() {
+    (( _HW_NET_DONE )) && return 0; _HW_NET_DONE=1
+    local d n op mac
+    for d in /sys/class/net/*; do
+        [[ -e "$d" ]] || continue
+        n=${d##*/}
+        case "$n" in lo|virbr*|docker*|br-*|veth*) continue ;; esac
+        op=down; wu_read "$d/operstate" op || op=down
+        mac=""; wu_read "$d/address" mac || mac=""
+        HW_N_NAME+=("$n") HW_N_OP+=("$op") HW_N_MAC+=("$mac")
+    done
+}
+
+HW_F_CHIP=() HW_F_LABEL=() HW_F_RPM=() _HW_FAN_DONE=0
+hw_collect_fans() {
+    (( _HW_FAN_DONE )) && return 0; _HW_FAN_DONE=1
+    local f rpm dir chip idx label
+    for f in /sys/devices/platform/*/fan*_input /sys/class/hwmon/hwmon*/fan*_input; do
+        [[ -r "$f" ]] || continue
+        rpm=0; wu_read "$f" rpm || continue
+        [[ "$rpm" =~ ^[0-9]+$ ]] && (( rpm > 0 )) || continue
+        dir=${f%/*}; chip=${dir##*/}
+        idx=${f##*/fan}; idx=${idx%_input}
+        [[ "$idx" =~ ^[0-9]+$ ]] || continue
+        label=""; wu_read "$dir/fan${idx}_label" label || label="$(t hw_cooling) ${idx}"
+        HW_F_CHIP+=("$chip") HW_F_LABEL+=("$label") HW_F_RPM+=("$rpm")
+    done
+}
+
+HW_BAT=() _HW_BAT_DONE=0
+hw_collect_bat() {
+    (( _HW_BAT_DONE )) && return 0; _HW_BAT_DONE=1
+    local b
+    while IFS= read -r b; do
+        [[ -n "$b" ]] && HW_BAT+=("$b")
+    done < <(wu_batteries)
+    return 0
+}
+
+# Cache dmidecode once (memory section). Must run before snapshot/diff too.
+_WU_DMIDECODE="" _HW_DMI_DONE=0
+hw_dmi_init() {
+    (( _HW_DMI_DONE )) && return 0; _HW_DMI_DONE=1
+    if [[ -n "${WELLHW_DMI_FILE:-}" ]]; then        # test hook: canned dmidecode output
+        _WU_DMIDECODE=$(<"$WELLHW_DMI_FILE") || _WU_DMIDECODE=""
+        return 0
+    fi
+    command -v dmidecode >/dev/null 2>&1 || return 0
+    wu_root_init
+    if (( _WU_ROOT )); then
+        _WU_DMIDECODE=$(wu_root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
+    elif [[ -r /sys/firmware/dmi/tables/DMI ]]; then
+        _WU_DMIDECODE=$(dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
+    fi
+    return 0
 }
 
 # ─── Sections ───────────────────────────────────────────────────
 print_cpu() {
-    local model cores threads
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
-    [[ -z "$model" ]] && model=$(awk -F': *' '/^Processor/{print $2; exit}' /proc/cpuinfo)
-    [[ -z "$model" ]] && model=$(awk '/^Hardware/{sub(/^[^:]*:[[:space:]]*/,""); sub(/[[:space:]]*$/,""); print; exit}' /proc/cpuinfo)
-    cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
-    pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${model}  ${DIM}($(t hw_cores): ${cores}, $(t hw_threads): ${threads})${RESET}"
-}
-
-hw_gpu_name() {
-    local line bus vendor device aib
-    line=$(lspci -mmnn 2>/dev/null | grep -iE '"VGA compatible controller|"3D controller' | head -1)
-    [[ -n "$line" ]] || return 0
-    set -- $line
-    bus=$1
-    vendor=$(printf '%s' "$line" | awk -F'"' '{print $4}')
-    device=$(printf '%s' "$line" | awk -F'"' '{print $6}')
-    [[ -z "$device" ]] && device="$vendor" && vendor=""
-    aib=$(gpu_aib_vendor "$bus")
-    printf '%s%s%s' "${aib:+$aib }" "$device" "${vendor:+|$vendor}"
+    hw_collect_cpu
+    pline_hw "$(_emu '🧠')" "$(t hw_cpu)" "${HW_CPU_MODEL:-$(t hw_unknown)}  ${DIM}($(t hw_cores): ${HW_CPU_CORES}, $(t hw_threads): ${HW_CPU_THREADS})${RESET}"
 }
 
 print_gpu() {
-    local gpu vendor
-    gpu=$(hw_gpu_name)
-    vendor="${gpu##*|}"
-    [[ "$vendor" == "$gpu" ]] && vendor=""
-    gpu="${gpu%|*}"
-    if [[ -n "$gpu" ]]; then
-        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${gpu}${vendor:+  ${DIM}(${vendor})${RESET}}"
+    hw_collect_gpu
+    if [[ -n "$HW_GPU" ]]; then
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${HW_GPU}${HW_GPU_VENDOR:+  ${DIM}(${HW_GPU_VENDOR})${RESET}}"
     else
         pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${DIM}$(t hw_unknown)${RESET}"
     fi
 }
 
 print_board() {
-    local vendor name version bios
-    vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null || true)
-    name=$(cat /sys/class/dmi/id/board_name 2>/dev/null || true)
-    version=$(cat /sys/class/dmi/id/board_version 2>/dev/null || true)
-    bios=$(cat /sys/class/dmi/id/bios_vendor 2>/dev/null || true)
-    local bver bdate
-    bver=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
-    bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
-    bios="$bios $bver"
-    [[ -n "$bdate" ]] && bios="$bios ($bdate)"
-    bios="${bios//  / }"
-    [[ -z "${bios// /}" ]] && bios=""
-
-    local board="$vendor $name"
-    [[ -n "$version" ]] && board="$board (v$version)"
-    board="${board//  / }"
-
-    pline_hw "$(_emu '🖥')" "$(t hw_board)" "${board:-$(t hw_unknown)}"
-    pline_hw "$(_emu '💾')" "$(t hw_bios)" "${bios:-$(t hw_unknown)}"
+    hw_collect_board
+    local board="${HW_B_VENDOR}${HW_B_VENDOR:+${HW_B_NAME:+ }}${HW_B_NAME}"
+    [[ -n "$board" && -n "$HW_B_VERSION" ]] && board+=" (v${HW_B_VERSION#[vV]})"
+    local bios="${HW_BIOS_VENDOR}${HW_BIOS_VENDOR:+${HW_BIOS_VER:+ }}${HW_BIOS_VER}"
+    [[ -n "$HW_BIOS_DATE" ]] && bios+="${bios:+ }(${HW_BIOS_DATE})"
+    pline_hw "$(_emu '🖥')" "$(t hw_board)" "${board:-${DIM}$(t hw_unknown)${RESET}}"
+    [[ -n "$bios" ]] && pline_hw "$(_emu '💾')" "$(t hw_bios)" "$bios"
+    return 0
 }
 
 print_ram() {
-    local mout="$_WU_DMIDECODE"
-    local _HT=$'\t'
-
-    local -a slot_size=() slot_type=() slot_speed=() slot_manuf=() slot_pn=() slot_form=() slot_locator=()
-    local in_slot=0 s_size="" s_type="" s_speed="" s_manuf="" s_pn="" s_form="" s_loc="" s_empty=0
-
-    flush_slot() {
-        [[ $in_slot -eq 1 ]] || return 0
-        if [[ "$s_empty" -eq 0 && "$s_size" != *No* ]]; then
-            slot_size+=("$s_size"); slot_type+=("$s_type"); slot_speed+=("$s_speed")
-            slot_manuf+=("$s_manuf"); slot_pn+=("$s_pn"); slot_form+=("$s_form")
-            slot_locator+=("$s_loc")
-        fi
-        in_slot=0; s_size=""; s_type=""; s_speed=""; s_manuf=""; s_pn=""; s_form=""; s_loc=""; s_empty=0
-    }
-
-    if [[ -n "$mout" ]]; then
-        while IFS= read -r line; do
-            case "$line" in
-                *[Mm]emory\ [Dd]evice*) flush_slot; in_slot=1 ;;
-                *Size:\ *)              s_size="${line#*: }"; s_size="${s_size%%$_HT*}"
-                    s_size="$(printf '%s' "$s_size" | awk '{$1=$1}1')"
-                    [[ "$s_size" == *No* ]] && s_empty=1
-                    # dmidecode sizes arrive as "64 GB" / "128 MB"; normalize via
-                    # wu_size_mb so the total aggregator and slot lines agree.
-                    if [[ "$s_size" != *No* && -n "$s_size" ]]; then
-                        local _mb
-                        _mb=$(wu_size_mb "$s_size")
-                        if (( _mb >= 1024 )); then s_size="$(( _mb / 1024 )) GiB"
-                        elif (( _mb > 0 )); then s_size="${_mb} MiB"
-                        fi
-                    fi ;;
-                *Type:\ *)              s_type="${line#*: }"; s_type="${s_type%%$_HT*}"
-                    s_type="$(printf '%s' "$s_type" | awk '{$1=$1}1')" ;;
-                *Speed:\ *MT/*|*Speed:\ *MHz*) s_speed="$(wu_speed "$line")" ;;
-                *Manufacturer:\ *)     s_manuf="${line#*: }"; s_manuf="${s_manuf%%$_HT*}"
-                    s_manuf="$(printf '%s' "$s_manuf" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Part\ Number:\ *)     s_pn="${line#*: }"; s_pn="${s_pn%%$_HT*}"
-                    s_pn="$(printf '%s' "$s_pn" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Form\ Factor:\ *)     s_form="${line#*: }"; s_form="${s_form%%$_HT*}"
-                    s_form="$(printf '%s' "$s_form" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Bank\ Locator:\ *)    : ;;  # skip — handled separately if needed
-                *Locator:\ *)          s_loc="${line#*: }"; s_loc="${s_loc%%$_HT*}"
-                    s_loc="$(printf '%s' "$s_loc" | awk '{$1=$1}1' | tr -d '\r')" ;;
-            esac
-        done <<< "$mout"
-        flush_slot
-    fi
-
-    local modules=${#slot_size[@]}
-
-    if (( modules == 0 )) && command -v decode-dimms &>/dev/null; then
-        local dout dcount
-        dout=$(root_run decode-dimms 2>/dev/null) || dout=""
-        dcount=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
-        if (( dcount > 0 )); then
-            local -a dd_size=() dd_manu=() dd_pn=() dd_form=() dd_type=() dd_speed=()
-            local _s="" _m="" _p="" _f="" _t="" _sp=""
-            while IFS= read -r line; do
-                case "$line" in
-                    Decoding\ EEPROM*)
-                        [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
-                        _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line##*Size}"; _s="$(printf '%s' "$_s" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')" ;;
-                    Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Memory\ Type*)           _t="${line##*Memory Type}"; _t="$(printf '%s' "$_t" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Speed*)                   _sp="${line##*Speed}"; _sp="$(printf '%s' "$_sp" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')" ;;
-                esac
-            done <<< "$dout"
-            [[ -n "$_s" ]] && { dd_size+=("$_s"); dd_manu+=("$_m"); dd_pn+=("$_p"); dd_form+=("$_f"); dd_type+=("$_t"); dd_speed+=("$_sp"); }
-            modules=${#dd_size[@]}
-            local i
-            for (( i=0; i<modules; i++ )); do
-                local mb="${dd_size[$i]:-0}"
-                [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
-                if (( mb >= 1024 )); then
-                    slot_size+=("$(( mb / 1024 )) GiB")
-                else
-                    slot_size+=("${mb} MiB")
-                fi; slot_type+=("${dd_type[$i]:-DDR}"); slot_speed+=("${dd_speed[$i]:-}")
-                slot_manuf+=("${dd_manu[$i]:-}"); slot_pn+=("${dd_pn[$i]:-}"); slot_form+=("${dd_form[$i]:-UDIMM}")
-                slot_locator+=("DIMM $(( i + 1 ))")
-            done
-            modules=${#slot_size[@]}
-        fi
-    fi
-
+    hw_collect_ram
+    local modules=${#HW_R_LOC[@]} i
     if (( modules == 0 )); then
         pline_hw "$(_emu '🧩')" "$(t hw_ram)" "${DIM}$(t hw_ram_none)${RESET}"
-        return
+        return 0
     fi
-
-    local i
-    for (( i=0; i<modules; i++ )); do
-        if [[ "${slot_manuf[$i]}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
-            local dec
-            dec=$(wu_jedec_decode "${slot_manuf[$i]}") || dec=""
-            [[ -n "$dec" ]] && slot_manuf[$i]="$dec"
-        fi
-    done
-
-    local uniform=1 first_t="${slot_type[0]}" first_s="${slot_speed[0]}" first_sz="${slot_size[0]}" first_form="${slot_form[0]}"
-    # Capture "non-uniform dimensions" for downgrade warnings: distinct speeds
-    # or types in a multi-slot board mean the platform drops to the slowest
-    # module; the user benefits from a one-liner rather than spot the mismatch.
-    local distinct_speeds=1 distinct_types=1 distinct_sizes=1 distinct_forms=1
-    local i
+    local first_t="${HW_R_TYPE[0]}" first_s="${HW_R_SPEED[0]}" first_sz="${HW_R_SIZE[0]}" first_form="${HW_R_FORM[0]}"
+    local same_speed=1 same_type=1 uniform=1
     for (( i=1; i<modules; i++ )); do
-        [[ "${slot_type[$i]}" == "$first_t" ]] || distinct_types=0
-        [[ "${slot_speed[$i]}" == "$first_s" ]] || distinct_speeds=0
-        [[ "${slot_size[$i]}" == "$first_sz" ]] || distinct_sizes=0
-        [[ "${slot_form[$i]:-}" == "${first_form:-}" ]] || distinct_forms=0
-        [[ $distinct_speeds == 1 && $distinct_types == 1 && $distinct_sizes == 1 && $distinct_forms == 1 ]] || uniform=0
+        [[ "${HW_R_TYPE[i]}" == "$first_t" ]] || same_type=0
+        [[ "${HW_R_SPEED[i]}" == "$first_s" ]] || same_speed=0
+        [[ "${HW_R_SIZE[i]}" == "$first_sz" && "${HW_R_FORM[i]}" == "$first_form" ]] || uniform=0
     done
+    (( same_type && same_speed )) || uniform=0
 
-    # Aggregate total installed memory. slot_size is "N GiB" or "N MiB"
-    # (post-normalization), but the unified wu_size_mb handles raw "64 GB"
-    # too in case a future code path skips the parser above.
-    local total_mb=0 _sz=""
+    local total_txt
+    _hw_mb_txt "$HW_RAM_TOTAL_MB" total_txt; total_txt="$(t hw_ram_total): $total_txt"
+
+    # Channels from the Locator (ChannelA-DIMM0, DIMM_A1, "CHANNEL B", ...).
+    local chans=" " ch loc
     for (( i=0; i<modules; i++ )); do
-        total_mb=$(( total_mb + $(wu_size_mb "${slot_size[$i]:-}") ))
+        loc=${HW_R_LOC[i]^^}
+        ch=""
+        if [[ "$loc" =~ CHANNEL[[:space:]_-]*([A-Z]) ]]; then ch=${BASH_REMATCH[1]}
+        elif [[ "$loc" =~ DIMM_([A-Z]) ]]; then ch=${BASH_REMATCH[1]}; fi
+        [[ -n "$ch" && "$chans" != *" $ch "* ]] && chans+="$ch "
     done
-    local total_txt=""
-    if (( total_mb >= 1024 )); then total_txt="$(t hw_ram_total): $(( total_mb / 1024 )) GiB"
-    else total_txt="$(t hw_ram_total): ${total_mb} MiB"; fi
-
-    # Channel count from dmidecode Locator pattern (DIMM_A1, ChannelA-DIMM0, ...).
-    # A single populated channel is a perf warning on multi-channel boards.
-    local channel_count
-    channel_count=$(printf '%s\n' "${slot_locator[@]:-}" | grep -oE 'Channel[A-Z]|DIMM_[A-Z]' | sort -u | wc -l) || channel_count=0
-    # Single-channel warning only meaningful when total populated > 1 and only one channel
+    local nch=0 _c
+    for _c in $chans; do nch=$(( nch + 1 )); done
     local single_channel=0
-    if (( modules > 1 && channel_count == 1 )); then single_channel=1; fi
+    (( modules > 1 && nch == 1 )) && single_channel=1
 
-    local ram_line ram_sub=""
+    local ram_line
     if (( uniform )); then
-        # Keep the dmidecode type verbatim (SDRAM/LPDDR4/Flash/RAM …) instead
-        # of collapsing everything non-DDR2-5 into a wrong "DDR" label.
-        local type_label="$first_t"
-        local speed_txt=""
-        [[ -n "$first_s" ]] && speed_txt="-$first_s"
-        ram_line="${modules}× ${first_sz} ${type_label}${speed_txt}"
-        # F4: form factor (DIMM/SODIMM/Row Of Chips) in the uniform line.
-        if [[ -n "$first_form" && "$first_form" != "DIMM" ]]; then
-            ram_line+=" ${first_form}"
-        fi
-        [[ -n "$total_txt" ]] && ram_line+=" · ${DIM}${total_txt}${RESET}"
-        # Single-channel warning on uniform modules: signal in the main line.
-        if (( single_channel )); then
-            ram_line+=" ${Y}⚠ single-channel (пропускная способность вдвое ниже)${RESET}"
-        fi
-        local sub_parts=()
-        [[ -n "${slot_manuf[0]}" ]] && sub_parts+=("${slot_manuf[0]}")
-        [[ -n "${slot_pn[0]}" ]]   && sub_parts+=("$(t hw_pn): ${slot_pn[0]}")
-            if ((${#sub_parts[@]})); then
-            ram_sub=""
-            local _sp_i
-            for (( _sp_i=0; _sp_i<${#sub_parts[@]}; _sp_i++ )); do
-                ram_sub+="${sub_parts[$_sp_i]}"
-                (( _sp_i < ${#sub_parts[@]} - 1 )) && ram_sub+=" | "
-            done
-        fi
-    else
-        ram_line="${modules} slots"
+        ram_line="${modules}× ${first_sz}${first_t:+ $first_t}${first_s:+-$first_s}"
+        [[ -n "$first_form" && "$first_form" != "DIMM" ]] && ram_line+=" ${first_form}"
+        ram_line+=" · ${DIM}${total_txt}${RESET}"
+        (( single_channel )) && ram_line+=" ${Y}⚠ $(t hw_ram_single_ch)${RESET}"
         pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
-        # F4 warnings: downclock, single channel, mixed types.
-        local warn=""
-        if (( distinct_speeds == 0 )); then
-            # Slowest speed: walk the array and pick the smallest numeric speed.
-            local slowest="" s_val _min=-1
-            for (( i=0; i<modules; i++ )); do
-                s_val=$(wu_speed "${slot_speed[$i]:-}")
-                [[ -z "$s_val" ]] && continue
-                if (( _min < 0 || s_val < _min )); then _min=$s_val; slowest="${slot_speed[$i]}"; fi
-            done
-            [[ -n "$slowest" ]] &&             warn+="${Y}⚠ downclock: все модули работают на ${slowest} (самый медленный)${RESET}"
-        fi
-        if (( distinct_types == 0 )); then
-            [[ -n "$warn" ]] && warn+=" · "
-            warn+="${Y}⚠ mixed: $(printf '%s\n' "${slot_type[@]}" | sort -u | paste -sd ' / ' -)${RESET}"
-        fi
-        if (( single_channel )); then
-            [[ -n "$warn" ]] && warn+=" · "
-            warn+="${Y}⚠ single-channel (многоканальная плата — пропускная способность вдвое ниже)${RESET}"
-        fi
-        [[ -n "$warn" ]] && pline_sub "$warn"
-        for (( i=0; i<modules; i++ )); do
-            # Keep slot type verbatim (SDRAM/LPDDR4/Flash/RAM …), no "DDR" collapse.
-            local t2="${slot_type[$i]}"
-            local sp2=""
-            [[ -n "${slot_speed[$i]}" ]] && sp2="-${slot_speed[$i]}"
-            local detail="  ${slot_locator[$i]:-DIMM $(( i + 1 ))}: ${slot_size[$i]} ${t2}${sp2}"
-            # Form factor in per-slot line (F4: useful for mixed DIMM/SODIMM).
-            if [[ -n "${slot_form[$i]:-}" && "${slot_form[$i]}" != "DIMM" ]]; then
-                detail+=" ${slot_form[$i]}"
-            fi
-            local extra=""
-            [[ -n "${slot_manuf[$i]}" ]] && extra+="${slot_manuf[$i]} "
-            [[ -n "${slot_pn[$i]}" ]]   && extra+="${slot_pn[$i]}"
-            [[ -n "$extra" ]] && detail+=" ${DIM}(${extra})${RESET}"
-            pline_sub "$detail"
-        done
-        [[ -n "$total_txt" ]] && pline_sub "$total_txt"
-        return
+        local sub="${HW_R_MANUF[0]}"
+        [[ -n "${HW_R_PN[0]}" ]] && sub+="${sub:+ | }$(t hw_pn): ${HW_R_PN[0]}"
+        [[ -n "$sub" ]] && pline_sub "$sub"
+        return 0
     fi
 
-    pline_hw "$(_emu '🧩')" "$(t hw_ram)" "$ram_line"
-    [[ -n "$ram_sub" ]] && pline_sub "$ram_sub" || true
+    pline_hw "$(_emu '🧩')" "$(t hw_ram)" "${modules} $(_hw_plural "$modules") · ${DIM}${total_txt}${RESET}"
+    local warn=""
+    if (( ! same_speed )); then
+        local slowest="" _min=-1 sv
+        for (( i=0; i<modules; i++ )); do
+            sv=${HW_R_SPEED[i]}
+            [[ "$sv" =~ ^[0-9]+$ ]] || continue
+            if (( _min < 0 || sv < _min )); then _min=$sv; slowest=$sv; fi
+        done
+        [[ -n "$slowest" ]] && warn+="${Y}⚠ $(t hw_ram_downclock) ${slowest} MT/s${RESET}"
+    fi
+    if (( ! same_type )); then
+        local types="" ty
+        for (( i=0; i<modules; i++ )); do
+            ty=${HW_R_TYPE[i]:-?}
+            [[ " / $types / " == *" / $ty / "* ]] || types+="${types:+ / }$ty"
+        done
+        warn+="${warn:+ · }${Y}⚠ $(t hw_ram_mixed): ${types}${RESET}"
+    fi
+    (( single_channel )) && warn+="${warn:+ · }${Y}⚠ $(t hw_ram_single_ch)${RESET}"
+    [[ -n "$warn" ]] && pline_sub "$warn"
+    local detail extra
+    for (( i=0; i<modules; i++ )); do
+        detail="${HW_R_LOC[i]}: ${HW_R_SIZE[i]}${HW_R_TYPE[i]:+ ${HW_R_TYPE[i]}}${HW_R_SPEED[i]:+-${HW_R_SPEED[i]}}"
+        [[ -n "${HW_R_FORM[i]}" && "${HW_R_FORM[i]}" != "DIMM" ]] && detail+=" ${HW_R_FORM[i]}"
+        extra="${HW_R_MANUF[i]}"
+        [[ -n "${HW_R_PN[i]}" ]] && extra+="${extra:+ }${HW_R_PN[i]}"
+        [[ -n "$extra" ]] && detail+=" ${DIM}(${extra})${RESET}"
+        pline_sub "$detail"
+    done
 }
 
 print_storage() {
-    local rows
-    rows=$(lsblk -nd -o NAME,MODEL,SIZE 2>/dev/null | grep -vE '^(loop|zram|sr)' || true)
-    if [[ -n "$rows" ]]; then
-        local n=0 dev model size
-        while IFS= read -r row; do
-            dev=$(awk '{print $1}' <<< "$row")
-            size=$(awk '{print $NF}' <<< "$row")
-            model=$(awk '{$1=""; $NF=""; gsub(/^ +| +$/, ""); print}' <<< "$row")
-            [[ -z "$model" ]] && model="$(t hw_unknown)"
-            if (( n == 0 )); then
-                pline_hw "$(_emu '💿')" "$(t hw_storage)" "${dev}: ${model} ${DIM}(${size})${RESET}"
-            else
-                pline_sub "${dev}: ${model} ${DIM}(${size})${RESET}"
-            fi
-            n=$((n + 1))
-        done <<< "$rows"
-    else
+    hw_collect_storage
+    local i n=${#HW_S_NAME[@]} row
+    if (( n == 0 )); then
         pline_hw "$(_emu '💿')" "$(t hw_storage)" "${DIM}$(t hw_unknown)${RESET}"
+        return 0
     fi
+    for (( i=0; i<n; i++ )); do
+        row="${HW_S_NAME[i]}: ${HW_S_MODEL[i]:-$(t hw_unknown)} ${DIM}(${HW_S_SIZE[i]})${RESET}"
+        if (( i == 0 )); then pline_hw "$(_emu '💿')" "$(t hw_storage)" "$row"
+        else pline_sub "$row"; fi
+    done
 }
 
 print_network() {
-    local found=0
-    while IFS= read -r l; do
-        [[ -n "$l" ]] || continue
-        if (( found == 0 )); then
-            pline_hw "$(_emu '🌐')" "$(t hw_network)" "$l"
-        else
-            pline_sub "$l"
-        fi
-        found=$((found + 1))
-    done < <(ls /sys/class/net/ 2>/dev/null | grep -vE '^(lo|virbr|docker|br-|veth)' | \
-        while IFS= read -r dev; do
-            local op
-            op=$(cat "/sys/class/net/$dev/operstate" 2>/dev/null || echo "down")
-            local addr
-            addr=$(cat "/sys/class/net/$dev/address" 2>/dev/null || echo "")
-            printf '%s %s %s\n' "$dev" "$op" "${addr}"
-        done)
-    if (( found == 0 )); then
+    hw_collect_net
+    local i n=${#HW_N_NAME[@]} row
+    if (( n == 0 )); then
         pline_hw "$(_emu '🌐')" "$(t hw_network)" "${DIM}$(t hw_unknown)${RESET}"
+        return 0
     fi
+    for (( i=0; i<n; i++ )); do
+        row="${HW_N_NAME[i]} ${HW_N_OP[i]} ${HW_N_MAC[i]}"
+        if (( i == 0 )); then pline_hw "$(_emu '🌐')" "$(t hw_network)" "$row"
+        else pline_sub "$row"; fi
+    done
 }
 
 print_battery() {
-    local cap stat
-    local bat
-    for bat in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do
-        [[ -d "$bat" ]] || continue
-        cap=$(cat "$bat/capacity" 2>/dev/null || true)
-        stat=$(cat "$bat/status" 2>/dev/null || true)
-        if [[ -n "$cap" ]]; then
-            pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%${RESET} ${DIM}(${stat})${RESET}"
-        fi
+    hw_collect_bat
+    local b cap stat
+    for b in ${HW_BAT[@]+"${HW_BAT[@]}"}; do
+        cap=""; wu_read "$b/capacity" cap || continue
+        stat=""; wu_read "$b/status" stat || stat=""
+        pline_hw "$(_emu '🔋')" "$(t hw_battery)" "${W}${cap}%${RESET}${stat:+ ${DIM}(${stat})${RESET}}"
     done
+    return 0
 }
 
 print_cooling() {
-    local found=0
-    for f in /sys/devices/platform/*/fan*_input /sys/class/hwmon/hwmon*/fan*_input; do
-        [[ -r "$f" ]] || continue
-        local rpm
-        rpm=$(cat "$f" 2>/dev/null || echo 0)
-        (( rpm > 0 )) || continue
-        local chip idx label
-        chip=$(basename "$(dirname "$f")")
-        idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
-        [[ "$idx" =~ ^[0-9]+$ ]] || continue
-        # label sits next to the fanN_input file we already found (no hwmon0 hardcode)
-        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "$(t hw_cooling) ${idx}")
-        if (( found == 0 )); then
-            pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "${label} ${W}${rpm}${RESET} ${DIM}RPM (${chip})${RESET}"
-        else
-            pline_sub "${label} ${W}${rpm}${RESET} ${DIM}RPM (${chip})${RESET}"
-        fi
-        found=$((found + 1))
-    done
-    if (( found == 0 )); then
+    hw_collect_fans
+    local i n=${#HW_F_RPM[@]} row
+    if (( n == 0 )); then
         pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "${DIM}$(t hw_unknown)${RESET}"
+        return 0
     fi
+    for (( i=0; i<n; i++ )); do
+        row="${HW_F_LABEL[i]} ${W}${HW_F_RPM[i]}${RESET} ${DIM}RPM (${HW_F_CHIP[i]})${RESET}"
+        if (( i == 0 )); then pline_hw "$(_emu '🌀')" "$(t hw_cooling)" "$row"
+        else pline_sub "$row"; fi
+    done
 }
 
 # ─── PCI Expansion Cards ───────────────────────────────────────
@@ -505,7 +670,7 @@ print_pci() {
     pci_slot_devices
     if (( ${#_PCI_BUS[@]} == 0 )); then
         pline "${DIM}$(t hw_pci_none)${RESET}"
-        return
+        return 0
     fi
     local i
     for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
@@ -515,233 +680,99 @@ print_pci() {
 
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
-    local model cores threads
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
-    cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    threads=$(awk '/^processor/{c++} END{print c+0}' /proc/cpuinfo)
-
-    local gpu=""
-    gpu=$(hw_gpu_name)
-    [[ "$gpu" == *"|"* ]] && gpu="${gpu%|*}"
-
-    local b_vendor="" b_name="" b_version="" bv="" bver="" bdate=""
-    b_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null || true)
-    b_name=$(cat /sys/class/dmi/id/board_name 2>/dev/null || true)
-    b_version=$(cat /sys/class/dmi/id/board_version 2>/dev/null || true)
-    bv=$(cat /sys/class/dmi/id/bios_vendor 2>/dev/null || true)
-    bver=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
-    bdate=$(cat /sys/class/dmi/id/bios_date 2>/dev/null || true)
-
-    # ── Per-slot memory collection (shared with print_ram) ──
-    local mout="$_WU_DMIDECODE" msize_mb=0
-    local _HT=$'\t'
-    local -a j_size=() j_type=() j_speed=() j_manuf=() j_pn=() j_form=() j_locator=()
-    local in_slot=0 j_s="" j_t="" j_sp="" j_m="" j_p="" j_f="" j_l="" j_empty=0
-
-    j_flush() {
-        [[ $in_slot -eq 1 ]] || return 0
-        if [[ "$j_empty" -eq 0 && "$j_s" != *No* ]]; then
-            j_size+=("$j_s"); j_type+=("$j_t"); j_speed+=("$j_sp")
-            j_manuf+=("$j_m"); j_pn+=("$j_p"); j_form+=("$j_f"); j_locator+=("$j_l")
-        fi
-        in_slot=0; j_s=""; j_t=""; j_sp=""; j_m=""; j_p=""; j_f=""; j_l=""; j_empty=0
-    }
-
-    if [[ -n "$mout" ]]; then
-        while IFS= read -r line; do
-            case "$line" in
-                *[Mm]emory\ [Dd]evice*) j_flush; in_slot=1 ;;
-                *Size:\ *)              j_s="${line#*: }"; j_s="${j_s%%$_HT*}"
-                    j_s="$(printf '%s' "$j_s" | awk '{$1=$1}1')"
-                    [[ "$j_s" == *No* ]] && j_empty=1 ;;
-                *Type:\ *)              j_t="${line#*: }"; j_t="${j_t%%$_HT*}"
-                    j_t="$(printf '%s' "$j_t" | awk '{$1=$1}1')" ;;
-                *Speed:\ *MT/*)         j_sp="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i+0==$i && $(i+1)~/MT/) {print $i; exit}}')" ;;
-                *Manufacturer:\ *)     j_m="${line#*: }"; j_m="${j_m%%$_HT*}"
-                    j_m="$(printf '%s' "$j_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Part\ Number:\ *)     j_p="${line#*: }"; j_p="${j_p%%$_HT*}"
-                    j_p="$(printf '%s' "$j_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Form\ Factor:\ *)     j_f="${line#*: }"; j_f="${j_f%%$_HT*}"
-                    j_f="$(printf '%s' "$j_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Bank\ Locator:\ *)    : ;;  # skip
-                *Locator:\ *)          j_l="${line#*: }"; j_l="${j_l%%$_HT*}"
-                    j_l="$(printf '%s' "$j_l" | awk '{$1=$1}1' | tr -d '\r')" ;;
-            esac
-        done <<< "$mout"
-        j_flush
-    fi
-
-    local modules=${#j_size[@]}
-
-    # Normalize raw dmidecode size strings to GiB/MiB
-    if (( modules > 0 )); then
-        local i
-        for (( i=0; i<modules; i++ )); do
-            local mb="${j_size[$i]:-0}"
-            if [[ "$mb" == *GiB || "$mb" == *MiB ]]; then
-                continue  # already normalized (decode-dimms path)
-            fi
-            mb=$(printf '%s' "$mb" | awk '{n=0; for(i=1;i<=NF;i++) if($i+0==$i){n=$i; u=$(i+1); break} if(u~/[Gg][Bb]/) n*=1024; print n}')
-            [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
-            if (( mb >= 1024 )); then
-                j_size[$i]="$(( mb / 1024 )) GiB"
-            else
-                j_size[$i]="${mb} MiB"
-            fi
-        done
-    fi
-
-    if (( modules == 0 )); then
-        local dout dcount
-        dout=$(root_run decode-dimms 2>/dev/null) || dout=""
-        dcount=$(awk '/^Decoding EEPROM/{c++} END{print c+0}' <<< "$dout")
-        if (( dcount > 0 )); then
-            local _s="" _m="" _p="" _f="" _t="" _sp=""
-            while IFS= read -r line; do
-                case "$line" in
-                    Decoding\ EEPROM*)
-                        [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
-                        _s=""; _m=""; _p=""; _f=""; _t=""; _sp="" ;;
-                    Size*)                   _s="${line##*Size}"; _s="$(printf '%s' "$_s" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')" ;;
-                    Module\ Manufacturer*)  _m="${line##*Module Manufacturer}"; _m="$(printf '%s' "$_m" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Part\ Number*)           _p="${line##*Part Number}"; _p="$(printf '%s' "$_p" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Module\ Type*)           _f="${line##*Module Type}"; _f="$(printf '%s' "$_f" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Memory\ Type*)           _t="${line##*Memory Type}"; _t="$(printf '%s' "$_t" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                    Speed*)                   _sp="${line##*Speed}"; _sp="$(printf '%s' "$_sp" | awk '{for(i=1;i<=NF;i++) if($i+0==$i) {print $i; exit}}')" ;;
-                esac
-            done <<< "$dout"
-            [[ -n "$_s" ]] && { j_size+=("$_s"); j_manuf+=("$_m"); j_pn+=("$_p"); j_form+=("$_f"); j_type+=("$_t"); j_speed+=("$_sp"); }
-            modules=${#j_size[@]}
-            local i
-            for (( i=0; i<modules; i++ )); do
-                local mb="${j_size[$i]:-0}"
-                mb=$(printf '%s' "$mb" | awk '{n=0; for(i=1;i<=NF;i++) if($i+0==$i){n=$i; u=$(i+1); break} if(u~/[Gg][Bb]/) n*=1024; print n}')
-                [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
-                if (( mb >= 1024 )); then
-                    j_size[$i]="$(( mb / 1024 )) GiB"
-                else
-                    j_size[$i]="${mb} MiB"
-                fi
-                [[ -z "${j_locator[$i]:-}" ]] && j_locator[$i]="DIMM $(( i + 1 ))"
-            done
-        fi
-    fi
-    msize_mb=0
-    for (( i=0; i<modules; i++ )); do
-        local v="${j_size[$i]:-0}"
-        if [[ "$v" == *GiB ]]; then v="${v% GiB}"; v=$(( v * 1024 )); elif [[ "$v" == *MiB ]]; then v="${v% MiB}"; elif [[ "$v" =~ ^[0-9]+$ ]]; then v=$(( v / 1024 )); else v=0; fi
-        msize_mb=$(( msize_mb + v ))
-    done
-
-    # Resolve JEDEC codes
-    for (( i=0; i<modules; i++ )); do
-        if [[ "${j_manuf[$i]:-}" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
-            local mdec
-            mdec=$(wu_jedec_decode "${j_manuf[$i]:-}") || mdec=""
-            [[ -n "$mdec" ]] && j_manuf[$i]="$mdec"
-        fi
-    done
+    hw_dmi_init
+    hw_collect_cpu; hw_collect_gpu; hw_collect_board; hw_collect_ram
+    hw_collect_storage; hw_collect_net; hw_collect_fans; hw_collect_bat
+    local i first modules=${#HW_R_LOC[@]}
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "cpu": { "model": "%s", "cores": "%s", "threads": "%s" },\n' \
-        "$(json_esc "$model")" "$(json_esc "$cores")" "$(json_esc "$threads")"
-    printf '  "gpu": { "name": "%s" },\n' "$(json_esc "$gpu")"
+        "$(json_esc "$HW_CPU_MODEL")" "$HW_CPU_CORES" "$HW_CPU_THREADS"
+    printf '  "gpu": { "name": "%s"' "$(json_esc "$HW_GPU")"
+    [[ -n "$HW_GPU_VENDOR" ]] && printf ', "vendor": "%s"' "$(json_esc "$HW_GPU_VENDOR")"
+    printf ' },\n'
     printf '  "board": {\n'
-    printf '    "vendor": "%s",\n' "$(json_esc "$b_vendor")"
-    printf '    "name": "%s",\n' "$(json_esc "$b_name")"
-    printf '    "version": "%s",\n' "$(json_esc "$b_version")"
+    printf '    "vendor": "%s",\n' "$(json_esc "$HW_B_VENDOR")"
+    printf '    "name": "%s",\n' "$(json_esc "$HW_B_NAME")"
+    printf '    "version": "%s",\n' "$(json_esc "$HW_B_VERSION")"
     printf '    "bios": { "vendor": "%s", "version": "%s", "date": "%s" }\n' \
-        "$(json_esc "$bv")" "$(json_esc "$bver")" "$(json_esc "$bdate")"
+        "$(json_esc "$HW_BIOS_VENDOR")" "$(json_esc "$HW_BIOS_VER")" "$(json_esc "$HW_BIOS_DATE")"
     printf '  },\n'
     printf '  "memory": {\n'
     printf '    "modules": %d,\n' "$modules"
-    printf '    "size_mb": %d,\n' "$msize_mb"
-    printf '    "slots": [\n'
-    local jfirst=1
-    for (( i=0; i<modules; i++ )); do
-        (( jfirst )) && jfirst=0 || printf ',\n'
-        printf '      { "locator": "%s", "size": "%s", "type": "%s", "speed_mts": "%s", "manufacturer": "%s", "part_number": "%s", "form_factor": "%s" }' \
-            "$(json_esc "${j_locator[$i]}")" "$(json_esc "${j_size[$i]}")" "$(json_esc "${j_type[$i]}")" \
-            "$(json_esc "${j_speed[$i]}")" "$(json_esc "${j_manuf[$i]}")" "$(json_esc "${j_pn[$i]}")" "$(json_esc "${j_form[$i]}")"
-    done
-    printf '\n    ]\n  },\n'
-
-    printf '  "storage": [\n'
-    local first=1 row dev smodel size
-    while IFS= read -r row; do
-        dev=$(awk '{print $1}' <<< "$row")
-        size=$(awk '{print $NF}' <<< "$row")
-        smodel=$(awk '{$1=""; $NF=""; gsub(/^ +| +$/, ""); print}' <<< "$row")
-        (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "model": "%s", "size": "%s" }' \
-            "$(json_esc "$dev")" "$(json_esc "$smodel")" "$(json_esc "$size")"
-    done < <(lsblk -nd -o NAME,MODEL,SIZE 2>/dev/null | grep -vE '^(loop|zram|sr)' || true)
-    printf '\n  ],\n'
-
-    printf '  "network": [\n'
+    printf '    "size_mb": %d,\n' "$HW_RAM_TOTAL_MB"
+    printf '    "slots": ['
     first=1
-    while IFS= read -r dev; do
-        local op mac
-        op=$(cat "/sys/class/net/$dev/operstate" 2>/dev/null || echo "down")
-        mac=$(cat "/sys/class/net/$dev/address" 2>/dev/null || echo "")
-        (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "operstate": "%s", "mac": "%s" }' \
-            "$(json_esc "$dev")" "$(json_esc "$op")" "$(json_esc "$mac")"
-    done < <(ls /sys/class/net/ 2>/dev/null | grep -vE '^(lo|virbr|docker|br-|veth)')
-    printf '\n  ],\n'
+    for (( i=0; i<modules; i++ )); do
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
+        printf '      { "locator": "%s", "size": "%s", "size_mb": %d, "type": "%s", "speed_mts": "%s", "manufacturer": "%s", "part_number": "%s", "form_factor": "%s", "serial": "%s", "rated_speed_mts": "%s" }' \
+            "$(json_esc "${HW_R_LOC[i]}")" "$(json_esc "${HW_R_SIZE[i]}")" "${HW_R_MB[i]}" "$(json_esc "${HW_R_TYPE[i]}")" \
+            "$(json_esc "${HW_R_SPEED[i]}")" "$(json_esc "${HW_R_MANUF[i]}")" "$(json_esc "${HW_R_PN[i]}")" \
+            "$(json_esc "${HW_R_FORM[i]}")" "$(json_esc "${HW_R_SERIAL[i]}")" "$(json_esc "${HW_R_CSPEED[i]}")"
+    done
+    (( first )) || printf '\n    '
+    printf ']\n  },\n'
 
-    local cap="" stat=""
-    for bat in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do
-        [[ -d "$bat" ]] || continue
-        cap=$(cat "$bat/capacity" 2>/dev/null || true)
-        stat=$(cat "$bat/status" 2>/dev/null || true)
-        [[ -n "$cap" ]] && break
+    printf '  "storage": ['
+    first=1
+    for (( i=0; i<${#HW_S_NAME[@]}; i++ )); do
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
+        printf '    { "name": "%s", "model": "%s", "size": "%s" }' \
+            "$(json_esc "${HW_S_NAME[i]}")" "$(json_esc "${HW_S_MODEL[i]}")" "$(json_esc "${HW_S_SIZE[i]}")"
+    done
+    (( first )) || printf '\n  '
+    printf '],\n'
+
+    printf '  "network": ['
+    first=1
+    for (( i=0; i<${#HW_N_NAME[@]}; i++ )); do
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
+        printf '    { "name": "%s", "operstate": "%s", "mac": "%s" }' \
+            "$(json_esc "${HW_N_NAME[i]}")" "$(json_esc "${HW_N_OP[i]}")" "$(json_esc "${HW_N_MAC[i]}")"
+    done
+    (( first )) || printf '\n  '
+    printf '],\n'
+
+    local cap="" stat="" b
+    for b in ${HW_BAT[@]+"${HW_BAT[@]}"}; do
+        wu_read "$b/capacity" cap || continue
+        wu_read "$b/status" stat || stat=""
+        break
     done
     printf '  "battery": { "capacity": "%s", "status": "%s" },\n' "$(json_esc "$cap")" "$(json_esc "$stat")"
 
-    printf '  "cooling": [\n'
+    printf '  "cooling": ['
     first=1
-    local f rpm idx chip label
-    for f in /sys/devices/platform/*/fan*_input /sys/class/hwmon/hwmon*/fan*_input; do
-        [[ -r "$f" ]] || continue
-        rpm=$(cat "$f" 2>/dev/null || echo 0)
-        (( rpm > 0 )) || continue
-        chip=$(basename "$(dirname "$f")")
-        idx=$(basename "$f" | sed 's/fan\([0-9]*\)_input/\1/')
-        [[ "$idx" =~ ^[0-9]+$ ]] || continue
-        label=$(cat "$(dirname "$f")/fan${idx}_label" 2>/dev/null || echo "$(t hw_cooling) ${idx}")
-        (( first )) && first=0 || printf ',\n'
+    for (( i=0; i<${#HW_F_RPM[@]}; i++ )); do
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
         printf '    { "chip": "%s", "label": "%s", "rpm": %d }' \
-            "$(json_esc "$chip")" "$(json_esc "$label")" "$rpm"
+            "$(json_esc "${HW_F_CHIP[i]}")" "$(json_esc "${HW_F_LABEL[i]}")" "${HW_F_RPM[i]}"
     done
-    printf '\n  ],\n'
+    (( first )) || printf '\n  '
+    printf '],\n'
 
-    printf '  "pci_expansion": [\n'
+    printf '  "pci_expansion": ['
     first=1
     pci_slot_devices
     for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
-        (( first )) && first=0 || printf ',\n'
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
         printf '    { "bus": "%s", "class": "%s", "description": "%s" }' \
             "$(json_esc "${_PCI_BUS[$i]}")" "$(json_esc "${_PCI_CLASS[$i]}")" "$(json_esc "${_PCI_DESC[$i]}")"
     done
-    printf '\n  ],\n'
+    (( first )) || printf '\n  '
+    printf '],\n'
 
-    local n_storage n_net
-    n_storage=$(lsblk -nd -o NAME 2>/dev/null | grep -cvE '^(loop|zram|sr)' || true)
-    n_net=$(ls /sys/class/net/ 2>/dev/null | grep -cvE '^(lo|virbr|docker|br-|veth)' || true)
-    printf '  "summary": { "cpu": "%s", "gpu": "%s", "ram_modules": %d, "ram_size_mb": %d, "storage_devices": %d, "network_interfaces": %d }\n' \
-        "$(json_esc "$model")" "$(json_esc "$gpu")" "$modules" "$msize_mb" "$n_storage" "$n_net"
+    printf '  "summary": { "cpu": "%s", "gpu": "%s", "ram_modules": %d, "ram_size_mb": %d, "storage_devices": %d, "network_interfaces": %d }' \
+        "$(json_esc "$HW_CPU_MODEL")" "$(json_esc "$HW_GPU")" "$modules" "$HW_RAM_TOTAL_MB" "${#HW_S_NAME[@]}" "${#HW_N_NAME[@]}"
     wu_json_end
 }
 
 # ─── Main ────────────────────────────────────────────────────────
-_WU_DMIDECODE=""
 main() {
+    # dmidecode first: snapshot/diff build their JSON from the same data.
+    hw_dmi_init
     if (( _HW_SNAPSHOT )); then do_snapshot; return $?; fi
     if (( _HW_DIFF )); then do_diff; return $?; fi
-
-    # Cache dmidecode once (used by both print_ram and json_out)
-    _WU_DMIDECODE=$(root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
 
     box_header "$(_emu '🖥')" "wellhw" "$(t hw_title)"
@@ -755,12 +786,10 @@ main() {
     box "$(_emu '🌀')" "$(t hw_cooling)" print_cooling
     box "$(_emu '🔌')" "$(t hw_pci)" print_pci
 
-    # Battery: only render box if a battery exists
-    if ls /sys/class/power_supply/BAT* /sys/class/power_supply/bat* 1>/dev/null 2>&1; then
-        box "$(_emu '🔋')" "$(t hw_battery)" print_battery
-    fi
+    hw_collect_bat
+    (( ${#HW_BAT[@]} )) && box "$(_emu '🔋')" "$(t hw_battery)" print_battery
 
-    printf '\n  %sWellHW v1.3 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellHW v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

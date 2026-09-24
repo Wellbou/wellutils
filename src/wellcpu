@@ -15,100 +15,65 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 # bash-4 arrays must live below bootstrap: on bash < 4 bootstrap exits with a
 # clear message, but `declare -A` above it would die with an obscure error first.
 declare -A _CPU_PCT=() _CPU_SOCKET=() _CPU_CORE=() _SOCKETS=()
+declare -a _CPU_IDS=()
 declare -i _CPU_COUNT=0
 # ─── Rare-hardware guards ─────────────────────────────────────────
-command -v awk    >/dev/null 2>&1 || awk()    { :; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
-command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v lscpu  >/dev/null 2>&1 || lscpu()  { :; }
 command -v sleep  >/dev/null 2>&1 || sleep()  { :; }
 
-
 ORANGE=$'\033[1;38;5;208m'
+WC_SYS=/sys/devices/system/cpu
 
 # ─── Helpers ─────────────────────────────────────────────────────
+# load_color PCT VAR -- no subshell
 load_color() {
-    local pct=$1
-    if   (( pct < 50 )); then printf '%s' "$G"
-    elif (( pct < 80 )); then printf '%s' "$Y"
-    elif (( pct < 95 )); then printf '%s' "$ORANGE"
-    else                      printf '%s' "$R"
+    local pct=$1 _c
+    if   (( pct < 50 )); then _c=$G
+    elif (( pct < 80 )); then _c=$Y
+    elif (( pct < 95 )); then _c=$ORANGE
+    else                      _c=$R
     fi
+    printf -v "$2" '%s' "$_c"
 }
 
-load_bar() {
-    local pct=$1 width=${2:-14}
-    local filled=$(( pct * width / 100 ))
-    local empty=$(( width - filled ))
-    printf '%s' "$(load_color "$pct")"
-    wu_bar "$filled" "$empty"
-    printf '%s' "$RESET"
-}
-
-# kHz -> human ("3.50 GHz" / "3500 MHz")
+# fmt_mhz KHZ VAR -- "3.50 GHz" / "800 MHz", integer math (no awk, no locale)
 fmt_mhz() {
-    local khz=$1
+    local khz=$1 mhz
     [[ "$khz" =~ ^[0-9]+$ ]] || khz=0
-    local mhz=$(( khz / 1000 ))
+    mhz=$(( (khz + 500) / 1000 ))
     if (( mhz >= 1000 )); then
-        printf '%s GHz' "$(awk "BEGIN {printf \"%.2f\", $mhz/1000}")"
+        local cg=$(( (mhz + 5) / 10 ))
+        printf -v "$2" '%d.%02d GHz' $(( cg / 100 )) $(( cg % 100 ))
     else
-        printf '%s MHz' "$mhz"
+        printf -v "$2" '%d MHz' "$mhz"
     fi
 }
 
-# Per-core busy% via /proc/stat delta (single read, then sleep).
-core_loads() {
-    local -a t0=()
-    local i c idle total
-    while IFS= read -r line; do
-        case "$line" in
-            cpu[0-9]*)
-                set -- $line
-                c=$1; shift
-                while (( $# < 8 )); do set -- "$@" 0; done
-                idle=$(( $4 + $5 ))
-                total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
-                t0[$((10#${c#cpu}))]="$idle $total" ;;
-        esac
-    done < /proc/stat
-    sleep 0.2
-    local n=0
-    while IFS= read -r line; do
-        case "$line" in
-            cpu[0-9]*)
-                set -- $line
-                c=$1; shift
-                while (( $# < 8 )); do set -- "$@" 0; done
-                idle=$(( $4 + $5 ))
-                total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
-                local idx=$((10#${c#cpu}))
-                local d_idle=0 d_total=0
-                if [[ -n "${t0[$idx]:-}" ]]; then
-                    d_idle=$(( idle - ${t0[$idx]%% *} ))
-                    d_total=$(( total - ${t0[$idx]##* } ))
-                fi
-                local pct=0
-                (( d_total > 0 )) && pct=$(( (d_total - d_idle) * 100 / d_total ))
-                (( pct < 0 )) && pct=0
-                (( pct > 100 )) && pct=100
-                _CPU_PCT[$idx]=$pct
-                n=$((n + 1)) ;;
-        esac
-    done < /proc/stat
-    _CPU_COUNT=$n
-}
-
-# Build processor -> (socket, core) topology from /proc/cpuinfo so multi-socket
-# (and multi-CCX / hybrid) machines can group the per-core load by NUMA socket.
-# Populates global assoc arrays: _CPU_SOCKET[], _CPU_CORE[] and _SOCKETS[].
-cpu_topology() {
-    local proc="" phys="" coreid=""
-    while IFS= read -r line; do
-        case "$line" in
-            processor*) proc=$(awk -F': *' '{print $2}' <<< "$line") ;;
-            "physical id"*) phys=$(awk -F': *' '{print $2}' <<< "$line") ;;
-            "core id"*) coreid=$(awk -F': *' '{print $2}' <<< "$line") ;;
+# ─── /proc/cpuinfo, parsed once (no awk per line) ───────────────
+CI_OK=0 CI_PROCS=0 CI_MODEL="" CI_FLAGS="" CI_FEATURES="" CI_CORES="" CI_SIBL="" CI_ISA="" CI_UARCH=""
+CI_VENDOR="" CI_NPHYS=0
+declare -A _CI_PHYS=()
+ci_parse() {
+    local line k v proc="" phys="" coreid=""
+    [[ -r /proc/cpuinfo ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == *:* ]] || { proc=""; phys=""; coreid=""; continue; }
+        k=${line%%:*}; k=${k%"${k##*[![:space:]]}"}
+        v=${line#*:}; v=${v#"${v%%[![:space:]]*}"}
+        case "$k" in
+            processor)
+                [[ "$v" =~ ^[0-9]+$ ]] && { CI_PROCS=$(( CI_PROCS + 1 )); proc=$v; phys=""; coreid=""; } ;;
+            "model name"|"Model Name") [[ -z "$CI_MODEL" ]] && CI_MODEL=$v ;;
+            flags)       [[ -z "$CI_FLAGS" ]] && CI_FLAGS=$v ;;
+            Features)    [[ -z "$CI_FEATURES" ]] && CI_FEATURES=$v ;;
+            "cpu cores") [[ -z "$CI_CORES" ]] && CI_CORES=$v ;;
+            siblings)    [[ -z "$CI_SIBL" ]] && CI_SIBL=$v ;;
+            isa)         [[ -z "$CI_ISA" ]] && CI_ISA=$v ;;
+            uarch)       [[ -z "$CI_UARCH" ]] && CI_UARCH=$v ;;
+            vendor_id)   [[ -z "$CI_VENDOR" ]] && CI_VENDOR=$v ;;
+            "physical id") phys=$v; [[ -n "$v" && -z "${_CI_PHYS[$v]+x}" ]] && { _CI_PHYS[$v]=1; CI_NPHYS=$(( CI_NPHYS + 1 )); } ;;
+            "core id")   coreid=$v ;;
         esac
         if [[ -n "$proc" && -n "$phys" && -n "$coreid" ]]; then
             [[ "$phys" =~ ^[0-9]+$ ]] || phys=0
@@ -118,10 +83,75 @@ cpu_topology() {
             _SOCKETS[$phys]=1
             proc=""; phys=""; coreid=""
         fi
-    done < /proc/cpuinfo
+    done < /proc/cpuinfo 2>/dev/null || true
+    CI_OK=1
+}
+
+# ─── lscpu, parsed once ─────────────────────────────────────────
+declare -A LS=()
+ls_parse() {
+    local out k v
+    out=$(LC_ALL=C lscpu 2>/dev/null) || out=""
+    [[ -n "$out" ]] || return 0
+    while IFS=: read -r k v; do
+        [[ -n "$k" && -z "${LS[$k]+x}" ]] || continue
+        v=${v#"${v%%[![:space:]]*}"}; v=${v%"${v##*[![:space:]]}"}
+        LS[$k]=$v
+    done <<< "$out"
+}
+ls_get() { printf '%s' "${LS[$1]:-}"; }
+
+# Per-core busy% via /proc/stat delta (single read, then sleep).
+# CPU ids come from the file itself: offline CPUs leave holes (cpu0 cpu2 cpu3).
+core_loads() {
+    local -A t0=()
+    local line c idx idle total a b n=0
+    _CPU_IDS=()
+    [[ -r /proc/stat ]] || { _CPU_COUNT=0; return 0; }
+    stat_scan() {   # $1 = 0 first pass, 1 second pass
+        while IFS= read -r line; do
+            case "$line" in
+                cpu[0-9]*)
+                    set -- $line
+                    c=$1; shift
+                    while (( $# < 8 )); do set -- "$@" 0; done
+                    idle=$(( $4 + $5 ))
+                    total=$(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 ))
+                    idx=$(( 10#${c#cpu} ))
+                    if [[ "$pass" == 0 ]]; then
+                        t0[$idx]="$idle $total"
+                    else
+                        local pct=0 d_idle=0 d_total=0
+                        if [[ -n "${t0[$idx]:-}" ]]; then
+                            d_idle=$(( idle - ${t0[$idx]%% *} ))
+                            d_total=$(( total - ${t0[$idx]##* } ))
+                        fi
+                        (( d_total > 0 )) && pct=$(( (d_total - d_idle) * 100 / d_total ))
+                        (( pct < 0 )) && pct=0
+                        (( pct > 100 )) && pct=100
+                        _CPU_PCT[$idx]=$pct
+                        _CPU_IDS+=("$idx")
+                        n=$(( n + 1 ))
+                    fi ;;
+                intr*|ctxt*) break ;;
+            esac
+        done < /proc/stat
+    }
+    local pass=0
+    stat_scan 2>/dev/null || { _CPU_COUNT=0; unset -f stat_scan; return 0; }
+    sleep 0.2 2>/dev/null || sleep 1
+    pass=1
+    stat_scan 2>/dev/null || true
+    unset -f stat_scan
+    _CPU_COUNT=$n
+}
+
+# Topology comes from ci_parse; fall back to one socket when cpuinfo has no
+# physical id/core id (ARM, MIPS, POWER, Android with restricted cpuinfo).
+cpu_topology() {
+    local _i
     if (( ${#_CPU_SOCKET[@]} == 0 )); then
-        local _i
-        for (( _i = 0; _i < _CPU_COUNT; _i++ )); do
+        for _i in ${_CPU_IDS[@]+"${_CPU_IDS[@]}"}; do
             _CPU_SOCKET[$_i]=0
             _CPU_CORE[$_i]=$_i
         done
@@ -132,271 +162,149 @@ cpu_topology() {
 # ─── Sections ───────────────────────────────────────────────────
 
 # Shared CPU-model detection so --plain and --json agree on non-x86 too.
-# Covers x86 ("model name"), LoongArch ("Model Name"), POWER, IBM Z, MIPS
-# and ARM (incl. unknown implementers -> "HiSilicon part 0x.."/"CPU part 0x").
+# x86/LoongArch "model name", IBM Z, RISC-V get special formatting; every
+# other arch (ARM incl. big.LITTLE, POWER, MIPS, SPARC, ...) goes through
+# parse.sh's wu_cpu_model_generic (which uses wu_arm_part for ARM MIDRs).
 wu_cpu_model() {
-    local model arm_hw arm_part arm_impl arm_name="" _pu _s390_type
-    # wu_kv is case-insensitive and tolerates the kernel's tab between the
-    # field name and ':' (U6 fix; was a separate hand-rolled awk here).
-    model=$(wu_kv /proc/cpuinfo "model name")
-
-    # Non-x86 cpuinfo has no "model name". Fall back to arch-specific fields so
-    # POWER / IBM Z / ARM / MIPS boxes still show a model when lscpu is unavailable.
-    if [[ -z "$model" ]]; then
-        # POWER (ppc64) anchors fields with tabs, not spaces: "cpu\t\t: POWER9".
-        _pu=$(awk -F': *' '/^cpu[[:space:]]*:/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
-        if [[ -n "$_pu" ]]; then
-            # "POWER9 (architected), altivec supported" -> "POWER9 (architected)"
-            model="${_pu%%,*}"
-        elif grep -q '^vendor_id.*IBM/S390' /proc/cpuinfo 2>/dev/null; then
-            model="IBM S/390"
-            if [[ -f /proc/sysinfo ]]; then
-                _s390_type=$(awk -F': *' '/^Type/{print $2; exit}' /proc/sysinfo)
-            fi
-            _s390_type="${_s390_type:-}"
-            [[ -n "$_s390_type" ]] && model="IBM Z (${_s390_type})"
-        elif grep -Eq '^cpu model|^system type' /proc/cpuinfo 2>/dev/null; then
-            # MIPS (Baikal-T1: "cpu model : MIPS P5600 V0.1  FPU V0.1");
-            # "system type" is MIPS-specific too, used as fallback on boards
-            # that only print the SoC name (no cpu model field).
-            model=$(awk -F': *' '/^cpu model/{print $2; exit}' /proc/cpuinfo 2>/dev/null) || true
-            if [[ -z "$model" ]]; then
-                model=$(wu_kv /proc/cpuinfo "system type") || true
-            fi
-            model="$(printf '%s' "$model" | awk '{$1=$1}1')"
-        elif grep -q '^isa' /proc/cpuinfo 2>/dev/null && grep -q '^uarch' /proc/cpuinfo 2>/dev/null; then
-            # RISC-V (SiFive VisionFive, StarFive, Banana Pi F3, ...).
-            # cpuinfo has `isa`, `uarch`, `mmu`, `mvendorid`; no model/implementer.
-            local _uarch _hart_n
-            _uarch=$(wu_kv /proc/cpuinfo "uarch") || _uarch=""
-            _hart_n=$(grep -c '^hart\b' /proc/cpuinfo 2>/dev/null) || _hart_n=0
-            if [[ -n "$_uarch" ]]; then
-                # "sifive,u74-mc" -> "SiFive U74-MC" (best-effort, falls back to raw)
-                local _v _p="${_uarch%%,*}" _chip="${_uarch##*,}"
-                _v="${_p%%:*}"
-                case "${_v,,}" in
-                    sifive)    model="SiFive ${_chip^^}" ;;
-                    starfive)  model="StarFive ${_chip^^}" ;;
-                    bananapi|bpi) model="Banana Pi ${_chip^^}" ;;
-                    spacemit)  model="SpacemiT ${_chip^^}" ;;
-                    tenstorrent) model="Tenstorrent ${_chip^^}" ;;
-                    *)         model="${_uarch}" ;;
-                esac
-            else
-                model="RISC-V"
-            fi
-            [[ "$_hart_n" -gt 0 ]] && model="$model ($_hart_n harts)"
-        else
-            arm_hw=$(wu_kv /proc/cpuinfo "Hardware") || true
-            arm_part=$(wu_kv /proc/cpuinfo "CPU part") || true
-            arm_impl=$(wu_kv /proc/cpuinfo "CPU implementer") || true
-            case "${arm_impl:-0x41}/${arm_part}" in
-                0x41/0xc05) arm_name="Cortex-A5"  ;;
-                0x41/0xc07) arm_name="Cortex-A7"  ;;
-                0x41/0xc08) arm_name="Cortex-A8"  ;;
-                0x41/0xc09) arm_name="Cortex-A9"  ;;
-                0x41/0xc0a) arm_name="Cortex-A15" ;;
-                0x41/0xc0c) arm_name="Cortex-A12" ;;
-                0x41/0xc0e) arm_name="Cortex-A17" ;;
-                0x41/0xd02) arm_name="Cortex-A32" ;;
-                0x41/0xd03) arm_name="Cortex-A53" ;;
-                0x41/0xd04) arm_name="Cortex-A35" ;;
-                0x41/0xd05) arm_name="Cortex-A55" ;;
-                0x41/0xd07) arm_name="Cortex-A57" ;;
-                0x41/0xd08) arm_name="Cortex-A72" ;;
-                0x41/0xd09) arm_name="Cortex-A73" ;;
-                0x41/0xd0a) arm_name="Cortex-A75" ;;
-                0x41/0xd0b) arm_name="Cortex-A76" ;;
-                0x41/0xd0c) arm_name="Neoverse-N1" ;;
-                0x41/0xd0d) arm_name="Cortex-A77" ;;
-                0x41/0xd0e) arm_name="Cortex-A76AE" ;;
-                0x41/0xd40) arm_name="Cortex-A78" ;;
-                0x41/0xd41) arm_name="Cortex-A78AE" ;;
-                0x41/0xd44) arm_name="Cortex-X1" ;;
-                0x41/0xd46) arm_name="Cortex-A78C" ;;
-                0x41/0xd47) arm_name="Cortex-A710" ;;
-                0x41/0xd49) arm_name="Neoverse-N2" ;;
-                0x41/0xd4a) arm_name="Neoverse-E1" ;;
-                0x41/0xd4c) arm_name="Neoverse-V1" ;;
-                0x46/0x001) arm_name="Fujitsu A64FX" ;;
-                0x48/0xd01) arm_name="Kunpeng 920 (TaiShan v110)" ;;
-                0x48/0xd40) arm_name="Kunpeng 930 (TaiShan v200)" ;;
-                0x50/0xac3) arm_name="Ampere Altra" ;;
-                0x50/0xac4) arm_name="Ampere AmpereOne" ;;
-                0x51/0x800) arm_name="Qualcomm Kryo 4xx/5xx" ;;
-                0x51/0xc00) arm_name="Qualcomm Kryo 6xx/7xx" ;;
-                0x4e/0x004) arm_name="NVIDIA Grace" ;;
-                0x61/0x022) arm_name="Apple M1"  ;;
-                0x61/0x023) arm_name="Apple M1 Pro"  ;;
-                0x61/0x024) arm_name="Apple M1 Max"  ;;
-                0x61/0x025) arm_name="Apple M1 Ultra" ;;
-                0x61/0x028) arm_name="Apple M2"      ;;
-                0x61/0x032) arm_name="Apple M2 Pro"   ;;
-                0x61/0x033) arm_name="Apple M2 Max"   ;;
-                0x61/0x034) arm_name="Apple M2 Ultra" ;;
-                0x61/0x038) arm_name="Apple M4"      ;;
-                0x70/0x663) arm_name="Phytium FT-2000" ;;
+    local model="$CI_MODEL" _s390_type="" _v _p _chip
+    if [[ -z "$model" && "$CI_VENDOR" == *S390* ]]; then
+        model="IBM S/390"
+        [[ -r /proc/sysinfo ]] && _s390_type=$(wu_kv /proc/sysinfo Type)
+        [[ -n "$_s390_type" ]] && model="IBM Z (${_s390_type})"
+    elif [[ -z "$model" && -n "$CI_ISA" ]]; then
+        # RISC-V: `isa` is always present; `uarch` only on some kernels/SoCs.
+        if [[ -n "$CI_UARCH" ]]; then
+            # "sifive,u74-mc" -> "SiFive U74-MC" (best-effort, falls back to raw)
+            _p="${CI_UARCH%%,*}" _chip="${CI_UARCH##*,}"
+            _v="${_p%%:*}"
+            case "${_v,,}" in
+                sifive)    model="SiFive ${_chip^^}" ;;
+                starfive)  model="StarFive ${_chip^^}" ;;
+                bananapi|bpi) model="Banana Pi ${_chip^^}" ;;
+                spacemit)  model="SpacemiT ${_chip^^}" ;;
+                tenstorrent) model="Tenstorrent ${_chip^^}" ;;
+                thead|t-head) model="T-Head ${_chip^^}" ;;
+                *)         model="${CI_UARCH}" ;;
             esac
-            if [[ -z "$arm_name" && -n "${arm_impl:-}" ]]; then
-                case "$arm_impl" in
-                    0x41) arm_name="ARM part ${arm_part:-?}" ;;
-                    0x42) arm_name="Broadcom part ${arm_part:-?}" ;;
-                    0x43) arm_name="Cavium part ${arm_part:-?}" ;;
-                    0x46) arm_name="Fujitsu part ${arm_part:-?}" ;;
-                    0x48) arm_name="HiSilicon part ${arm_part:-?}" ;;
-                    0x4e) arm_name="NVIDIA part ${arm_part:-?}" ;;
-                    0x50) arm_name="Ampere part ${arm_part:-?}" ;;
-                    0x51) arm_name="Qualcomm part ${arm_part:-?}" ;;
-                    0x61) arm_name="Apple part ${arm_part:-?}" ;;
-                    0x70) arm_name="Phytium part ${arm_part:-?}" ;;
-                    *)    arm_name="CPU part ${arm_part:-?}" ;;
-                esac
-            elif [[ -z "$arm_name" && -n "${arm_part:-}" ]]; then
-                arm_name="CPU part ${arm_part}"
-            fi
-            # big.LITTLE: if multiple distinct CPU parts exist, show a grouped
-            # breakdown instead of just the first one. Counts processors per
-            # impl/part combination and renders "4×A55 + 4×A76".
-            if [[ -n "$arm_part" ]]; then
-                local _parts _pcounts _pline=""
-                eval "_parts=($(wu_kv_all /proc/cpuinfo 'CPU part' | sort -u | sed "s/'/'\\\\''/g" | awk '{printf "'\''%s'\'' ", $0}'))"
-                if (( ${#_parts[@]} > 1 )); then
-                    local _p
-                    for _p in "${_parts[@]}"; do
-                        [[ -z "$_p" ]] && continue
-                        local _n
-                        _n=$(grep -cE "^CPU part[[:space:]]*:[[:space:]]*${_p}\$" /proc/cpuinfo 2>/dev/null) || _n=0
-                        local _lab
-                        case "$_p" in
-                            0xc05) _lab=Cortex-A5;; 0xc07) _lab=Cortex-A7;;
-                            0xc08) _lab=Cortex-A8;; 0xc09) _lab=Cortex-A9;;
-                            0xc0a) _lab=Cortex-A15;;0xc0c) _lab=Cortex-A12;;
-                            0xc0e) _lab=Cortex-A17;;0xd02) _lab=Cortex-A32;;
-                            0xd03) _lab=Cortex-A53;;0xd04) _lab=Cortex-A35;;
-                            0xd05) _lab=Cortex-A55;;0xd07) _lab=Cortex-A57;;
-                            0xd08) _lab=Cortex-A72;;0xd09) _lab=Cortex-A73;;
-                            0xd0a) _lab=Cortex-A75;;0xd0b) _lab=Cortex-A76;;
-                            0xd0c) _lab=Neoverse-N1;;0xd0d) _lab=Cortex-A77;;
-                            0xd0e) _lab=Cortex-A76AE;;0xd40) _lab=Cortex-A78;;
-                            0xd41) _lab=Cortex-A78AE;;0xd44) _lab=Cortex-X1;;
-                            0xd46) _lab=Cortex-A78C;;0xd47) _lab=Cortex-A710;;
-                            0xd49) _lab=Neoverse-N2;;0xd4a) _lab=Neoverse-E1;;
-                            0xd4c) _lab=Neoverse-V1;;
-                            *) _lab="${_p}";;
-                        esac
-                        [[ -n "$_pline" ]] && _pline+=" + "
-                        _pline+="${_n}×${_lab}"
-                    done
-                    arm_name="$_pline"
-                fi
-            fi
-            if [[ -n "$arm_name" ]]; then
-                model="$arm_name"
-                [[ -n "$arm_hw" ]] && model="${arm_hw} (${arm_name})"
-            else
-                model="$arm_hw"
-            fi
+        else
+            model=$(wu_dt_model)
+            model="${model:+$model, }RISC-V ${CI_ISA%%_*}"
         fi
+        (( CI_PROCS > 0 )) && model="$model ($CI_PROCS harts)"
+    elif [[ -z "$model" ]]; then
+        model=$(wu_cpu_model_generic 2>/dev/null) || model=""
     fi
+    [[ -z "$model" ]] && model=$(ls_get "Model name")
+    wu_trim "$model" model
     printf '%s' "$model"
 }
 
-print_cpu_info() {
-    local model arch sockets cores threads freq_base freq_max gov virt hv
-    model=$(wu_cpu_model)
+# Fills WC_* globals shared by the box and JSON outputs.
+cpu_gather() {
+    ci_parse
+    ls_parse
+    WC_MODEL=$(wu_cpu_model)
+    WC_ARCH=$(ls_get Architecture)
+    [[ -z "$WC_ARCH" ]] && WC_ARCH=$(uname -m 2>/dev/null)
 
-    local lscpu_out
-    lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
-
-    arch=$(awk -F': *' '/^Architecture/{print $2}' <<< "$lscpu_out" | head -1)
-    local _sockets _threads _cores
-    _sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
-    _threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
-    _cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
-    [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
-    # Non-x86 cpuinfo (POWER/MIPS/ARM/LoongArch/s390) has no physical id /
-    # cpu cores / siblings fields, so the lscpu-less fallback used to report
-    # 1/1/1. Count the processor lines instead and default to 1 thread per
-    # core when no SMT info exists.
-    local _proc_n
-    _proc_n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
-    [[ "$_proc_n" =~ ^[0-9]+$ && "$_proc_n" -gt 0 ]] || _proc_n=1
-    if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
-    if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
-    [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
-    # x86 cpuinfo `siblings` is logical CPUs per *socket*; lscpu's Thread(s) per
-    # core is already per-core, but the cpuinfo fallback must divide by cpu_cores
-    # to keep semantics consistent. Without this, 2x EPYC 9754 (siblings=128,
-    # cpu cores=64) reported 128*64*2 = 16384 threads instead of 256.
-    if [[ "$_threads" =~ ^[0-9]+$ && "$_cores" =~ ^[0-9]+$ && "$_cores" -gt 0 \
-          && "$_threads" -gt "$_cores" ]]; then
-        _threads=$(( _threads / _cores ))
-        (( _threads < 1 )) && _threads=1
+    local s tpc cps clusters n
+    s=$(ls_get "Socket(s)"); tpc=$(ls_get "Thread(s) per core"); cps=$(ls_get "Core(s) per socket")
+    clusters=$(ls_get "Cluster(s)")
+    # ARM lscpu: "Socket(s): -", "Core(s) per cluster: 4", "Cluster(s): 2"
+    if [[ ! "$cps" =~ ^[0-9]+$ ]]; then
+        cps=$(ls_get "Core(s) per cluster")
+        if [[ "$cps" =~ ^[0-9]+$ && "$clusters" =~ ^[0-9]+$ ]]; then cps=$(( cps * clusters )); fi
     fi
-    [[ -z "$arch" ]] && arch=$(uname -m)
-    # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
-    # Treat any non-numeric value (including "-") as unknown -> safe default.
-    [[ "$_sockets" =~ ^[0-9]+$ ]] || _sockets=1
-    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=$_proc_n
-    [[ "$_threads" =~ ^[0-9]+$ ]] || _threads=1
-    [[ "$_sockets" -lt 1 ]] && _sockets=1
-    [[ "$_cores" -lt 1 ]] && _cores=1
-    [[ "$_threads" -lt 1 ]] && _threads=1
-    sockets="$_sockets"; cores=$(( _cores * _sockets )); threads=$(( _threads * _cores * _sockets ))
-
-    local turbo_hint base_hint
-    turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)
-    base_hint=$(awk -F'@' '/^model name/{print $2; exit}' /proc/cpuinfo | tr -d ' ' | sed 's/^\([0-9.]*\)GHz/\1 GHz/')
-    gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true)
-
-    local flags vtx virt_label hv_label
-    flags=$(grep -m1 '^flags' /proc/cpuinfo 2>/dev/null || true)
-    vtx=""
-    if [[ "$flags" == *vmx* ]]; then vtx="Intel VT-x"
-    elif [[ "$flags" == *svm* ]]; then vtx="AMD-V"; fi
-    [[ -n "$vtx" ]] || vtx="$(t blk_smart_unknown)"
-    hv_label="$(t blk_smart_unknown)"
-    if [[ "$flags" == *hypervisor* ]]; then
-        local hv_vendor
-        hv_vendor=$(awk -F': *' '/^Hypervisor vendor/{print $2}' <<< "$lscpu_out" | head -1)
-        [[ -n "$hv_vendor" ]] && hv_label="$hv_vendor" || hv_label="yes"
+    n=$CI_PROCS
+    if (( n < 1 )); then
+        n=$(ls_get "CPU(s)")
+        [[ "$n" =~ ^[0-9]+$ ]] || n=$(getconf _NPROCESSORS_CONF 2>/dev/null) || n=1
+        [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || n=1
     fi
-    virt=$(awk -F': *' '/^Virtualization:/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -n "$virt" ]] && virt="$virt ($vtx)" || virt="$vtx"
-
-    pline_hw "$(_emu '🧠')" "$(t cpu_model)" "$model"
-    pline_hw "$(_emu '🏛')" "$(t cpu_arch)" "$arch"
-    pline_hw "$(_emu '🧩')" "$(t cpu_sockets)" "$sockets"
-    pline_hw "$(_emu '⚙')" "$(t cpu_cores)" "$cores"
-    pline_hw "$(_emu '🔗')" "$(t cpu_threads)" "$threads"
-
-    local freq_txt=""
-    if [[ -n "$turbo_hint" && "$turbo_hint" != "0" ]]; then
-        freq_txt="$(fmt_mhz "$turbo_hint") ($(t cpu_turbo))"
-        if [[ -n "$base_hint" && "$base_hint" =~ ^[0-9.]+(\ )?GHz?$ ]]; then
-            freq_txt="$base_hint ($(t cpu_base)) / $(fmt_mhz "$turbo_hint") ($(t cpu_turbo))"
+    [[ "$s" =~ ^[0-9]+$ && "$s" -gt 0 ]] || { s=$CI_NPHYS; (( s > 0 )) || s=1; }
+    if [[ ! "$cps" =~ ^[0-9]+$ || "$cps" -lt 1 ]]; then
+        if [[ "$CI_CORES" =~ ^[0-9]+$ && "$CI_CORES" -gt 0 ]]; then cps=$CI_CORES
+        else cps=$(( n / s )); (( cps > 0 )) || cps=1; fi
+    fi
+    if [[ ! "$tpc" =~ ^[0-9]+$ || "$tpc" -lt 1 ]]; then
+        # x86 cpuinfo: siblings = logical CPUs per socket, cpu cores = cores per
+        # socket -> threads/core = siblings / cpu cores (i5 without SMT: 4/4 = 1).
+        if [[ "$CI_SIBL" =~ ^[0-9]+$ && "$CI_CORES" =~ ^[0-9]+$ && "$CI_CORES" -gt 0 ]]; then
+            tpc=$(( CI_SIBL / CI_CORES ))
+        else
+            tpc=1
         fi
+        (( tpc > 0 )) || tpc=1
+    fi
+    WC_SOCKETS=$s
+    WC_CORES=$(( cps * s ))
+    WC_THREADS=$(( tpc * cps * s ))
+
+    WC_TURBO=""; wu_read "$WC_SYS/cpu0/cpufreq/cpuinfo_max_freq" WC_TURBO || wu_read "$WC_SYS/cpu0/cpufreq/scaling_max_freq" WC_TURBO || true
+    if [[ ! "$WC_TURBO" =~ ^[0-9]+$ ]]; then
+        # no cpufreq (VMs, some SoCs): lscpu "CPU max MHz: 3700.0000"
+        local mm; mm=$(ls_get "CPU max MHz"); mm=${mm%%.*}
+        if [[ "$mm" =~ ^[0-9]+$ ]]; then WC_TURBO=$(( mm * 1000 )); else WC_TURBO=""; fi
+    fi
+    WC_GOV=""; wu_read "$WC_SYS/cpu0/cpufreq/scaling_governor" WC_GOV || true
+
+    # "Intel(R) Core(TM) i5-3470 CPU @ 3.20GHz" -> base 3.20 GHz / 3200000 kHz
+    WC_BASE="" WC_BASE_KHZ=""
+    if [[ "$CI_MODEL" =~ @\ *([0-9]+)(\.([0-9]+))?\ *GHz ]]; then
+        local gi=${BASH_REMATCH[1]} gf=${BASH_REMATCH[3]:-}
+        WC_BASE="${gi}${gf:+.$gf} GHz"
+        gf=${gf:0:6}; while (( ${#gf} < 6 )); do gf+=0; done
+        WC_BASE_KHZ=$(( 10#$gi * 1000000 + 10#$gf ))
+    fi
+
+    WC_FLAGS=" ${CI_FLAGS:-$CI_FEATURES} "
+    local f
+    WC_FEATS=()
+    for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1 \
+             asimd neon vfpv4 sve sve2 sha2 crc32 atomics altivec vsx; do
+        [[ "$WC_FLAGS" == *" $f "* ]] && WC_FEATS+=("$f")
+    done
+    WC_VTX=""
+    if [[ "$WC_FLAGS" == *" vmx "* ]]; then WC_VTX="Intel VT-x"
+    elif [[ "$WC_FLAGS" == *" svm "* ]]; then WC_VTX="AMD-V"; fi
+    WC_VIRT=$(ls_get Virtualization)
+    WC_HV=$(ls_get "Hypervisor vendor")
+    WC_HV_ON=0
+    [[ "$WC_FLAGS" == *" hypervisor "* || -n "$WC_HV" ]] && WC_HV_ON=1
+    return 0
+}
+
+print_cpu_info() {
+    local unk; unk=$(t blk_smart_unknown)
+    local vtx=${WC_VTX:-$unk} virt hv_label
+    if [[ -n "$WC_VIRT" ]]; then virt="$WC_VIRT ($vtx)"; else virt=$vtx; fi
+    hv_label=${WC_HV:-yes}
+
+    pline_hw "$(_emu '🧠')" "$(t cpu_model)" "${WC_MODEL:-$unk}"
+    pline_hw "$(_emu '🏛')" "$(t cpu_arch)" "$WC_ARCH"
+    pline_hw "$(_emu '🧩')" "$(t cpu_sockets)" "$WC_SOCKETS"
+    pline_hw "$(_emu '⚙')" "$(t cpu_cores)" "$WC_CORES"
+    pline_hw "$(_emu '🔗')" "$(t cpu_threads)" "$WC_THREADS"
+
+    local freq_txt="" tf
+    if [[ -n "$WC_TURBO" && "$WC_TURBO" != "0" ]]; then
+        fmt_mhz "$WC_TURBO" tf
+        freq_txt="$tf ($(t cpu_turbo))"
+        [[ -n "$WC_BASE" ]] && freq_txt="$WC_BASE ($(t cpu_base)) / $freq_txt"
     fi
     [[ -n "$freq_txt" ]] && pline_hw "$(_emu '⚡')" "$(t cpu_freq)" "$freq_txt"
 
-    local caches=""
-    local c_l1d c_l1i c_l2 c_l3
-    cache_fmt() {
-        local size="${1%%(*}" n
-        if [[ "$1" != *'('* ]]; then printf '%s' "$1"; return; fi
-        n=$(printf '%s' "${1#*(}" | awk '{for(i=1;i<=NF;i++) if($i+0==$i){print $i; exit}}')
-        if [[ -n "$n" ]]; then
-            printf '%s (%d %s)' "${size% }" "$n" "$(t_plural "$n" instance)"
+    local caches="" c_l1d c_l1i c_l2 c_l3
+    cache_fmt() {   # "128 KiB (4 instances)" -> localized
+        local size="${1%%(*}"
+        if [[ "$1" =~ \(([0-9]+) ]]; then
+            printf '%s (%d %s)' "${size% }" "${BASH_REMATCH[1]}" "$(t_plural "${BASH_REMATCH[1]}" instance)"
         else
             printf '%s' "${size% }"
         fi
     }
-    c_l1d=$(awk -F': *' '/^L1d cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l1i=$(awk -F': *' '/^L1i cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l2=$(awk -F': *' '/^L2 cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l3=$(awk -F': *' '/^L3 cache/{print $2}' <<< "$lscpu_out" | head -1)
+    c_l1d=$(ls_get "L1d cache"); c_l1i=$(ls_get "L1i cache")
+    c_l2=$(ls_get "L2 cache");   c_l3=$(ls_get "L3 cache")
     [[ -n "$c_l1d" ]] && c_l1d=$(cache_fmt "$c_l1d")
     [[ -n "$c_l1i" ]] && c_l1i=$(cache_fmt "$c_l1i")
     [[ -n "$c_l2" ]] && c_l2=$(cache_fmt "$c_l2")
@@ -406,30 +314,56 @@ print_cpu_info() {
         [[ -n "$c_l1i" ]] && caches="$caches  L1i: ${c_l1i}"
         [[ -n "$c_l2" ]] && caches="$caches  L2: ${c_l2}"
         [[ -n "$c_l3" ]] && caches="$caches  L3: ${c_l3}"
-        # The value area starts at column 19; box content is capped at COLUMNS-4.
         # Split the caches line when it would otherwise be cut off.
-        if (( $(vislen "$caches") > ${COLUMNS:-100} - 23 )); then
-            local c1="${caches%  L2:*}" c2="L2: ${caches#*  L2: }" pad
-            printf -v pad '%*s' 18 ''
+        local _WU_VL; _wu_vislen_v "$caches"
+        if (( _WU_VL > ${COLUMNS:-100} - 23 )) && [[ "$caches" == *"  L2: "* ]]; then
+            local c1="${caches%%  L2:*}" c2="L2: ${caches#*  L2: }"
             pline_hw "$(_emu '📦')" "$(t cpu_caches)" "$c1"
-            _LINES+=( " ${pad}${c2}${RESET}" )
+            _WC_CONT_ROW=${#_LINES[@]}; _WC_CONT_TXT=$c2; _WC_CONT_REF=$c1
+            _LINES+=( "" )
         else
             pline_hw "$(_emu '📦')" "$(t cpu_caches)" "$caches"
         fi
     fi
 
-    local feats=() feat_txt=""
-    for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1; do
-        [[ "$flags" == *"$f"* ]] && feats+=("$f")
-    done
-    if ((${#feats[@]})); then
-        printf -v feat_txt "%s " "${feats[@]}"
+    if (( ${#WC_FEATS[@]} )); then
+        local feat_txt
+        printf -v feat_txt "%s " "${WC_FEATS[@]}"
         pline_hw "$(_emu '💡')" "$(t cpu_features)" "${feat_txt% }"
     fi
 
-    [[ -n "$virt" ]] && pline_hw "$(_emu '🛡')" "$(t cpu_virt)" "$virt"
-    [[ "$flags" == *hypervisor* ]] && pline_hw "$(_emu '☁')" "$(t cpu_hv)" "$hv_label"
-    [[ -n "$gov" ]] && pline_hw "$(_emu '🎚')" "$(t cpu_governor)" "$gov" || true
+    [[ -n "$WC_VIRT$WC_VTX" || "$CI_FLAGS" == *[a-z]* ]] && pline_hw "$(_emu '🛡')" "$(t cpu_virt)" "$virt"
+    (( WC_HV_ON )) && pline_hw "$(_emu '☁')" "$(t cpu_hv)" "$hv_label"
+    [[ -n "$WC_GOV" ]] && pline_hw "$(_emu '🎚')" "$(t cpu_governor)" "$WC_GOV"
+    # Continuation row for a split caches line: lay out the label column now
+    # and indent the second half to the value column of the row above.
+    if [[ -n "${_WC_CONT_ROW:-}" ]]; then
+        _wu_hw_layout
+        local _WU_VL rl pad
+        _wu_vislen_v "${_LINES[_WC_CONT_ROW-1]}"; rl=$_WU_VL
+        _wu_vislen_v "$_WC_CONT_REF"
+        printf -v pad '%*s' $(( rl - _WU_VL )) ''
+        _LINES[_WC_CONT_ROW]="${pad}${_WC_CONT_TXT}"
+        _WC_CONT_ROW=""
+    fi
+    return 0
+}
+
+# One row per CPU; everything inline (printf -v), no subshells per CPU.
+_wc_cpu_row() {
+    local i=$1 pct freq="" gov="" col fb eb bar val ftxt="" gtxt="" fm
+    pct=${_CPU_PCT[$i]:-0}
+    wu_read "$WC_SYS/cpu${i}/cpufreq/scaling_cur_freq" freq || freq=""
+    wu_read "$WC_SYS/cpu${i}/cpufreq/scaling_governor" gov || gov=""
+    load_color "$pct" col
+    printf -v fb '%*s' $(( pct * 14 / 100 )) ''
+    printf -v eb '%*s' $(( 14 - pct * 14 / 100 )) ''
+    if [[ "${_WU_UNICODE:-1}" -eq 1 ]]; then bar="${col}${fb// /█}${eb// /░}${RESET}"
+    else bar="${col}${fb// /#}${eb// /.}${RESET}"; fi
+    printf -v val '%3d%%' "$pct"
+    [[ "$freq" =~ ^[0-9]+$ ]] && { fmt_mhz "$freq" fm; ftxt="  ${DIM}@ ${fm}${RESET}"; }
+    [[ -n "$gov" ]] && gtxt="  ${DIM}(${gov})${RESET}"
+    _LINES+=( "  ${BOLD}${W}CPU${i}${RESET}  ${bar}  ${val}${ftxt}${gtxt}" )
 }
 
 print_cpu_load() {
@@ -438,171 +372,105 @@ print_cpu_load() {
 
     if (( _CPU_COUNT == 0 )); then
         pline "${DIM}$(t blk_smart_unknown)${RESET}"
-        return
+        return 0
     fi
 
-    local i freq gov pct cur_sock=""
-    for (( i = 0; i < _CPU_COUNT; i++ )); do
-        # Group per-core lines under their socket so multi-socket machines
-        # (dual-socket Xeons, etc.) read topologically instead of by Linux
-        # enumeration order.
-        local sock=${_CPU_SOCKET[$i]:-0}
-        if [[ "$sock" != "$cur_sock" ]]; then
-            cur_sock="$sock"
-            if (( ${#_SOCKETS[@]} > 1 )); then
-                _LINES+=( "" )
-                _LINES+=( "  ${BOLD}${W}$(t cpu_socket) ${sock}${RESET}" )
-            fi
-        fi
-
-        pct=${_CPU_PCT[$i]:-0}
-        freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
-        gov=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
-
-        local label="CPU${i}"
-        local val="$(printf '%3d%%' "$pct")"
-        local bar
-        bar=$(load_bar "$pct")
-        local freq_txt=""
-        [[ -n "$freq" ]] && freq_txt="  ${DIM}@ $(fmt_mhz "$freq")${RESET}"
-        local gov_txt=""
-        [[ -n "$gov" ]] && gov_txt="  ${DIM}($gov)${RESET}"
-
-        _LINES+=( "  ${BOLD}${W}${label}${RESET}  ${bar}  ${val}${freq_txt}${gov_txt}" )
-    done
+    local i sock
+    if (( ${#_SOCKETS[@]} > 1 )); then
+        # Group per-core lines under their socket (dual-socket Xeons/EPYCs
+        # often interleave cpu ids across sockets).
+        local -a socks=()
+        for sock in "${!_SOCKETS[@]}"; do socks+=("$sock"); done
+        # small N: insertion sort, no sort(1) fork
+        local a b tmp
+        for (( a = 1; a < ${#socks[@]}; a++ )); do
+            for (( b = a; b > 0 && socks[b-1] > socks[b]; b-- )); do
+                tmp=${socks[b]}; socks[b]=${socks[b-1]}; socks[b-1]=$tmp
+            done
+        done
+        for sock in "${socks[@]}"; do
+            _LINES+=( "" )
+            _LINES+=( "  ${BOLD}${W}$(t cpu_socket) ${sock}${RESET}" )
+            for i in "${_CPU_IDS[@]}"; do
+                [[ "${_CPU_SOCKET[$i]:-0}" == "$sock" ]] && _wc_cpu_row "$i"
+            done
+        done
+    else
+        for i in "${_CPU_IDS[@]}"; do _wc_cpu_row "$i"; done
+    fi
+    return 0
 }
 
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
-    local model arch sockets cores threads freq_base gov
-    model=$(wu_cpu_model)
-
-    local lscpu_out
-    lscpu_out=$(lscpu 2>/dev/null) || lscpu_out=""
-
-    arch=$(awk -F': *' '/^Architecture/{print $2}' <<< "$lscpu_out" | head -1)
-    local _sockets _threads _cores
-    _sockets=$(awk -F': *' '/^Socket\(s\)/{print $2}' <<< "$lscpu_out" | head -1)
-    _threads=$(awk -F': *' '/^Thread\(s\) per core/{print $2}' <<< "$lscpu_out" | head -1)
-    _cores=$(awk -F': *' '/^Core\(s\) per socket/{print $2}' <<< "$lscpu_out" | head -1)
-    [[ -z "$_sockets" ]] && _sockets=$(awk '/^physical id/{if(!seen[$4]++) n++} END{print n+0}' /proc/cpuinfo)
-    [[ -z "$_cores" ]] && _cores=$(awk '/^cpu cores/{print $4; exit}' /proc/cpuinfo)
-    [[ -z "$_threads" ]] && _threads=$(awk '/^siblings/{print $3; exit}' /proc/cpuinfo)
-    # Non-x86 cpuinfo (POWER/MIPS/ARM/LoongArch/s390) has no physical id /
-    # cpu cores / siblings fields, so the lscpu-less fallback used to report
-    # 1/1/1. Count the processor lines instead and default to 1 thread per
-    # core when no SMT info exists.
-    local _proc_n
-    _proc_n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)
-    [[ "$_proc_n" =~ ^[0-9]+$ && "$_proc_n" -gt 0 ]] || _proc_n=1
-    if [[ -z "$_cores" || "$_cores" == "-" ]]; then _cores=$_proc_n; fi
-    if [[ -z "$_threads" || "$_threads" == "-" ]]; then _threads=1; fi
-    [[ -z "$_sockets" || "$_sockets" == "-" ]] && _sockets=1
-    # x86 cpuinfo `siblings` is logical CPUs per *socket*; lscpu's Thread(s) per
-    # core is already per-core, but the cpuinfo fallback must divide by cpu_cores
-    # to keep semantics consistent. Without this, 2x EPYC 9754 (siblings=128,
-    # cpu cores=64) reported 128*64*2 = 16384 threads instead of 256.
-    if [[ "$_threads" =~ ^[0-9]+$ && "$_cores" =~ ^[0-9]+$ && "$_cores" -gt 0 \
-          && "$_threads" -gt "$_cores" ]]; then
-        _threads=$(( _threads / _cores ))
-        (( _threads < 1 )) && _threads=1
-    fi
-    [[ -z "$arch" ]] && arch=$(uname -m)
-    # lscpu prints "Socket(s): -" on ARM64 / SBCs / VMs without topology.
-    # Treat any non-numeric value (including "-") as unknown -> safe default.
-    [[ "$_sockets" =~ ^[0-9]+$ ]] || _sockets=1
-    [[ "$_cores" =~ ^[0-9]+$ ]]  || _cores=$_proc_n
-    [[ "$_threads" =~ ^[0-9]+$ ]] || _threads=1
-    [[ "$_sockets" -lt 1 ]] && _sockets=1
-    [[ "$_cores" -lt 1 ]] && _cores=1
-    [[ "$_threads" -lt 1 ]] && _threads=1
-    sockets="$_sockets"; cores=$(( _cores * _sockets )); threads=$(( _threads * _cores * _sockets ))
-
-    local turbo_hint
-    turbo_hint=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true)
-    gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true)
-
-    local base_hint base_freq_khz
-    base_hint=$(awk -F'@' '/^model name/{print $2; exit}' /proc/cpuinfo | tr -d ' ' | sed 's/^\([0-9.]*\)GHz/\1 GHz/')
-    base_freq_khz=""
-    if [[ -n "$base_hint" && "$base_hint" =~ [0-9] ]]; then
-        base_freq_khz=$(awk -v b="$base_hint" 'BEGIN{ g=b+0; if (g>0) printf "%.0f", g*1000000 }')
-    fi
-
-    local c_l1d="" c_l1i="" c_l2="" c_l3=""
-    c_l1d=$(awk -F': *' '/^L1d cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l1i=$(awk -F': *' '/^L1i cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l2=$(awk -F': *' '/^L2 cache/{print $2}' <<< "$lscpu_out" | head -1)
-    c_l3=$(awk -F': *' '/^L3 cache/{print $2}' <<< "$lscpu_out" | head -1)
-
-    local flags
-    flags=$(grep -m1 '^flags' /proc/cpuinfo 2>/dev/null || true)
-
-    local -a feats=()
-    local f
-    for f in avx512f avx2 avx avx_vnni avx512_vnni sse4_2 sse4_1 aes ssse3 bmi2 bmi1; do
-        [[ "$flags" == *"$f"* ]] && feats+=("$f")
-    done
-
-    local vtx="" hv_label=""
-    if [[ "$flags" == *vmx* ]]; then vtx="Intel VT-x"
-    elif [[ "$flags" == *svm* ]]; then vtx="AMD-V"; fi
-    local virt
-    virt=$(awk -F': *' '/^Virtualization:/{print $2}' <<< "$lscpu_out" | head -1)
-    if [[ "$flags" == *hypervisor* ]]; then
-        hv_label=$(awk -F': *' '/^Hypervisor vendor/{print $2}' <<< "$lscpu_out" | head -1)
-    fi
+    cpu_gather
+    local c_l1d c_l1i c_l2 c_l3
+    c_l1d=$(ls_get "L1d cache"); c_l1i=$(ls_get "L1i cache")
+    c_l2=$(ls_get "L2 cache");   c_l3=$(ls_get "L3 cache")
+    local hv_label=""
+    (( WC_HV_ON )) && hv_label=$WC_HV
 
     core_loads
     cpu_topology
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "info": {\n'
-    printf '    "model": "%s",\n' "$(json_esc "$model")"
-    printf '    "arch": "%s",\n' "$(json_esc "$arch")"
-    printf '    "sockets": %s,\n' "$(wu_json_num "$sockets")"
-    printf '    "cores": %s,\n' "$(wu_json_num "$cores")"
-    printf '    "threads": %s,\n' "$(wu_json_num "$threads")"
-    printf '    "max_freq_khz": %s,\n' "$(wu_json_num "$turbo_hint")"
-    printf '    "base_freq_khz": %s,\n' "$(wu_json_num "$base_freq_khz")"
-    printf '    "governor": "%s",\n' "$(json_esc "$gov")"
+    printf '    "model": "%s",\n' "$(json_esc "$WC_MODEL")"
+    printf '    "arch": "%s",\n' "$(json_esc "$WC_ARCH")"
+    printf '    "sockets": %s,\n' "$(wu_json_num "$WC_SOCKETS")"
+    printf '    "cores": %s,\n' "$(wu_json_num "$WC_CORES")"
+    printf '    "threads": %s,\n' "$(wu_json_num "$WC_THREADS")"
+    printf '    "max_freq_khz": %s,\n' "$(wu_json_num "$WC_TURBO")"
+    printf '    "base_freq_khz": %s,\n' "$(wu_json_num "$WC_BASE_KHZ")"
+    printf '    "governor": "%s",\n' "$(json_esc "$WC_GOV")"
     printf '    "caches": { "l1d": "%s", "l1i": "%s", "l2": "%s", "l3": "%s" },\n' \
         "$(json_esc "$c_l1d")" "$(json_esc "$c_l1i")" "$(json_esc "$c_l2")" "$(json_esc "$c_l3")"
     printf '    "features": ['
-    local first=1
-    for f in ${feats[@]+"${feats[@]}"}; do
+    local first=1 f
+    for f in ${WC_FEATS[@]+"${WC_FEATS[@]}"}; do
         (( first )) && first=0 || printf ','
         printf ' "%s"' "$(json_esc "$f")"
     done
     printf ' ],\n'
-    printf '    "virtualization": "%s",\n' "$(json_esc "$virt")"
+    printf '    "virtualization": "%s",\n' "$(json_esc "$WC_VIRT")"
     printf '    "hypervisor": "%s"\n' "$(json_esc "$hv_label")"
     printf '  },\n'
     printf '  "load": [\n'
     first=1
-    local i
-    for (( i=0; i<_CPU_COUNT; i++ )); do
-        local pct=${_CPU_PCT[$i]:-0}
-        local freq gov_c
-        freq=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_cur_freq" 2>/dev/null || true)
-        gov_c=$(cat "/sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor" 2>/dev/null || true)
+    local i pct freq gov_c
+    for i in ${_CPU_IDS[@]+"${_CPU_IDS[@]}"}; do
+        pct=${_CPU_PCT[$i]:-0}
+        wu_read "$WC_SYS/cpu${i}/cpufreq/scaling_cur_freq" freq || freq=""
+        wu_read "$WC_SYS/cpu${i}/cpufreq/scaling_governor" gov_c || gov_c=""
         (( first )) && first=0 || printf ',\n'
-        # socket/core come from /proc/cpuinfo topology; omit when unknown (0/0
-        # is still emitted so consumers can group even on single-socket boxes).
+        # fork-free per CPU: governors are plain identifiers; escape only oddities
+        [[ "$freq" =~ ^[0-9]+$ ]] || freq=null
+        [[ "$gov_c" =~ ^[A-Za-z0-9_.-]*$ ]] || gov_c=$(json_esc "$gov_c")
         printf '    { "cpu": %d, "socket": %d, "core": %d, "usage_percent": %d, "freq_khz": %s, "governor": "%s" }' \
-            "$i" "${_CPU_SOCKET[$i]:-0}" "${_CPU_CORE[$i]:-0}" "$pct" "$(wu_json_num "$freq")" "$(json_esc "$gov_c")"
+            "$i" "${_CPU_SOCKET[$i]:-0}" "${_CPU_CORE[$i]:-0}" "$pct" "$freq" "$gov_c"
     done
     printf '\n  ]\n'
     wu_json_end
 }
 
 # ─── Main ────────────────────────────────────────────────────────
+# "cpu  u n s i w irq sirq steal" -> "total busy"
+_wc_stat_total() {
+    local l
+    { IFS= read -r l < /proc/stat; } 2>/dev/null || return 1
+    set -- $l
+    [[ "$1" == cpu ]] || return 1
+    shift
+    while (( $# < 8 )); do set -- "$@" 0; done
+    printf '%d %d' $(( $1 + $2 + $3 + $4 + $5 + $6 + $7 + $8 )) $(( $1 + $2 + $3 + $6 + $7 + $8 ))
+}
+
 short_out() {
     local a b
-    a=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || a=""
+    a=$(_wc_stat_total) || a=""
     [[ -n "$a" ]] || { printf -- '-\n'; return 0; }
-    sleep 0.3
-    b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $2+$3+$4+$6+$7}' /proc/stat 2>/dev/null) || b=""
+    sleep 0.3 2>/dev/null || sleep 1
+    b=$(_wc_stat_total) || b=""
     [[ -n "$b" ]] || { printf -- '-\n'; return 0; }
     local d_all=$(( ${b%% *} - ${a%% *} )) d_busy=$(( ${b#* } - ${a#* } ))
     (( d_all > 0 )) || { printf '0%%\n'; return 0; }
@@ -616,12 +484,13 @@ main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
     if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
+    cpu_gather
     box_header "$(_emu '🧠')" "wellcpu" "$(t cpu_title)"
 
     box "$(_emu '⚙')" "$(t cpu_summary)" print_cpu_info
     box "$(_emu '📈')" "$(t cpu_load)" print_cpu_load
 
-    printf '\n  %sWellCPU v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellCPU v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

@@ -7,14 +7,20 @@
 # wellutils wrapper code is MIT; see LICENSE.
 # shellcheck shell=bash
 wu_jedec_decode() {
+    # Returns 1 (no output) for malformed input or an unknown ID so callers
+    # can keep the raw string: `dec=$(wu_jedec_decode "$m") || dec=""`.
     local raw="$1" cnt cde idx
     raw=${raw// /}
+    raw=${raw#0x}; raw=${raw#0X}
     case "$raw" in
         [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) : ;;
-        *) echo "$1"; return ;;
+        *) return 1 ;;
     esac
-    cnt=$((16#${raw:0:2} & 127))
-    cde=$((16#${raw:2:2} ))
+    # Both bytes carry an odd-parity bit in bit 7 (0x80 = bank 1 continuation,
+    # 0xCE = Samsung 0x4E + parity): mask it off before indexing the table.
+    cnt=$((16#${raw:0:2} & 0x7F))
+    cde=$((16#${raw:2:2} & 0x7F))
+    (( cde == 0 || cde == 0x7F )) && return 1
     idx=$((cde-1))
     case "$cnt:$idx" in
         0:0) echo "AMD"; return 0 ;;
@@ -1545,6 +1551,5 @@ wu_jedec_decode() {
         12:13) echo "EM Microelectronic-Marin SA"; return 0 ;;
         12:14) echo "Shenzhen Monarch Memory Technology"; return 0 ;;
     esac
-    echo "$raw"
     return 1
 }

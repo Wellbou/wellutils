@@ -28,6 +28,17 @@ import base64
 import hashlib
 
 
+def out_write(text):
+    """Write text as UTF-8 bytes whatever the locale (LANG=C, py3.4+)."""
+    buf = getattr(sys.stdout, "buffer", None)
+    if buf is not None:
+        sys.stdout.flush()
+        buf.write(text.encode("utf-8"))
+        buf.flush()
+    else:
+        sys.stdout.write(text)
+
+
 def decode_png(path):
     data = open(path, "rb").read()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
@@ -72,8 +83,7 @@ def unfilter(width, height, bitdepth, colortype, raw):
             for i in range(bpp, stride):
                 line[i] = (line[i] + line[i - bpp]) & 0xFF
         elif f == 2:
-            for i in range(stride):
-                line[i] = (line[i] + prev[i]) & 0xFF
+            line = bytearray((a + b) & 0xFF for a, b in zip(line, prev))
         elif f == 3:
             for i in range(stride):
                 a = line[i - bpp] if i >= bpp else 0
@@ -98,11 +108,38 @@ def unfilter(width, height, bitdepth, colortype, raw):
 
 
 def to_rgba(width, height, bitdepth, colortype, palette, raw):
-    if colortype != 6 or bitdepth != 8:
-        raise ValueError("only 8-bit RGBA supported (got type %d depth %d)" % (colortype, bitdepth))
-    px = bytearray(width * height * 4)
-    for i in range(width * height):
-        px[i * 4:i * 4 + 4] = raw[i * 4:i * 4 + 4]
+    """Convert unfiltered 8-bit scanlines to RGBA8 (fast path for RGBA)."""
+    if bitdepth != 8:
+        raise ValueError("only 8-bit PNGs supported (got depth %d)" % bitdepth)
+    n = width * height
+    if colortype == 6:
+        return bytearray(raw[:n * 4])
+    px = bytearray(n * 4)
+    if colortype == 2:
+        px[0::4] = raw[0::3][:n]
+        px[1::4] = raw[1::3][:n]
+        px[2::4] = raw[2::3][:n]
+        px[3::4] = b"\xff" * n
+    elif colortype == 0:
+        g = raw[:n]
+        px[0::4] = g
+        px[1::4] = g
+        px[2::4] = g
+        px[3::4] = b"\xff" * n
+    elif colortype == 4:
+        g = raw[0::2][:n]
+        px[0::4] = g
+        px[1::4] = g
+        px[2::4] = g
+        px[3::4] = raw[1::2][:n]
+    elif colortype == 3 and palette:
+        pal = bytearray(palette)
+        for i in range(n):
+            j = raw[i] * 3
+            px[i * 4:i * 4 + 3] = pal[j:j + 3]
+            px[i * 4 + 3] = 255
+    else:
+        raise ValueError("unsupported PNG colour type %d" % colortype)
     return px
 
 
@@ -238,7 +275,8 @@ def emit_kitty(png, px_w, px_h, cols, rows):
 
     The terminal answers with an image id (U=1) which we read back, then draw
     the image scaled to `cols` cells x `rows` cells at the cursor position.
-    Supported by kitty, wezterm, konsole 23.04+, ghostty and foot.
+    Supported by kitty, wezterm, konsole 23.04+ and ghostty (foot only
+    speaks sixel, so it is not listed).
     """
     b64 = base64.b64encode(png).decode("ascii")
     sys.stdout.write("\x1b_Ga=T,f=100,s=%d,v=%d,U=1,m=1;%s\x1b\\" % (px_w, px_h, b64))
@@ -263,7 +301,7 @@ def detect_gfx():
     """Pick the best image protocol for this terminal: kitty | iterm | none."""
     term = os.environ.get("TERM", "")
     prog = os.environ.get("TERM_PROGRAM", "")
-    if term == "xterm-kitty" or prog == "WezTerm" or prog == "foot" \
+    if term == "xterm-kitty" or prog == "WezTerm" \
             or prog == "ghostty" or prog == "konsole":
         return "kitty"
     if prog == "iTerm.app" or os.environ.get("ITERM_PROFILE") or prog == "mintty":
@@ -328,7 +366,8 @@ def gfx_render_and_cache(path, w, h, bd, ct, pal, raw):
     key = _logo_key(path)
     try:
         d = _gfx_cache_dir()
-        os.makedirs(d, exist_ok=True)
+        if not os.path.isdir(d):
+            os.makedirs(d)
         tmp = os.path.join(d, ".gfx-%s-%s.tmp" % (_GFX_VER, os.getpid()))
         with open(tmp, "wb") as f:
             f.write(png)
@@ -336,6 +375,52 @@ def gfx_render_and_cache(path, w, h, bd, ct, pal, raw):
     except OSError:
         pass
     return px_w, px_h, png
+
+
+DEC_W = 320  # cached decode size: enough for the 160-column max width
+_DEC_VER = "v1"
+
+
+def load_rgba_cached(path):
+    """Return (w, h, rgba) of the logo, downscaled to DEC_W and cached.
+
+    Decoding + unfiltering a 1024 px PNG in pure Python takes ~1.5 s on a
+    desktop (much more on SBCs); every terminal width re-used to pay that.
+    The small raw RGBA copy is keyed by the logo hash and serves them all.
+    """
+    key = _logo_key(path)
+    d = _gfx_cache_dir()
+    prefix = "dec-%s-%s-" % (_DEC_VER, key)
+    try:
+        if os.path.isdir(d):
+            for fn in os.listdir(d):
+                m = re.match(r"dec-[0-9a-z]+-[0-9a-f]+-(\d+)x(\d+)\.rgba$", fn)
+                if not fn.startswith(prefix) or not m:
+                    continue
+                cw, ch = int(m.group(1)), int(m.group(2))
+                with open(os.path.join(d, fn), "rb") as f:
+                    data = bytearray(f.read())
+                if len(data) == cw * ch * 4:
+                    return cw, ch, data
+    except OSError:
+        pass
+    w, h, bd, ct, pal, raw = decode_png(path)
+    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
+    if w > DEC_W:
+        nw = DEC_W
+        nh = max(2, int(round(float(h) * nw / w)))
+        img = resize_rgba(img, w, h, nw, nh)
+        w, h = nw, nh
+    try:
+        if not os.path.isdir(d):
+            os.makedirs(d)
+        tmp = os.path.join(d, ".dec-%s-%s.tmp" % (_DEC_VER, os.getpid()))
+        with open(tmp, "wb") as f:
+            f.write(bytes(img))
+        os.replace(tmp, os.path.join(d, "%s%dx%d.rgba" % (prefix, w, h)))
+    except OSError:
+        pass
+    return w, h, img
 
 
 def main():
@@ -381,8 +466,7 @@ def main():
         else:
             emit_iterm(png, px_w)
         sys.exit(0)
-    w, h, bd, ct, pal, raw = decode_png(path)
-    img = to_rgba(w, h, bd, ct, pal, unfilter(w, h, bd, ct, raw))
+    w, h, img = load_rgba_cached(path)
     rows = max(2, int(round(0.5 * h / w * width)))
     out_h = rows * 2  # output pixel height
     if bg is None:
@@ -403,8 +487,7 @@ def main():
             bot = classify(sample(img, w, h, x0, y1), bg, key)
             cells.append(cell(top, bot))
         lines.append("".join(cells) + "\x1b[0m")
-    sys.stdout.write("\n".join(lines))
-    sys.stdout.write("\n")
+    out_write("\n".join(lines) + "\n")
 
 
 def classify(c, bg, key):

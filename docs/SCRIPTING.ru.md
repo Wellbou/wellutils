@@ -18,8 +18,12 @@ $ whtml --output ~/report.html      # запускает wellcpu, wellhw, wellme
 что смотрит, без угадывания:
 
 ```json
-{ "tool": "wellcpu", "version": "1.4.0", "date": "2026-08-30", ... }
+{ "tool": "wellcpu", "version": "1.0", "suite_version": "1.4.0-54", "date": "2026-09-25 00:02:26", ... }
 ```
+
+`version` - версия конкретного тула, `suite_version` - релиз wellutils,
+из которого он пришёл (появился в 1.4.0-54; в старых релизах его нет,
+так что считайте его необязательным).
 
 Всё остальное зависит от тула. Точная форма показана на реальных примерах с
 настоящей машины в [SAMPLES.md](../SAMPLES.md).
@@ -33,7 +37,7 @@ wellhw --json | jq -r '.cpu.model'
 # нагрузка по ядрам таблицей
 wellcpu --json | jq -r '.load[] | "CPU\(.cpu)\t\(.usage_percent)%\t\(.freq_khz/1000) MHz"'
 
-# самая горячая GPU без jq
+# самая горячая GPU без jq (нужен python3)
 wellsensors --json | python3 -c 'import json,sys;d=json.load(sys.stdin);t=[g["temp_c"] for g in (d.get("gpu") or []) if g.get("temp_c")];print(max(t) if t else "-")'
 
 # какой сейчас апплинк?
@@ -53,6 +57,9 @@ wellnet --json | jq -r '.connection.kind'   # vpn / wifi / usb_tether / ethernet
 welldoctor --json | jq -e '.summary.critical == 0' >/dev/null \
   || echo "welldoctor видит критичное"
 
+# или просто код выхода: 0 здоров, 1 предупреждения, 2 критично, 3 ошибка
+welldoctor --short || echo "welldoctor: rc=$?"
+
 # инвентарь железа для конфиг-менеджмента
 wellhw --snapshot /etc/wellutils/hw.json
 wellhw --diff /etc/wellutils/hw.json              # что изменилось с той недели
@@ -60,7 +67,7 @@ wellhw --diff /etc/wellutils/hw.json              # что изменилось 
 
 ## Держим ascii-чистоту
 
-Все тулы используют одни и те же флаги, поэтому скрипты одинаково вызываются для всего: статусбара, лога или же для простого просмотра.
+Linux-тулы используют одни и те же общие флаги, поэтому скрипты одинаково вызываются для всего: статусбара, лога или же для простого просмотра (в порте для Windows нет `--json`/`--short`/`--html`, так что эти рецепты только для Linux).
 
 ```sh
 wellfetch --no-emoji              # логи, которые не портят ничего в простых (tty) терминалах

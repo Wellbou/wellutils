@@ -10,7 +10,7 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
-source "$_WU_BOOT_DIR/bootstrap.sh" lang cli parse
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 _PCI_ALL=0
 
 wpci_extra_parse() {
@@ -28,210 +28,135 @@ R=$'\033[1;31m'  G=$'\033[1;32m'  Y=$'\033[1;33m'  B=$'\033[1;34m'
 M=$'\033[1;35m'  C=$'\033[1;36m'  W=$'\033[1;37m'  DIM=$'\033[2m'
 BOLD=$'\033[1m'  RESET=$'\033[0m'
 
-PCI_IDS=""
-for _p in /usr/local/share/hwdata/pci.ids /usr/share/hwdata/pci.ids /usr/share/misc/pci.ids /usr/share/pci.ids; do
-    [[ -f "$_p" ]] && { PCI_IDS="$_p"; break; }
-done
+PCI_IDS=${_WU_PCI_IDS:-}   # located by box.sh
+PCI_SYSFS=${WELLPCI_SYSFS_ROOT:-/sys/bus/pci/devices}   # override: tests
 
-# ─── PCI Class Lookup ────────────────────────────────────────────
-pci_class_name() {
-    local major=${1:0:2}
-    case "$major" in
-        00) t pci_class_legacy ;;    01) t pci_class_storage ;;
-        02) t pci_class_network ;;   03) t pci_class_display ;;
-        04) t pci_class_multimedia ;; 05) t pci_class_memory ;;
-        06) t pci_class_bridge ;;    07) t pci_class_comm ;;
-        08) t pci_class_system ;;    09) t pci_class_input ;;
-        0a) t pci_class_dock ;;      0b) t pci_class_processor ;;
-        0c) t pci_class_serial ;;    0d) t pci_class_wireless ;;
-        ff) t pci_class_vendor ;;    *)  t pci_class_unknown ;;
+# ─── Fork-free helpers ──────────────────────────────────────────
+# _tk KEY -> $_TK  (t() without a $(...) subshell)
+_tk() {
+    _TK=""
+    if [[ "$WELLUTILS_LANG" == "RU" && -n ${_T_RU[$1]+x} ]]; then _TK=${_T_RU[$1]}; fi
+    if [[ -z "$_TK" && -n ${_T_EN[$1]+x} ]]; then _TK=${_T_EN[$1]}; fi
+    [[ -n "$_TK" ]] || _TK=$1
+}
+_rd() { _V=""; { IFS= read -r _V < "$1"; } 2>/dev/null || true; _V=${_V%$'\r'}; }
+# _jev STR -> $_JE (JSON-escaped; control chars go through cli.sh json_esc)
+_jev() {
+    local LC_ALL=C
+    _JE=$1
+    if [[ "$_JE" == *[$'\001'-$'\037'$'\177']* ]]; then _JE=$(json_esc "$1"); return; fi
+    _JE=${_JE//\\/\\\\}; _JE=${_JE//\"/\\\"}
+}
+
+# ─── PCI class helpers (set $_CN / $_CC / $_CI) ─────────────────
+pci_class_name_v() {
+    case "${1:0:2}" in
+        00) _tk pci_class_legacy ;;    01) _tk pci_class_storage ;;
+        02) _tk pci_class_network ;;   03) _tk pci_class_display ;;
+        04) _tk pci_class_multimedia ;; 05) _tk pci_class_memory ;;
+        06) _tk pci_class_bridge ;;    07) _tk pci_class_comm ;;
+        08) _tk pci_class_system ;;    09) _tk pci_class_input ;;
+        0a) _tk pci_class_dock ;;      0b) _tk pci_class_processor ;;
+        0c) _tk pci_class_serial ;;    0d) _tk pci_class_wireless ;;
+        ff) _tk pci_class_vendor ;;    *)  _tk pci_class_unknown ;;
+    esac
+    _CN=$_TK
+}
+
+pci_class_color_v() {
+    case "${1:0:2}" in
+        03) _CC=$G ;; 02) _CC=$C ;; 01) _CC=$Y ;;
+        04) _CC=$M ;; 0c) _CC=$B ;; 06) _CC=$DIM ;;
+        *)  _CC=$W ;;
     esac
 }
 
-pci_class_color() {
-    local major=${1:0:2}
-    case "$major" in
-        03) printf '%s' "$G" ;; 02) printf '%s' "$C" ;; 01) printf '%s' "$Y" ;;
-        04) printf '%s' "$M" ;; 0c) printf '%s' "$B" ;; 06) printf '%s' "$DIM" ;;
-        *)  printf '%s' "$W" ;;
+pci_class_icon_v() {
+    local e
+    case "${1:0:2}" in
+        03) e="🎮" ;; 02) e="🌐" ;; 01) e="💾" ;; 04) e="🔊" ;; 0c) e="🔌" ;;
+        06) e="🌉" ;; 08) e="⌨" ;; 0d) e="📡" ;; *) e="🔧" ;;
     esac
+    _CI=""
+    [[ "$_WU_EMOJI" == "yes" ]] && _CI="${e//$_WU_VS16/} "
+    return 0
 }
 
-pci_class_icon() {
-    local major=${1:0:2}
-    case "$major" in
-        03) printf ''"$(_emu "🎮")"'' ;; 02) printf ''"$(_emu "🌐")"'' ;; 01) printf ''"$(_emu "💾")"'' ;;
-        04) printf ''"$(_emu "🔊")"'' ;; 0c) printf ''"$(_emu "🔌")"'' ;; 06) printf ''"$(_emu "🌉")"'' ;;
-        08) printf ''"$(_ic "⌨")"'' ;; 0d) printf ''"$(_emu "📡")"'' ;; *)  printf ''"$(_emu "🔧")"'' ;;
-    esac
+# Expansion-card filter (same rules as box.sh pci_slot_devices):
+# drop bridges/memory/processors/SMBus/FireWire; always keep display,
+# wireless, RAID, NVMe; on bus 00 drop the remaining chipset functions,
+# on other buses drop embedded storage/network/comm/USB.
+_pci_is_slot() {   # $1 = addr  $2 = class hex (6 digits)
+    local bus=${1#*:} major=${2:0:2} sub=${2:2:2}
+    bus=${bus%%:*}
+    case "$major" in 06|05|0b) return 1 ;; esac
+    [[ "$major" == "0c" && ( "$sub" == "05" || "$sub" == "00" ) ]] && return 1
+    [[ "$major" == "03" || "$major" == "0d" ]] && return 0
+    [[ "$major" == "01" && ( "$sub" == "04" || "$sub" == "08" ) ]] && return 0
+    [[ "$bus" == "00" ]] && return 1
+    case "$major" in 01|02|07|0c) return 1 ;; esac
+    return 0
 }
 
-# ─── PCI IDS Lookup (lazy, bash 3.2) ─────────────────────────────
-_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-
-# Byte-length helpers (wellpci does not source box.sh)
-vislen() { printf '%s' "${#1}"; }
-wucap() {
-    local s="$1" maxw="$2"
-    if (( ${#s} > maxw )); then
-        printf '%s…' "${s:0:maxw-1}"
-    else
-        printf '%s' "$s"
-    fi
-}
-
-# ─── PCI slot device filter (duplicated from box.sh) ────────────
-# Populates: _PCI_BUS[], _PCI_CLASS[], _PCI_DESC[]
-pci_slot_devices() {
-    _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=()
-    local d addr bus major class_hex
-    for d in /sys/bus/pci/devices/*/; do
-        [[ -d "$d" ]] || continue
-        addr=$(basename "$d")
-        bus=$(echo "$addr" | cut -d: -f2 | cut -d. -f1)
-        class_hex=$(cat "$d/class" 2>/dev/null) || continue
-        class_hex="${class_hex#0x}"
-        major="${class_hex:0:2}"
-        local sub="${class_hex:2:2}"
-
-        [[ "$major" == "06" ]] && continue
-        [[ "$major" == "05" || "$major" == "0b" ]] && continue
-        [[ "$major" == "0c" && "$sub" == "05" ]] && continue
-        [[ "$major" == "0c" && "$sub" == "00" ]] && continue
-
-        if [[ "$major" == "03" || "$major" == "0d" ]]; then
-            local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-            _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
-            continue
-        fi
-
-        if [[ "$major" == "01" && ( "$sub" == "04" || "$sub" == "08" ) ]]; then
-            local desc
-            desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-            _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
-            continue
-        fi
-
-        [[ "$bus" == "00" ]] && continue
-
-        case "$major" in
-            01|02|07) continue ;;
-        esac
-        [[ "$major" == "0c" ]] && continue
-
-        local desc
-        desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-        _PCI_BUS+=("$addr") _PCI_CLASS+=("$class_hex") _PCI_DESC+=("$desc")
-    done
-}
-
-pci_vendor_name() {
-    [[ "$1" =~ ^[0-9a-f]{4}$ ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
-    [[ -f "$PCI_IDS" ]] || { printf '%s' "$(t hw_unknown)"; return 0; }
-    awk -v v="$(_wlc "$1")" '
-        /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
-    ' "$PCI_IDS"
-}
-
-pci_device_name() {
-    [[ "$1" =~ ^[0-9a-f]{4}$ && "$2" =~ ^[0-9a-f]{4}$ ]] || return 0
-    [[ -f "$PCI_IDS" ]] || return 0
-    awk -v v="$(_wlc "$1")" -v p="$(_wlc "$2")" '
-        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v); next }
-        insec && $0 ~ "^" "\t" p "[[:space:]]" { sub(/^[^ ]+ +/, ""); print; exit }
-    ' "$PCI_IDS"
-}
-
-# ─── Scan (fills global arrays + count) ─────────────────────────
+# ─── Scan (fills global arrays + count/total) ───────────────────
+# All data from sysfs + ONE `lspci -D` (descriptions) + ONE awk pass over
+# pci.ids (vendor/device names). Without lspci (busybox/Termux) the
+# description falls back to "Vendor Device" from pci.ids.
 pci_scan() {
     ADDRS=() CLASSES=() DRIVERS=() VENDORS=() DEVICES=() DESCS=() VENDOR_NAMES=() DEVICE_NAMES=()
-    count=0
-
-    if [[ "$_PCI_ALL" == "1" ]]; then
-        pci_scan_all
-    else
-        pci_scan_slot_filter
-    fi
-}
-
-pci_scan_slot_filter() {
-    pci_slot_devices
-    local i devdir addr class vendor device vid did driver_name lspci_desc vname dname full_desc
-    for (( i=0; i<${#_PCI_BUS[@]}; i++ )); do
-        devdir="/sys/bus/pci/devices/${_PCI_BUS[$i]}/"
-        [[ -d "$devdir" ]] || continue
-        addr="${_PCI_BUS[$i]}"
-
-        class=$(cat "$devdir/class" 2>/dev/null || echo "000000")
-        class="${class#0x}"
-        vendor=$(cat "$devdir/vendor" 2>/dev/null || echo "0x0000")
-        device=$(cat "$devdir/device" 2>/dev/null || echo "0x0000")
-        vid="${vendor#0x}" did="${device#0x}"
-
-        driver_name="none"
-        if [[ -L "$devdir/driver" ]]; then
-            driver_name=$(basename "$(readlink "$devdir/driver")")
+    LINK_SPD=() LINK_WID=()
+    count=0 total=0
+    [[ -d "$PCI_SYSFS" ]] || return 0
+    local d addr cls vid did drv line i
+    local -a qs=()
+    for d in "$PCI_SYSFS"/*; do
+        [[ -e "$d" ]] || continue
+        addr=${d##*/}
+        _rd "$d/class"; cls=${_V#0x}; [[ -n "$cls" ]] || cls=000000
+        total=$(( total + 1 ))
+        [[ "$_PCI_ALL" == "1" ]] || _pci_is_slot "$addr" "$cls" || continue
+        _rd "$d/vendor"; vid=${_V#0x}; vid=${vid,,}; [[ -n "$vid" ]] || vid=0000
+        _rd "$d/device"; did=${_V#0x}; did=${did,,}; [[ -n "$did" ]] || did=0000
+        drv="none"
+        if [[ -r "$d/uevent" ]]; then
+            while IFS= read -r line; do
+                case "$line" in DRIVER=*) drv=${line#DRIVER=}; break ;; esac
+            done < "$d/uevent" 2>/dev/null || true
         fi
-
-        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-
-        vname=$(pci_vendor_name "$vid")
-        dname=$(pci_device_name "$vid" "$did")
-        if [[ -z "$dname" ]]; then
-            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
-        fi
-
-        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-
-        ADDRS+=("$addr")
-        CLASSES+=("$class")
-        DRIVERS+=("$driver_name")
-        VENDORS+=("$vid")
-        DEVICES+=("$did")
-        DESCS+=("$full_desc")
-        VENDOR_NAMES+=("$vname")
-        DEVICE_NAMES+=("$dname")
+        _rd "$d/current_link_speed"; LINK_SPD+=("$_V")
+        _rd "$d/current_link_width"; LINK_WID+=("$_V")
+        ADDRS+=("$addr") CLASSES+=("$cls") DRIVERS+=("$drv") VENDORS+=("$vid") DEVICES+=("$did")
+        DESCS+=("") VENDOR_NAMES+=("") DEVICE_NAMES+=("")
+        qs+=("$vid:$did")
         count=$(( count + 1 ))
     done
-}
+    (( count )) || return 0
 
-pci_scan_all() {
-    local devdir addr class vendor device vid did driver_name lspci_desc vname dname full_desc
-    for devdir in /sys/bus/pci/devices/*/; do
-        [[ -d "$devdir" ]] || continue
-        addr=$(basename "$devdir")
+    local -A idx=()
+    for (( i = 0; i < count; i++ )); do idx[${ADDRS[i]}]=$i; done
+    if command -v lspci >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            i=${idx[${line%% *}]:-}
+            [[ -n "$i" ]] && DESCS[i]=${line#* }
+        done < <(lspci -D 2>/dev/null || true)
+    fi
 
-        class=$(cat "$devdir/class" 2>/dev/null || echo "000000")
-        class="${class#0x}"
-        vendor=$(cat "$devdir/vendor" 2>/dev/null || echo "0x0000")
-        device=$(cat "$devdir/device" 2>/dev/null || echo "0x0000")
-        vid="${vendor#0x}" did="${device#0x}"
-
-        driver_name="none"
-        if [[ -L "$devdir/driver" ]]; then
-            driver_name=$(basename "$(readlink "$devdir/driver")")
+    local -A vn=() dn=()
+    local q v n
+    while IFS=$'\t' read -r q v n _; do
+        [[ -n "$q" ]] || continue
+        vn[$q]=$v dn[$q]=$n
+    done < <(wu_pci_lookup "${qs[@]}")
+    _tk hw_unknown; local unk=$_TK
+    for (( i = 0; i < count; i++ )); do
+        q=${qs[i]}
+        v=${vn[$q]:-} n=${dn[$q]:-}
+        VENDOR_NAMES[i]=${v:-$unk}
+        DEVICE_NAMES[i]=${n:-[$q]}
+        if [[ -z "${DESCS[i]}" ]]; then
+            if [[ -n "$v$n" ]]; then DESCS[i]="${v}${v:+${n:+ }}${n}"
+            else DESCS[i]="[$q]"; fi
         fi
-
-        lspci_desc=$(lspci -s "$addr" -n 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-
-        vname=$(pci_vendor_name "$vid")
-        dname=$(pci_device_name "$vid" "$did")
-        if [[ -z "$dname" ]]; then
-            dname=$(echo "$lspci_desc" | sed 's/^[0-9a-f:.]* //')
-        fi
-
-        full_desc=$(lspci -s "$addr" 2>/dev/null | sed 's/^[0-9a-f:.]* //' || true)
-
-        ADDRS+=("$addr")
-        CLASSES+=("$class")
-        DRIVERS+=("$driver_name")
-        VENDORS+=("$vid")
-        DEVICES+=("$did")
-        DESCS+=("$full_desc")
-        VENDOR_NAMES+=("$vname")
-        DEVICE_NAMES+=("$dname")
-        count=$(( count + 1 ))
     done
 }
 
@@ -240,23 +165,31 @@ json_out() {
     pci_scan
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
-    printf ',\n  "summary": { "devices": %d },\n' "$count"
-    printf '  "ids_db_loaded": %s,\n' "$([[ -f $PCI_IDS ]] && printf 'true' || printf 'false')"
-    printf '  "devices": [\n'
-    local first=1
-    for (( i=0; i<count; i++ )); do
-        local addr="${ADDRS[$i]}" cls="${CLASSES[$i]}" drv="${DRIVERS[$i]}" vid="${VENDORS[$i]}" did="${DEVICES[$i]}" desc="${DESCS[$i]}" vname="${VENDOR_NAMES[$i]}" dname="${DEVICE_NAMES[$i]}"
-        local major="${cls:0:2}"
-        local cname
-        cname=$(pci_class_name "${major}0000")
-
-        (( first )) && first=0 || printf ',\n'
-        printf '    { "addr": "%s", "class": "%s", "major": "%s", "class_name": "%s", "vendor_id": "%s", "device_id": "%s", "vendor": "%s", "device": "%s", "description": "%s", "driver": "%s" }' \
-            "$(json_esc "$addr")" "$(json_esc "$cls")" "$(json_esc "$major")" "$(json_esc "$cname")" \
-            "$(json_esc "$vid")" "$(json_esc "$did")" "$(json_esc "$vname")" "$(json_esc "$dname")" \
-            "$(json_esc "$desc")" "$(json_esc "$drv")"
+    printf ',\n  "summary": { "devices": %d, "total": %d, "filter": "%s" },\n' \
+        "$count" "$total" "$([[ "$_PCI_ALL" == 1 ]] && printf all || printf expansion)"
+    printf '  "ids_db_loaded": %s,\n' "$([[ -n $PCI_IDS ]] && printf 'true' || printf 'false')"
+    printf '  "devices": ['
+    local i f v first=1 cls wid
+    for (( i = 0; i < count; i++ )); do
+        cls=${CLASSES[i]}
+        pci_class_name_v "$cls"
+        (( first )) && { first=0; printf '\n'; } || printf ',\n'
+        printf '    {'
+        for f in addr class major class_name vendor_id device_id vendor device description driver link_speed link_width; do
+            case "$f" in
+                addr) v=${ADDRS[i]} ;; class) v=$cls ;; major) v=${cls:0:2} ;; class_name) v=$_CN ;;
+                vendor_id) v=${VENDORS[i]} ;; device_id) v=${DEVICES[i]} ;;
+                vendor) v=${VENDOR_NAMES[i]} ;; device) v=${DEVICE_NAMES[i]} ;;
+                description) v=${DESCS[i]} ;; driver) v=${DRIVERS[i]} ;;
+                link_speed) v=${LINK_SPD[i]}; [[ "$v" == Unknown* ]] && v="" ;;
+                link_width) v=${LINK_WID[i]}; [[ "$v" == 0 ]] && v="" ;;
+            esac
+            _jev "$v"
+            [[ "$f" == addr ]] && printf ' "%s": "%s"' "$f" "$_JE" || printf ', "%s": "%s"' "$f" "$_JE"
+        done
+        printf ' }'
     done
-    printf '\n  ]\n'
+    (( first )) && printf ']\n' || printf '\n  ]\n'
     wu_json_end
 }
 
@@ -264,90 +197,82 @@ json_out() {
 main() {
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
 
-    local line
-    line=$(printf '═%.0s' {1..78})
-    printf '\n  %s╔═%s═╗%s\n' "$C" "$line" "$RESET"
-    printf '  %s║%s%s  '"$(_ic "🌉")"'wellpci -- %s                          %s%s║%s\n' "$C" "$RESET" "${BOLD}${W}" "$(t pci_title)" "$RESET" "$C" "$RESET"
-    printf '  %s╚═%s═╝%s\n' "$C" "$line" "$RESET"
+    local ic=""
+    [[ "$_WU_EMOJI" == "yes" ]] && ic="🌉 "
+    _tk pci_title
+    printf '\n  %s╔═╗%s\n' "$C" "$RESET"
+    printf '  %s║%s  %s%s%swellpci -- %s%s\n' "$C" "$RESET" "$ic" "$BOLD" "$W" "$_TK" "$RESET"
+    printf '  %s╚═╝%s\n' "$C" "$RESET"
 
     pci_scan
 
-    local ids_status
-    if [[ -f $PCI_IDS ]]; then
-        ids_status="${G}$(t loaded)${RESET}"
+    local ids_status L_db
+    if [[ -n $PCI_IDS ]]; then _tk loaded; ids_status="${G}${_TK}${RESET}"
+    else _tk not_found; ids_status="${R}${_TK}${RESET}"; fi
+    _tk usb_ids_db; L_db=$_TK
+    ic=""; [[ "$_WU_EMOJI" == "yes" ]] && ic="📊 "
+    if [[ "$_PCI_ALL" == "1" ]]; then
+        _tk pci_total
+        printf '  %s%s%s:%s %d  |  %s%s:%s %s\n' "$ic" "$BOLD" "$_TK" "$W" "$count" "$BOLD" "$L_db" "$W" "$ids_status"
     else
-        ids_status="${R}$(t not_found)${RESET}"
+        local L_shown L_of L_hint
+        _tk pci_shown; L_shown=$_TK; _tk pci_of; L_of=$_TK; _tk pci_hint_all; L_hint=$_TK
+        printf '  %s%s%s:%s %d %s %d%s  |  %s%s:%s %s\n' "$ic" "$BOLD" "$L_shown" "$W" "$count" "$L_of" "$total" "$RESET" \
+            "$BOLD" "$L_db" "$W" "$ids_status"
+        printf '  %s%s%s\n' "$DIM" "$L_hint" "$RESET"
+    fi
+    printf '\n'
+
+    if (( count == 0 )); then
+        _tk per_pci_none
+        printf '\n  %s%s%s\n' "$DIM" "$_TK" "$RESET"
     fi
 
-    printf '  %s│%s  '"$(_ic "📊")"'%s%s:%s %d  |  %s%s:%s %s\n\n' \
-        "$C" "$RESET" "$BOLD" "$(t pci_total)" "$W" "$count" \
-        "$BOLD" "$(t usb_ids_db)" "$W" "$ids_status"
-
-    local prev_major=""
-    for (( i=0; i<count; i++ )); do
-        local addr="${ADDRS[$i]}"
-        local cls="${CLASSES[$i]}"
-        local drv="${DRIVERS[$i]}"
-        local vid="${VENDORS[$i]}"
-        local did="${DEVICES[$i]}"
-        local desc="${DESCS[$i]}"
-        local vname="${VENDOR_NAMES[$i]}"
-        local dname="${DEVICE_NAMES[$i]}"
-        local major="${cls:0:2}"
-
-        if [[ "$major" != "$prev_major" ]]; then
-            local cname
-            cname=$(pci_class_name "${major}0000")
-            local ccolor
-            ccolor=$(pci_class_color "${major}0000")
-            local cicon
-            cicon=$(pci_class_icon "${major}0000")
-
-            [[ -n "$prev_major" ]] && printf '  %s│%s\n' "$C" "$RESET"
-            printf '  %s┌───%s %s %s%s%s%s\n' "$C" "$RESET" "$cicon" "$BOLD" "$ccolor" "$cname" "$RESET"
-        fi
-        prev_major="$major"
-
-        local ccolor
-        ccolor=$(pci_class_color "$cls")
-        local cicon
-        cicon=$(pci_class_icon "$cls")
-
-        local lbl fixed drv_max desc_max desc_txt drv_txt
-        lbl="$(t pci_drv):"
-        fixed=$(( 4 + $(vislen "$cicon") + 1 + $(vislen "$addr") + 2 + $(vislen "$lbl") ))
-        drv_max=12
-        desc_max=$(( 82 - fixed - drv_max ))
-        (( desc_max < 12 )) && desc_max=12
-        desc_txt=$(wucap "$desc" "$desc_max")
-        drv_txt=$(wucap "$drv" "$drv_max")
-
-        local drv_badge
-        if [[ "$drv" == "none" ]]; then
-            drv_badge="${DIM}${drv_txt}${RESET}"
-        else
-            drv_badge="${G}${drv_txt}${RESET}"
-        fi
-
-        # PCIe link speed/width badge from sysfs
-        local link_badge="" sysfs_addr="/sys/bus/pci/devices/${addr}/"
-        if [[ -r "${sysfs_addr}current_link_speed" ]]; then
-            local lnk_spd lnk_wid
-            lnk_spd=$(cat "${sysfs_addr}current_link_speed" 2>/dev/null || true)
-            lnk_wid=$(cat "${sysfs_addr}current_link_width" 2>/dev/null || true)
-            [[ -n "$lnk_spd" ]] && link_badge=" ${DIM}${lnk_spd}${RESET}"
-            [[ -n "$lnk_wid" ]] && link_badge+="${DIM} x${lnk_wid}${RESET}"
-        fi
-
-        printf '  %s│%s  %s %s%s%s  %s%s%s  %s%s%s%s\n' \
-            "$C" "$RESET" "$cicon" "$BOLD" "$addr" "$RESET" \
-            "$ccolor" "$desc_txt" "$RESET" \
-            "$lbl" "$drv_badge" "$link_badge"
+    # display order: grouped by class, then address (stable insertion sort)
+    local -a ord=()
+    local i j x n
+    for (( i = 0; i < count; i++ )); do ord+=("${CLASSES[i]:0:2} ${ADDRS[i]} $i"); done
+    n=${#ord[@]}
+    for (( i = 1; i < n; i++ )); do
+        x=${ord[i]}; j=$(( i - 1 ))
+        while (( j >= 0 )) && [[ "${ord[j]}" > "$x" ]]; do ord[j+1]=${ord[j]}; j=$(( j - 1 )); done
+        ord[j+1]=$x
     done
 
-    printf '  %s└%s┘%s\n' "$C" "$(printf '─%.0s' {1..80})" "$RESET"
+    local _WU_COLS _WU_VL _WU_CAP maxw lbl
+    _wu_cols; maxw=$(( _WU_COLS - 4 ))
+    _tk pci_drv; lbl="$_TK:"
+    local prev_major="" addr cls drv desc major spd wid link fixed desc_max drv_txt drv_badge
+    for (( j = 0; j < n; j++ )); do
+        i=${ord[j]##* }
+        addr=${ADDRS[i]} cls=${CLASSES[i]} drv=${DRIVERS[i]} desc=${DESCS[i]}
+        major=${cls:0:2}
+        if [[ "$major" != "$prev_major" ]]; then
+            pci_class_name_v "$cls"; pci_class_color_v "$cls"; pci_class_icon_v "$cls"
+            [[ -n "$prev_major" ]] && printf '  %s└┘%s\n' "$C" "$RESET"
+            printf '  %s┌───%s %s%s%s%s%s\n' "$C" "$RESET" "$_CI" "$BOLD" "$_CC" "$_CN" "$RESET"
+            prev_major=$major
+        fi
+        pci_class_color_v "$cls"; pci_class_icon_v "$cls"
 
-    printf '\n  %sWellPCI v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+        # PCIe link badge: skip "Unknown" speed and width 0 (no link / legacy PCI)
+        spd=${LINK_SPD[i]} wid=${LINK_WID[i]} link=""
+        [[ -n "$spd" && "$spd" != Unknown* && "$wid" != "0" ]] && link="  $spd${wid:+ x$wid}"
+
+        _wu_cap_v "$drv" 16; drv_txt=$_WU_CAP
+        _wu_vislen_v "  $_CI$addr    $lbl$drv_txt$link"; fixed=$_WU_VL
+        desc_max=$(( maxw - fixed )); (( desc_max < 16 )) && desc_max=16
+        _wu_cap_v "$desc" "$desc_max"; desc=$_WU_CAP
+        if [[ "$drv" == "none" ]]; then drv_badge="${DIM}${drv_txt}${RESET}"; else drv_badge="${G}${drv_txt}${RESET}"; fi
+        printf '  %s│%s  %s%s%s%s  %s%s%s  %s%s%s%s%s\n' \
+            "$C" "$RESET" "$_CI" "$BOLD" "$addr" "$RESET" "$_CC" "$desc" "$RESET" \
+            "$lbl" "$drv_badge" "$DIM" "$link" "$RESET"
+    done
+    (( count )) && printf '  %s└┘%s\n' "$C" "$RESET"
+
+    local now=""
+    printf -v now '%(%Y-%m-%d %H:%M:%S)T' -1 2>/dev/null || now=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+    printf '\n  %s%s v%s | %s%s\n\n' "$DIM" "$_WU_NAME" "$_WU_VERSION" "$now" "$RESET"
 }
 
 wu_run main "$@"

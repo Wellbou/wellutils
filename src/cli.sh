@@ -16,7 +16,7 @@
 # Language/color/emoji flags are honoured; WELLUTILS_LANG is exported for t().
 # shellcheck shell=bash
 
-# bash 3.2-compatible lowercase (no ${var,,}; tr is in busybox/base too)
+# Portable lowercase via tr (kept for callers; bash>=4 ${var,,} also works).
 _wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 _WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_DEBUG="" _WU_LANG_ARG=""
@@ -122,9 +122,42 @@ wu_parse() {
     return 0
 }
 
+# Real terminal width. COLUMNS is a non-exported shell variable, so scripts
+# never see it; ask the tty (stty works on busybox/Termux too), then tput.
+_wu_detect_cols() {
+    local c="" _r
+    if [[ ! "${COLUMNS:-}" =~ ^[0-9]+$ ]] || (( ${COLUMNS:-0} < 20 )); then
+        if [[ -t 1 || -t 2 ]] && command -v stty >/dev/null 2>&1; then
+            _r=$(stty size 2>/dev/null </dev/tty) && c=${_r##* }
+        fi
+        [[ "$c" =~ ^[0-9]+$ ]] || c=$(tput cols 2>/dev/null </dev/tty) || c=""
+        [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 20 )) || c=100
+        COLUMNS=$c
+    fi
+    # Frames larger than the terminal wrap and look broken; when piped
+    # (--box > file) keep a generous default instead.
+    [[ -t 1 ]] || { [[ -n "${_WU_COLS_SET:-}" ]] || COLUMNS=${WELLUTILS_COLUMNS:-120}; }
+    return 0
+}
+
+# Does the locale speak UTF-8? (C.UTF-8 / en_US.utf8 do; C / POSIX don't.)
+_wu_locale_utf8() {
+    local l="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+    case "$(printf '%s' "$l" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+        *utf-8*|*utf8*) return 0 ;;
+        ""|c|posix|c.*|posix.*) return 1 ;;
+        *) return 0 ;;   # e.g. "ru_RU" on systems where UTF-8 is implied
+    esac
+}
+
 wu_run() {
     local fn="$1"; shift
+    # Numbers must use "." whatever the user's locale (ru_RU/de_DE print
+    # "3,70" from printf %f / awk and break JSON and column math).
+    export LC_NUMERIC=C
+    [[ -n "${COLUMNS:-}" ]] && _WU_COLS_SET=1
     wu_parse "$@"
+    _wu_detect_cols
 
     if [[ -t 1 ]]; then _WU_TTY=1; else _WU_TTY=0; fi
     if [[ -z "$_WU_MODE" ]]; then
@@ -143,20 +176,21 @@ wu_run() {
             fi ;;
     esac
 
+    # Linux virtual console (TERM=linux: netbooks, rescue shells, Xbox 360
+    # framebuffer) has a 512-glyph font: box lines yes, emoji never.
     if [[ "$_WU_EMOJI" == "auto" ]]; then
-        case "${LC_ALL:-${LANG:-}}" in
-            C*|POSIX) _WU_EMOJI="no" ;;
-            *) [[ "${TERM:-}" == "dumb" ]] && _WU_EMOJI="no" || _WU_EMOJI="yes" ;;
-        esac
+        if ! _wu_locale_utf8 || [[ "${TERM:-}" == "dumb" || "${TERM:-}" == "linux" || "${TERM:-}" == "vt"* ]]; then
+            _WU_EMOJI="no"
+        else
+            _WU_EMOJI="yes"
+        fi
     fi
 
     # Detect Unicode box-drawing support. Terminals that lack it get
     # plain mode automatically (ASCII boxes look worse than no boxes).
     _WU_UNICODE=1
-    case "${LC_ALL:-${LANG:-}}" in
-        C*|POSIX) _WU_UNICODE=0 ;;
-    esac
-    [[ "${TERM:-}" == "dumb" ]] && _WU_UNICODE=0
+    _wu_locale_utf8 || _WU_UNICODE=0
+    [[ "${TERM:-}" == "dumb" || "${TERM:-}" == "vt"* ]] && _WU_UNICODE=0
     # If Unicode unavailable and user didn't explicitly request box mode, force plain.
     if [[ $_WU_UNICODE -eq 0 && "$_WU_PLAIN" -eq 0 && -z "${_WU_MODE_WAS_SET:-}" ]]; then
         _WU_PLAIN=1
@@ -171,6 +205,9 @@ wu_run() {
         BOLD=$'\033[1m' RESET=$'\033[0m' ORANGE=$'\033[1;38;5;208m' RED_BG=""
         local out _fn_rc=0
         out=$("$fn") || _fn_rc=$?
+        if [[ "$_WU_MANUAL" == "1" ]] && declare -F _wu_reframe >/dev/null; then
+            out=$(_wu_reframe "$out")
+        fi
         wu_html_page "$out"
         return "$_fn_rc"
     fi
@@ -180,10 +217,16 @@ wu_run() {
         ORANGE= RED_BG=
     fi
 
-    if [[ "$_WU_MANUAL" == "1" && "$_WU_PLAIN" == "1" && "$_WU_JSON" != "1" ]]; then
+    if [[ "$_WU_MANUAL" == "1" && "$_WU_JSON" != "1" ]]; then
         local out _fn_rc=0
         out=$("$fn") || _fn_rc=$?
-        _wu_plainify "$out"
+        if [[ "$_WU_PLAIN" == "1" ]]; then
+            _wu_plainify "$out"
+        elif declare -F _wu_reframe >/dev/null; then
+            _wu_reframe "$out"
+        else
+            printf '%s\n' "$out"
+        fi
         return "$_fn_rc"
     else
         "$fn"
@@ -271,11 +314,15 @@ json_esc() {
     s=${s//$'\r'/\\r}
     s=${s//$'\b'/\\b}
     s=${s//$'\f'/\\f}
-    local rest="" out="" i c ord
+    # Fast path: no remaining control chars (the usual case) -> no per-char loop
+    # (the loop costs one printf per character: 12 s on a 27 KB string).
+    local LC_ALL=C
+    if [[ "$s" != *[$'\001'-$'\037'$'\177']* ]]; then printf '%s' "$s"; return; fi
+    local out="" i c ord
     for (( i=0; i<${#s}; i++ )); do
         c="${s:$i:1}"
         printf -v ord '%d' "'$c" 2>/dev/null || ord=0
-        if (( ord > 0 && ord < 32 )); then
+        if (( (ord > 0 && ord < 32) || ord == 127 )); then
             out+="$(printf '\\u%04x' "$ord")"
         else
             out+="$c"
@@ -286,10 +333,13 @@ json_esc() {
 
 # Print the JSON envelope head (no trailing comma on the date field).
 wu_json_head() {  # $1=tool  $2=version
+    local sv=""
+    [[ -r "${_WU_BOOT_DIR:-}/VERSION" ]] && read -r sv < "$_WU_BOOT_DIR/VERSION"
     printf '{\n'
     printf '  "tool": "%s",\n' "$1"
     printf '  "version": "%s",\n' "$2"
-    printf '  "date": "%s"' "$(json_esc "$(date '+%Y-%m-%d %H:%M:%S')")"
+    [[ -n "$sv" ]] && printf '  "suite_version": "%s",\n' "$(json_esc "$sv")"
+    printf '  "date": "%s"' "$(json_esc "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)")"
 }
 
 wu_json_end() { printf '\n}\n'; }
@@ -312,36 +362,35 @@ _emoji_clean() { local e="$1"; printf '%s' "${e//$_WU_VS16/}"; }
 _emu() { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; return 0; }
 _ic()  { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; printf ' '; return 0; }
 
-# Strip hand-drawn box frames from output (byte-safe, locale-independent).
-# Covers U+2500-U+257F (box drawing) plus tab compaction.
-# Built in a single fork-free loop (was 256 subshells per launch).
-_WU_BOXCHARS=()
-for (( _cp=0x2500; _cp<=0x257F; _cp++ )); do
-    _b1=$((0xE0 | (_cp >> 12)))
-    _b2=$((0x80 | ((_cp >> 6) & 0x3F)))
-    _b3=$((0x80 | (_cp & 0x3F)))
-    _wi=$(( _cp - 0x2500 ))
-    printf -v _oc '\\%03o\\%03o\\%03o' "$_b1" "$_b2" "$_b3"
-    printf -v '_WU_BOXCHARS[_wi]' '%b' "$_oc"
-done
-unset _cp _b1 _b2 _b3 _oc _wi
 _wu_pad_r() {
     # right-pad to N display columns; bash %-Ns pads by *bytes*, so labels
     # with multibyte text (Cyrillic) never align -- count display width instead
-    local s="$1" n="$2" k
-    k=$(( n - $(vislen "$s") ))
+    local s="$1" n="$2" k _WU_VL
+    if declare -F _wu_vislen_v >/dev/null; then _wu_vislen_v "$s"; else _WU_VL=${#s}; fi
+    k=$(( n - _WU_VL ))
     (( k > 0 )) || k=0
     printf '%s%*s' "$s" "$k" ''
 }
 
 _wu_plainify() {
-    local line out="" c
-    while IFS= read -r line; do
-        for c in "${_WU_BOXCHARS[@]}"; do
-            line=${line//"$c"/ }
-        done
+    # Box drawing U+2500..U+257F is E2 94 xx / E2 95 xx: two byte-level
+    # substitutions per line instead of 128 (much faster on slow machines).
+    local line out="" LC_ALL=C prev_blank=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line//$'\xe2\x94'?/ }
+        line=${line//$'\xe2\x95'?/ }
         line=${line//$'\t'/ }
-        out+="$line"$'\n'
+        # collapse the runs of spaces left behind by the frames, keep a
+        # two-space indent, drop trailing blanks
+        while [[ "$line" == *"   "* ]]; do line=${line//   / }; done
+        line=${line#"${line%%[! ]*}"}
+        line=${line%"${line##*[! ]}"}
+        if [[ -n "$line" ]]; then
+            out+="  $line"$'\n'; prev_blank=0
+        elif (( ! prev_blank )); then
+            # squeeze repeated blank lines left over from removed frame rows
+            out+=$'\n'; prev_blank=1
+        fi
     done <<< "$1"
-    printf '%s' "$out" | sed -e 's/  */ /g' -e 's/ $//' -e 's/^ /  /'
+    printf '%s' "$out"
 }

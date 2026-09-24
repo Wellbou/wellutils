@@ -16,158 +16,322 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
 
+# ─── Adapter discovery ──────────────────────────────────────────
+# Sources (merged, de-duplicated by sysfs device):
+#   1. lspci -mmnn (pciutils) / lspci -m (busybox: "Class 0300" "8086" "0166")
+#   2. /sys/class/drm/card[0-9]* -- SoC GPUs (vc4, v3d, panfrost, lima, msm,
+#      asahi, etnaviv ...) have no PCI address at all, and minimal systems
+#      (Alpine, Termux, containers) often lack lspci.
+# Globals: _GPU_BUS _GPU_VENDOR _GPU_DEVICE _GPU_AIB _GPU_DRV _GPU_SYS
+#          _GPU_VID _GPU_DID _GPU_COMPAT (parallel arrays)
 
-# ─── Adapter list (machine-readable, quoted) ─────────────────────
-# lspci -mmnn:  01:00.0 "VGA compatible controller [0300]" "NVIDIA Corporation [10de]" "GP107 [GeForce GTX 1050 Ti] [1c82]" ...
-gpu_adapters() {
-    _GPU_BUS=() _GPU_VENDOR=() _GPU_DEVICE=() _GPU_AIB=()
-    local line bus vendor device aib
-    while IFS= read -r line; do
-        [[ "$line" =~ '"VGA compatible controller' || "$line" =~ '"3D controller' ]] || continue
-        set -- $line
-        bus=$1
-        vendor=$(printf '%s' "$line" | awk -F'"' '{print $4}')
-        device=$(printf '%s' "$line" | awk -F'"' '{print $6}')
-        [[ -z "$device" ]] && device="$vendor" && vendor=""
-        aib=$(gpu_aib_vendor "$bus")
-        _GPU_BUS+=("$bus")
-        _GPU_VENDOR+=("$vendor")
-        _GPU_DEVICE+=("$device")
-        _GPU_AIB+=("$aib")
-    done < <(lspci -mmnn 2>/dev/null)
+# _gpu_pci_sys BUS -> sets _GPU_SYSP (sysfs dir or "")
+_gpu_pci_sys() {
+    local b="$1" c
+    _GPU_SYSP=""
+    [[ -n "$b" ]] || return 0
+    [[ "$b" == *:*:* ]] || b="0000:$b"
+    if [[ -d "/sys/bus/pci/devices/$b" ]]; then _GPU_SYSP="/sys/bus/pci/devices/$b"; return 0; fi
+    for c in /sys/bus/pci/devices/*:"${1}"; do
+        [[ -d "$c" ]] && { _GPU_SYSP=$c; return 0; }
+    done
 }
 
+# _gpu_drv_of SYSDIR -> sets _GPU_DRVN (bound kernel driver or "")
+_gpu_drv_of() {
+    local l=""
+    _GPU_DRVN=""
+    [[ -n "$1" && -e "$1/driver" ]] || return 0
+    l=$(readlink "$1/driver" 2>/dev/null) || l=""
+    _GPU_DRVN=${l##*/}
+}
+
+# Vendor for platform (non-PCI) GPUs, by DRM driver name.
+_gpu_soc_vendor() {
+    case "$1" in
+        vc4|v3d)                      printf 'Broadcom' ;;
+        panfrost|panthor|lima|mali*)  printf 'ARM Mali' ;;
+        msm)                          printf 'Qualcomm Adreno' ;;
+        asahi|apple*)                 printf 'Apple' ;;
+        etnaviv)                      printf 'Vivante' ;;
+        tegra|nouveau)                printf 'NVIDIA' ;;
+        i915|xe)                      printf 'Intel' ;;
+        amdgpu|radeon)                printf 'AMD' ;;
+        sun4i-drm|sun4i*)             printf 'Allwinner' ;;
+        rockchip*)                    printf 'Rockchip' ;;
+        meson*)                       printf 'Amlogic' ;;
+        mediatek*)                    printf 'MediaTek' ;;
+        imx*|mxsfb)                   printf 'NXP' ;;
+        exynos*)                      printf 'Samsung' ;;
+        powervr|pvr*)                 printf 'Imagination' ;;
+        virtio_gpu|virtio-gpu)        printf 'VirtIO' ;;
+        vmwgfx)                       printf 'VMware' ;;
+        qxl|bochs*|cirrus*)           printf 'QEMU' ;;
+        vboxvideo)                    printf 'VirtualBox' ;;
+        *)                            printf '' ;;
+    esac
+}
+
+_gpu_add() {  # bus vendor device aib drv sys vid did compat
+    _GPU_BUS+=("$1") _GPU_VENDOR+=("$2") _GPU_DEVICE+=("$3") _GPU_AIB+=("$4")
+    _GPU_DRV+=("$5") _GPU_SYS+=("$6") _GPU_VID+=("$7") _GPU_DID+=("$8") _GPU_COMPAT+=("$9")
+}
+
+gpu_adapters() {
+    _GPU_BUS=() _GPU_VENDOR=() _GPU_DEVICE=() _GPU_AIB=() _GPU_DRV=() _GPU_SYS=()
+    _GPU_VID=() _GPU_DID=() _GPU_COMPAT=()
+    local line bus cls vendor device aib out="" sys vid did _GPU_SYSP _GPU_DRVN
+    local re='^([^ ]+) "([^"]*)" "([^"]*)" "([^"]*)"'
+    local -A seen=()
+    if command -v lspci >/dev/null 2>&1; then
+        out=$(lspci -mmnn 2>/dev/null) || out=""
+        [[ -n "$out" ]] || out=$(lspci -m 2>/dev/null) || out=""
+    fi
+    while IFS= read -r line; do
+        [[ "$line" =~ $re ]] || continue
+        bus=${BASH_REMATCH[1]} cls=${BASH_REMATCH[2]}
+        vendor=${BASH_REMATCH[3]} device=${BASH_REMATCH[4]}
+        # Display class 03xx: VGA [0300], XGA [0301], 3D [0302], Display
+        # controller [0380]; busybox prints the raw "Class 0300".
+        [[ "$cls" =~ \[03[0-9a-fA-F][0-9a-fA-F]\]$ || "$cls" =~ ^Class\ 03 ]] || continue
+        _gpu_pci_sys "$bus"; sys=$_GPU_SYSP
+        vid="" did=""
+        [[ -n "$sys" ]] && { wu_read "$sys/vendor" vid || true; wu_read "$sys/device" did || true; }
+        vid=${vid#0x} did=${did#0x}
+        # busybox: bare hex ids instead of names -> resolve via pci.ids
+        if [[ "$vendor" =~ ^[0-9a-fA-F]{4}$ && "$device" =~ ^[0-9a-fA-F]{4}$ ]]; then
+            [[ -n "$vid" ]] || vid=${vendor,,}; [[ -n "$did" ]] || did=${device,,}
+            local nm; nm=$(wu_pci_name "$vendor" "$device")
+            device=${nm:-$vendor:$device}; vendor=""
+        fi
+        [[ -z "$device" ]] && device="$vendor" && vendor=""
+        aib=$(gpu_aib_vendor "$bus")
+        _gpu_drv_of "$sys"
+        _gpu_add "$bus" "$vendor" "$device" "$aib" "$_GPU_DRVN" "$sys" "$vid" "$did" ""
+        [[ -n "$sys" ]] && seen[$sys]=1
+    done <<< "$out"
+
+    # sysfs DRM fallback / SoC GPUs
+    local card dev rp ue k v slot compat drvn name n0=${#_GPU_BUS[@]}
+    for card in /sys/class/drm/card[0-9]*; do
+        [[ -e "$card/device" ]] || continue
+        [[ "${card##*/}" == *-* ]] && continue          # connectors card0-HDMI-A-1
+        dev="$card/device"
+        # canonical path (one subshell per card; there are only 1..3 cards)
+        rp=$(cd -P "$dev" 2>/dev/null && pwd) || rp=$dev
+        [[ -n "${seen[$rp]+x}" ]] && continue
+        slot="" compat="" drvn="" vid="" did=""
+        if [[ -r "$dev/uevent" ]]; then
+            while IFS='=' read -r k v; do
+                case "$k" in
+                    PCI_SLOT_NAME)   slot=$v ;;
+                    OF_COMPATIBLE_0) compat=$v ;;
+                    DRIVER)          drvn=$v ;;
+                    PCI_ID)          vid=${v%%:*} did=${v#*:} ;;
+                esac
+            done < "$dev/uevent" 2>/dev/null || true
+        fi
+        [[ -n "$drvn" ]] || { _gpu_drv_of "$dev"; drvn=$_GPU_DRVN; }
+        if [[ -n "$slot" && -d "/sys/bus/pci/devices/$slot" ]]; then
+            rp="/sys/bus/pci/devices/$slot"
+            [[ -n "${seen[$rp]+x}" ]] && continue
+            [[ -n "$vid" ]] || { wu_read "$rp/vendor" vid || true; wu_read "$rp/device" did || true; }
+        fi
+        # generic firmware framebuffers only when nothing better exists
+        case "$drvn" in simpledrm|simple-framebuffer|ofdrm|efidrm|vesadrm)
+            (( n0 )) && continue ;;
+        esac
+        seen[$rp]=1
+        vid=${vid#0x} did=${did#0x} vid=${vid,,} did=${did,,}
+        vendor="" name=""
+        if [[ -n "$vid" && -n "$did" ]]; then
+            name=$(wu_pci_name "$vid" "$did")
+            [[ -n "$name" ]] || name="[$vid:$did]"
+        elif [[ -n "$compat" ]]; then
+            name=$compat                                  # "brcm,bcm2711-vc5"
+        fi
+        case "$vid" in
+            10de) vendor=NVIDIA ;; 1002|1022) vendor=AMD ;; 8086) vendor=Intel ;;
+            *)    vendor=$(_gpu_soc_vendor "$drvn") ;;
+        esac
+        [[ -n "$name" ]] || name=${vendor:-${drvn:-${card##*/}}}
+        aib=""; [[ -n "$slot" ]] && aib=$(gpu_aib_vendor "$slot")
+        _gpu_add "${slot:-${card##*/}}" "$vendor" "$name" "$aib" "$drvn" "$rp" "$vid" "$did" "$compat"
+    done
+}
+
+# gpu_driver BUS -- kept for compatibility (bound driver of a PCI bus).
 gpu_driver() {
-    local bus="$1" drv _dev
-    _dev="/sys/bus/pci/devices/0000:${bus}"
-    [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
-    [[ -d "$_dev" ]] || { printf ''; return; }
-    drv=$(readlink "${_dev}/driver" 2>/dev/null || true)
-    [[ -n "$drv" ]] && printf '%s' "$(basename "$drv")" || true
+    local _GPU_SYSP _GPU_DRVN
+    _gpu_pci_sys "$1"; _gpu_drv_of "$_GPU_SYSP"
+    printf '%s' "$_GPU_DRVN"
+}
+
+# _gpu_hwmon_temp SYSDIR -> sets _GPU_T (°C integer or "")
+_gpu_hwmon_temp() {
+    local h v=""
+    _GPU_T=""
+    [[ -n "$1" ]] || return 0
+    for h in "$1"/hwmon/hwmon*/temp1_input; do
+        wu_read "$h" v || continue
+        [[ "$v" =~ ^[0-9]+$ ]] || continue
+        _GPU_T=$(( v / 1000 )); return 0
+    done
+}
+
+# _gpu_mhz MHZ -> sets _GPU_F ("1.61 GHz" / "810 MHz"), integer math only
+_gpu_mhz() {
+    local m=$1 r
+    if (( m >= 1000 )); then
+        r=$(( (m + 5) / 10 ))
+        printf -v _GPU_F '%d.%02d GHz' $(( r / 100 )) $(( r % 100 ))
+    else
+        _GPU_F="$m MHz"
+    fi
+}
+
+# Map every NVIDIA display-class PCI function to its own AIB partner.
+# Fills the associative array named _nvaib (declared by caller).
+_gpu_nv_aib_map() {
+    local d v c b
+    for d in /sys/bus/pci/devices/*; do
+        wu_read "$d/vendor" v || continue
+        [[ "$v" == 0x10de ]] || continue
+        wu_read "$d/class" c || continue
+        [[ "$c" == 0x03* ]] || continue
+        b=${d##*/}
+        _nvaib[$b]=$(gpu_aib_vendor "$b")
+    done
+}
+
+# NVML power-sample average for ONE card (power.draw is [N/A] on some GPUs).
+_gpu_nv_power_avg() {
+    local idx="$1" l in=0 k v
+    _GPU_PW=""
+    [[ "$idx" =~ ^[0-9]+$ ]] || return 0
+    while IFS= read -r l; do
+        case "$l" in
+            *"Power Samples"*) in=1; continue ;;
+        esac
+        k=${l%%:*}; v=${l#*:}
+        wu_trim "$k" k; wu_trim "$v" v
+        if (( in )) && [[ "$k" == Avg ]] || [[ "$k" == "Average Power Draw" ]]; then
+            v=${v%% *}
+            [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] && { _GPU_PW=$v; return 0; }
+        fi
+    done < <(nvidia-smi -q -d POWER -i "$idx" 2>/dev/null || true)
+}
+
+# Parse one nvidia-smi CSV line into the nv_* variables (fork-free).
+_NV_Q=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed,pci.bus_id
+_gpu_nv_parse() {
+    local x
+    IFS=',' read -r nv_idx nv_name nv_drv nv_memtot nv_memused nv_temp nv_util nv_clk_sm nv_clk_mem nv_pow nv_fan nv_bus <<< "$1"
+    for x in nv_idx nv_name nv_drv nv_memtot nv_memused nv_temp nv_util nv_clk_sm nv_clk_mem nv_pow nv_fan nv_bus; do
+        wu_trim "${!x}" "$x"
+    done
+    # nvidia-smi sometimes keeps units even with nounits ("1605 MHz", "45 %")
+    nv_memtot=${nv_memtot% MiB} nv_memused=${nv_memused% MiB}
+    nv_util=${nv_util% %} nv_fan=${nv_fan% %}
+    nv_clk_sm=${nv_clk_sm% MHz} nv_clk_mem=${nv_clk_mem% MHz} nv_pow=${nv_pow% W}
+    nv_bus=${nv_bus// /}
+    # nvidia-smi reports 00000000:01:00.0; sysfs uses 0000:01:00.0
+    nv_bus=${nv_bus/#00000000:/0000:}
 }
 
 # ─── Sections ───────────────────────────────────────────────────
 print_gpu_list() {
-    if ! command -v lspci &>/dev/null; then
-        pline "${DIM}$(t gpu_pciutils)${RESET}"
-        return
-    fi
     gpu_adapters
 
     if (( ${#_GPU_BUS[@]} == 0 )); then
         pline "${DIM}$(t gpu_none)${RESET}"
+        command -v lspci &>/dev/null || pline "${DIM}$(t gpu_pciutils)${RESET}"
         return
     fi
 
-    local i bus vendor device drv aib
+    local i bus vendor device drv aib disp_name unk
+    unk=$(t blk_smart_unknown)
     for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
-        bus=${_GPU_BUS[$i]}
-        vendor=${_GPU_VENDOR[$i]}
-        device=${_GPU_DEVICE[$i]}
-        drv=$(gpu_driver "$bus")
-        aib=${_GPU_AIB[$i]}
-
-        local disp_name="${device}"
+        bus=${_GPU_BUS[i]} vendor=${_GPU_VENDOR[i]} device=${_GPU_DEVICE[i]}
+        drv=${_GPU_DRV[i]} aib=${_GPU_AIB[i]}
+        disp_name="${device}"
         [[ -n "$aib" ]] && disp_name="${aib} ${device}"
-
-        # Explicit per-adapter index (GPU1, GPU2, ...) so a multi-GPU box
-        # is readable; the PCI bus is shown for unambiguous identification.
-        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) $((i + 1))" "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
-        pline_sub "${DIM}${bus}${RESET}  $(t gpu_driver): ${W}${drv:-$(t blk_smart_unknown)}${RESET}"
+        # Explicit 1-based index (GPU 1, GPU 2, ...) -- same numbering as
+        # the DETAILS box; the bus identifies the card unambiguously.
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu) $((i + 1))" "${disp_name}${vendor:+  ${DIM}(${vendor})${RESET}}"
+        pline_sub "${DIM}${bus}${RESET}  $(t gpu_driver): ${W}${drv:-$unk}${RESET}"
     done
 }
 
 print_nvidia() {
-    local out line
-    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed,pci.bus_id \
-        --format=csv,noheader,nounits 2>/dev/null) || out=""
+    local out line unk
+    unk=$(t blk_smart_unknown)
+    out=$(nvidia-smi --query-gpu="$_NV_Q" --format=csv,noheader,nounits 2>/dev/null) || out=""
     [[ -z "$out" ]] && { pline "${DIM}$(t gpu_nvidia_none)${RESET}"; return; }
 
-    # Map every NVIDIA PCI bus (0000:dd:bb.f) to its AIB partner name from
-    # sysfs subsystem_vendor. With multiple cards each bus is resolved
-    # independently so two cards from different vendors keep distinct names.
     local -A _nvaib=()
-    for _aib_dir in /sys/bus/pci/devices/*/; do
-        [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
-        local _class
-        _class=$(cat "${_aib_dir}class" 2>/dev/null || echo "")
-        [[ "$_class" == "0x030000" || "$_class" == "0x030200" ]] || continue
-        local _aibb=$(basename "$_aib_dir")
-        _nvaib[$_aibb]=$(gpu_aib_vendor "$_aibb")
-    done
+    _gpu_nv_aib_map
 
-    local idx name drv memtot memused temp util clk_sm clk_mem pow fan bus
-    local n=0
+    local nv_idx nv_name nv_drv nv_memtot nv_memused nv_temp nv_util nv_clk_sm nv_clk_mem nv_pow nv_fan nv_bus
+    local n=0 name txt _GPU_F _GPU_PW
     while IFS= read -r line; do
-        IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan bus <<< "$line"
-        name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
-        bus=$(printf '%s' "$bus" | tr -d ' ')
-        # nvidia-smi reports 00000000:01:00.0; sysfs uses 0000:01:00.0
-        local _nb="${bus/00000000:/0000:}"
-        # bus can be empty on truncated/odd nvidia-smi output; indexing the
-        # map with "" would abort the whole tool (bad array subscript).
-        [[ -n "$_nb" && -n "${_nvaib[$_nb]:-}" ]] && name="${_nvaib[$_nb]} ${name#NVIDIA }"
-        drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
-        memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
-        memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
-        temp=$(printf '%s' "$temp" | sed 's/^ *//;s/ *$//')
-        # nvidia-smi CSV keeps units ("1605 MHz", "355 W", "45 %"); strip them
-        # so the numeric checks below don't always degrade to "unknown".
-        util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//;s/ %$//')
-        clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//;s/ MHz$//')
-        clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//;s/ MHz$//')
-        pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//;s/ W$//')
-        fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//;s/ %$//')
-
-        pline_hw "$(_emu '🎮')" "$(t gpu_vendor) ${n}" "$name ${DIM}[${_nb}]${RESET}"
-        pline_hw "$(_emu '💾')" "$(t gpu_driver)" "$drv"
-
-        local temp_txt=""
-        [[ "$temp" =~ ^[0-9]+$ ]] && temp_txt="$temp°C" || temp_txt="$(t blk_smart_unknown)"
-        pline_hw "$(_emu '🌡')" "$(t gpu_temp)" "$temp_txt"
-
-        local mem_txt=""
-        if [[ "$memused" =~ ^[0-9]+$ && "$memtot" =~ ^[0-9]+$ ]]; then
-            mem_txt="$memused / $memtot MiB"
-            if (( memtot > 0 )); then
-                mem_txt="$mem_txt  ${DIM}$(( memused * 100 / memtot ))%${RESET}"
-            fi
-        else
-            mem_txt="$(t blk_smart_unknown)"
-        fi
-        pline_hw "$(_emu '🧩')" "$(t gpu_vram)" "$mem_txt"
-
-        local util_txt=""
-        [[ "$util" =~ ^[0-9]+$ ]] && util_txt="$util%" || util_txt="$(t blk_smart_unknown)"
-        pline_hw "$(_emu '⚡')" "$(t gpu_util)" "$util_txt"
-
-        local clk_txt=""
-        if [[ "$clk_sm" =~ ^[0-9]+$ && "$clk_mem" =~ ^[0-9]+$ ]]; then
-            local clk_gpu="" clk_mem_txt=""
-            if (( clk_sm >= 1000 )); then clk_gpu="$(awk "BEGIN {printf \"%.2f\", $clk_sm/1000}") GHz"; else clk_gpu="${clk_sm} MHz"; fi
-            if (( clk_mem >= 1000 )); then clk_mem_txt="$(awk "BEGIN {printf \"%.2f\", $clk_mem/1000}") GHz"; else clk_mem_txt="${clk_mem} MHz"; fi
-            clk_txt="$clk_gpu  ${DIM}/  mem $clk_mem_txt${RESET}"
-        else
-            clk_txt="$(t blk_smart_unknown)"
-        fi
-        pline_hw "$(_emu '🕐')" "$(t gpu_clocks)" "$clk_txt"
-
-        local pow_txt=""
-        if [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            pow_txt="${pow} W"
-        else
-            # power.draw is [N/A] on some cards -- fall back to the NVML
-            # power-sample average (Avg line of the Power Samples section).
-            pow=$(nvidia-smi -q -d POWER 2>/dev/null | grep -A6 'Power Samples' | sed -n 's/^[[:space:]]*Avg[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1) || true
-            [[ "$pow" =~ ^[0-9]+(\.[0-9]+)?$ ]] && pow_txt="~${pow} W" || pow_txt="$(t blk_smart_unknown)"
-        fi
-        pline_hw "$(_emu '🔌')" "$(t gpu_power)" "$pow_txt"
-
-        local fan_txt=""
-        [[ "$fan" =~ ^[0-9]+$ ]] && fan_txt="$fan%" || fan_txt="$(t blk_smart_unknown)"
-        pline_hw "$(_emu '🌀')" "$(t gpu_fan)" "$fan_txt"
+        [[ -n "$line" ]] || continue
+        _gpu_nv_parse "$line"
         n=$((n + 1))
+        name=$nv_name
+        # bus can be empty on truncated output; never index the map with "".
+        [[ -n "$nv_bus" && -n "${_nvaib[$nv_bus]:-}" ]] && name="${_nvaib[$nv_bus]} ${name#NVIDIA }"
+
+        pline_hw "$(_emu '🎮')" "$(t hw_gpu) ${n}" "$name${nv_bus:+ ${DIM}[${nv_bus}]${RESET}}"
+        pline_hw "$(_emu '💾')" "$(t gpu_driver)" "${nv_drv:-$unk}"
+
+        [[ "$nv_temp" =~ ^[0-9]+$ ]] && txt="$nv_temp°C" || txt=$unk
+        pline_hw "$(_emu '🌡')" "$(t gpu_temp)" "$txt"
+
+        if [[ "$nv_memused" =~ ^[0-9]+$ && "$nv_memtot" =~ ^[0-9]+$ ]]; then
+            txt="$nv_memused / $nv_memtot MiB"
+            (( nv_memtot > 0 )) && txt+="  ${DIM}$(( nv_memused * 100 / nv_memtot ))%${RESET}"
+        else
+            txt=$unk
+        fi
+        pline_hw "$(_emu '🧩')" "$(t gpu_vram)" "$txt"
+
+        [[ "$nv_util" =~ ^[0-9]+$ ]] && txt="$nv_util%" || txt=$unk
+        pline_hw "$(_emu '⚡')" "$(t gpu_util)" "$txt"
+
+        if [[ "$nv_clk_sm" =~ ^[0-9]+$ && "$nv_clk_mem" =~ ^[0-9]+$ ]]; then
+            _gpu_mhz "$nv_clk_sm"; txt=$_GPU_F
+            _gpu_mhz "$nv_clk_mem"; txt+="  ${DIM}/  mem ${_GPU_F}${RESET}"
+        else
+            txt=$unk
+        fi
+        pline_hw "$(_emu '🕐')" "$(t gpu_clocks)" "$txt"
+
+        if [[ "$nv_pow" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            txt="${nv_pow} W"
+        else
+            _gpu_nv_power_avg "$nv_idx"
+            [[ -n "$_GPU_PW" ]] && txt="~${_GPU_PW} W" || txt=$unk
+        fi
+        pline_hw "$(_emu '🔌')" "$(t gpu_power)" "$txt"
+
+        [[ "$nv_fan" =~ ^[0-9]+$ ]] && txt="$nv_fan%" || txt=$unk
+        pline_hw "$(_emu '🌀')" "$(t gpu_fan)" "$txt"
     done <<< "$out"
+}
+
+# Temperatures of non-NVIDIA GPUs from their hwmon (amdgpu/radeon/nouveau/
+# i915/xe, SoC GPUs with a thermal hwmon under the DRM device).
+print_hwmon_gpus() {
+    local i _GPU_T any=0
+    for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
+        [[ "${_GPU_DRV[i]}" == nvidia ]] && continue
+        _gpu_hwmon_temp "${_GPU_SYS[i]}"
+        [[ -n "$_GPU_T" ]] || continue
+        any=1
+        pline_hw "$(_emu '🌡')" "$(t hw_gpu) $((i + 1))" "${_GPU_T}°C  ${DIM}(${_GPU_DRV[i]:-hwmon})${RESET}"
+    done
+    (( any )) || pline "${DIM}$(t gpu_no_hwmon)${RESET}"
 }
 
 # ─── JSON output ────────────────────────────────────────────────
@@ -176,57 +340,40 @@ json_out() {
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "adapters": [\n'
-    local first=1 i bus vendor device drv aib
+    local first=1 i _GPU_T
     for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
-        bus=${_GPU_BUS[$i]}
-        vendor=${_GPU_VENDOR[$i]}
-        device=${_GPU_DEVICE[$i]}
-        drv=$(gpu_driver "$bus")
-        aib=${_GPU_AIB[$i]}
         (( first )) && first=0 || printf ',\n'
-        printf '    { "bus": "%s", "vendor": "%s", "device": "%s", "subsystem_vendor": "%s", "driver": "%s" }' \
-            "$(json_esc "$bus")" "$(json_esc "$vendor")" "$(json_esc "$device")" "$(json_esc "$aib")" "$(json_esc "$drv")"
+        _gpu_hwmon_temp "${_GPU_SYS[i]}"
+        printf '    { "index": %d, "bus": "%s", "vendor": "%s", "device": "%s", "subsystem_vendor": "%s", "driver": "%s", "vendor_id": "%s", "device_id": "%s", "compatible": "%s", "temp_c": %s }' \
+            $((i + 1)) "$(json_esc "${_GPU_BUS[i]}")" "$(json_esc "${_GPU_VENDOR[i]}")" "$(json_esc "${_GPU_DEVICE[i]}")" \
+            "$(json_esc "${_GPU_AIB[i]}")" "$(json_esc "${_GPU_DRV[i]}")" "$(json_esc "${_GPU_VID[i]}")" \
+            "$(json_esc "${_GPU_DID[i]}")" "$(json_esc "${_GPU_COMPAT[i]}")" "$(wu_json_num "$_GPU_T")"
     done
     printf '\n  ],\n'
 
     printf '  "nvidia": [\n'
-    local out line
-    out=$(nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,temperature.gpu,utilization.gpu,clocks.sm,clocks.mem,power.draw,fan.speed,pci.bus_id \
-        --format=csv,noheader,nounits 2>/dev/null) || out=""
+    local out="" line aib
+    command -v nvidia-smi >/dev/null 2>&1 && { out=$(nvidia-smi --query-gpu="$_NV_Q" --format=csv,noheader,nounits 2>/dev/null) || out=""; }
     first=1
     if [[ -n "$out" ]]; then
-        # Map every NVIDIA PCI bus to its own AIB partner (multi-GPU safe)
         local -A _nvaib=()
-        for _nvdir in /sys/bus/pci/devices/*/; do
-            [[ "$(cat "${_nvdir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
-            local _nvclass
-            _nvclass=$(cat "${_nvdir}class" 2>/dev/null || echo "")
-            [[ "$_nvclass" == "0x030000" || "$_nvclass" == "0x030200" ]] || continue
-            local _nvbb=$(basename "$_nvdir")
-            _nvaib[$_nvbb]=$(gpu_aib_vendor "$_nvbb")
-        done
-        local idx name drv memtot memused temp util clk_sm clk_mem pow fan bus nvb
+        _gpu_nv_aib_map
+        local nv_idx nv_name nv_drv nv_memtot nv_memused nv_temp nv_util nv_clk_sm nv_clk_mem nv_pow nv_fan nv_bus _GPU_PW
         while IFS= read -r line; do
-            IFS=',' read -r idx name drv memtot memused temp util clk_sm clk_mem pow fan bus <<< "$line"
-            name=$(printf '%s' "$name" | sed 's/^ *//;s/ *$//')
-            bus=$(printf '%s' "$bus" | tr -d ' ')
-            nvb="${bus/00000000:/0000:}"
-            [[ -n "${_nvaib[$nvb]:-}" ]] && name="${_nvaib[$nvb]} ${name#NVIDIA }"
-            drv=$(printf '%s' "$drv" | sed 's/^ *//;s/ *$//')
-            memtot=$(printf '%s' "$memtot" | sed 's/^ *//;s/ MiB//;s/ *$//')
-            memused=$(printf '%s' "$memused" | sed 's/^ *//;s/ MiB//;s/ *$//')
-            temp=$(printf '%s' "$temp" | sed 's/^ *//;s/ *$//')
-            util=$(printf '%s' "$util" | sed 's/^ *//;s/ *$//')
-            clk_sm=$(printf '%s' "$clk_sm" | sed 's/^ *//;s/ *$//')
-            clk_mem=$(printf '%s' "$clk_mem" | sed 's/^ *//;s/ *$//')
-            pow=$(printf '%s' "$pow" | sed 's/^ *//;s/ *$//')
-            fan=$(printf '%s' "$fan" | sed 's/^ *//;s/ *$//')
+            [[ -n "$line" ]] || continue
+            _gpu_nv_parse "$line"
+            aib=""
+            [[ -n "$nv_bus" ]] && aib=${_nvaib[$nv_bus]:-}
+            [[ -n "$aib" ]] && nv_name="${aib} ${nv_name#NVIDIA }"
+            if [[ ! "$nv_pow" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                _gpu_nv_power_avg "$nv_idx"; nv_pow=$_GPU_PW
+            fi
             (( first )) && first=0 || printf ',\n'
             printf '    { "index": %s, "name": "%s", "driver": "%s", "subsystem_vendor": "%s", "bus": "%s", "memory_total_mib": %s, "memory_used_mib": %s, "temp_c": %s, "utilization_percent": %s, "clock_sm_mhz": %s, "clock_mem_mhz": %s, "power_w": %s, "fan_percent": %s }' \
-                "$(wu_json_num "$idx")" "$(json_esc "$name")" "$(json_esc "$drv")" "$(json_esc "${_nvaib[$nvb]:-}")" "$(json_esc "$nvb")" \
-                "$(wu_json_num "$memtot")" "$(wu_json_num "$memused")" "$(wu_json_num "$temp")" \
-                "$(wu_json_num "$util")" "$(wu_json_num "$clk_sm")" "$(wu_json_num "$clk_mem")" \
-                "$(wu_json_num "$pow")" "$(wu_json_num "$fan")"
+                "$(wu_json_num "$nv_idx")" "$(json_esc "$nv_name")" "$(json_esc "$nv_drv")" "$(json_esc "$aib")" "$(json_esc "$nv_bus")" \
+                "$(wu_json_num "$nv_memtot")" "$(wu_json_num "$nv_memused")" "$(wu_json_num "$nv_temp")" \
+                "$(wu_json_num "$nv_util")" "$(wu_json_num "$nv_clk_sm")" "$(wu_json_num "$nv_clk_mem")" \
+                "$(wu_json_num "$nv_pow")" "$(wu_json_num "$nv_fan")"
         done <<< "$out"
     fi
     printf '\n  ]\n'
@@ -235,41 +382,29 @@ json_out() {
 
 # ─── Main ────────────────────────────────────────────────────────
 short_out() {
-    local out temp util
+    local out temp util maxt=0 maxu=0 cnt=0
     # Aggregate across ALL GPUs: max temperature + max utilization, and
-    # expose the card count when more than one is present. This is a
-    # per-processor tool, so a machine with two GPUs reports the hottest
-    # one rather than silently picking the first.
+    # expose the card count when more than one is present.
     if command -v nvidia-smi &>/dev/null; then
         out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || out=""
-        if [[ -n "$out" ]]; then
-            local maxt=0 maxu=0 cnt=0
-            while IFS=',' read -r temp util; do
-                temp=$(printf '%s' "$temp" | tr -d ' ')
-                util=$(printf '%s' "$util" | tr -d ' ')
-                cnt=$((cnt + 1))
-                [[ "$temp" =~ ^[0-9]+$ ]] && (( temp > maxt )) && maxt=$temp
-                [[ "$util" =~ ^[0-9]+$ ]] && (( util > maxu )) && maxu=$util
-            done <<< "$out"
-            if (( cnt > 0 )); then
-                if (( cnt > 1 )); then
-                    printf '%dx  %s°C  %d%%\n' "$cnt" "$maxt" "$maxu"
-                else
-                    printf '%s°C %d%%\n' "$maxt" "$maxu"
-                fi
-                return 0
-            fi
+        while IFS=',' read -r temp util; do
+            [[ -n "$temp$util" ]] || continue
+            temp=${temp// /} util=${util// /}
+            cnt=$((cnt + 1))
+            [[ "$temp" =~ ^[0-9]+$ ]] && (( temp > maxt )) && maxt=$temp
+            [[ "$util" =~ ^[0-9]+$ ]] && (( util > maxu )) && maxu=$util
+        done <<< "$out"
+        if (( cnt > 1 )); then
+            printf '%dx  %s°C  %d%%\n' "$cnt" "$maxt" "$maxu"; return 0
+        elif (( cnt == 1 )); then
+            printf '%s°C %d%%\n' "$maxt" "$maxu"; return 0
         fi
     fi
-    local d name f t maxt=0 hdir
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name=$(cat "$d" 2>/dev/null || true)
-        [[ "$name" == amdgpu || "$name" == i915 ]] || continue
-        hdir=$(dirname "$d")
-        f="$hdir/temp1_input"
-        [[ -f "$f" ]] || continue
-        t=$(cat "$f" 2>/dev/null || true)
+    local d name t
+    for d in /sys/class/hwmon/hwmon*; do
+        wu_read "$d/name" name || continue
+        case "$name" in amdgpu|radeon|nouveau|i915|xe) ;; *) continue ;; esac
+        wu_read "$d/temp1_input" t || continue
         [[ "$t" =~ ^[0-9]+$ ]] || continue
         t=$(( t / 1000 ))
         (( t > maxt )) && maxt=$t
@@ -289,8 +424,15 @@ main() {
     if command -v nvidia-smi &>/dev/null; then
         box "$(_emu '⚡')" "$(t gpu_detail)" print_nvidia
     fi
+    # Non-NVIDIA temperatures (AMD/Intel/nouveau/SoC); _GPU_* arrays were
+    # filled by print_gpu_list -- box() runs in the current shell.
+    local i hw=0
+    for (( i = 0; i < ${#_GPU_BUS[@]}; i++ )); do
+        [[ "${_GPU_DRV[i]}" != nvidia ]] && hw=1
+    done
+    (( hw )) && box "$(_emu '🌡')" "$(t gpu_temp)" print_hwmon_gpus
 
-    printf '\n  %sWellGPU v1.0 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellGPU v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

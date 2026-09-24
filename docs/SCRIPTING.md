@@ -18,8 +18,12 @@ Each document starts with the same few keys so the caller knows what it's
 looking at without guessing:
 
 ```json
-{ "tool": "wellcpu", "version": "1.4.0", "date": "2026-08-30", ... }
+{ "tool": "wellcpu", "version": "1.0", "suite_version": "1.4.0-54", "date": "2026-09-25 00:02:26", ... }
 ```
+
+`version` is the version of that one tool, `suite_version` is the
+wellutils release it came from (added in 1.4.0-54; older releases don't
+have it, so treat it as optional).
 
 Everything else is tool-specific. The exact shape is shown by real examples
 from an actual machine in [SAMPLES.md](../SAMPLES.md).
@@ -33,7 +37,7 @@ wellhw --json | jq -r '.cpu.model'
 # Load per core, as a small table
 wellcpu --json | jq -r '.load[] | "CPU\(.cpu)\t\(.usage_percent)%\t\(.freq_khz/1000) MHz"'
 
-# Hottest GPU sensor, no jq
+# Hottest GPU sensor, no jq (needs python3)
 wellsensors --json | python3 -c 'import json,sys;d=json.load(sys.stdin);t=[g["temp_c"] for g in (d.get("gpu") or []) if g.get("temp_c")];print(max(t) if t else "-")'
 
 # What kind of uplink am I on right now?
@@ -53,6 +57,9 @@ checks from the raw JSON too:
 welldoctor --json | jq -e '.summary.critical == 0' >/dev/null \
   || echo "welldoctor reports trouble"
 
+# or just use its exit code: 0 healthy, 1 warnings, 2 critical, 3 error
+welldoctor --short || echo "welldoctor: rc=$?"
+
 # hardware inventory diff for config management
 wellhw --snapshot /etc/wellutils/hw.json
 wellhw --diff /etc/wellutils/hw.json              # what changed since last week
@@ -60,8 +67,9 @@ wellhw --diff /etc/wellutils/hw.json              # what changed since last week
 
 ## Keeping it ascii-safe
 
-Every tool honours the same flags, so your scripts can look the same in logs,
-status bars and plain viewing:
+The Linux tools honour the same common flags, so your scripts can look the
+same in logs, status bars and plain viewing (the Windows port has no
+`--json`/`--short`/`--html`, so these recipes are Linux-only):
 
 ```sh
 wellfetch --no-emoji              # logs that don't mangle in plain (tty) terminals

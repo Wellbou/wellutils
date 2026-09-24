@@ -14,38 +14,8 @@ _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
-command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
-command -v df     >/dev/null 2>&1 || df()     { :; }
-command -v uptime >/dev/null 2>&1 || uptime() { :; }
 command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
-
-# `uptime -p` needs procps-ng >= 3.3.4 (absent on Debian 7 / wheezy); there
-# `uptime -p` fails with rc=1 and, under `set -eou pipefail`, would kill the
-# whole tool via the command-substitution rc. Probe support once and fall back
-# to the classic "up X days" form; empty string when even that is missing.
-ws_uptime() {
-    if LC_ALL=C uptime -p >/dev/null 2>&1; then
-        LC_ALL=C uptime -p 2>/dev/null | sed 's/up //'
-    else
-        LC_ALL=C uptime 2>/dev/null | sed -n 's/.* up //;s/,.*//p'
-    fi
-}
-
-# hwmon dedupe: /sys/class/hwmon/hwmonN is a symlink into the device tree, and
-# several drivers (f71882fg …) also shadow the very same attrs on the parent
-# device node. Iterating both bases can therefore surface one temp/fan file
-# twice; the zoo of devices caught exactly that. Track normalized paths and
-# only ever process a file once.
-_WS_SEEN=()
-_ws_seen_input() {
-    local p
-    p=$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")
-    [[ " ${_WS_SEEN[*]-} " == *" $p "* ]] && return 1
-    _WS_SEEN+=("$p")
-    return 0
-}
-
 
 RED_BG=$'\033[1;97;41m'
 ORANGE=$'\033[1;38;5;208m'
@@ -77,253 +47,321 @@ ws_extra_parse() {
 _WU_EXTRA_PARSE=ws_extra_parse
 _WU_EXTRA_HELP="      --cli [sec]             live view, refresh every sec (default 2)"
 
-# Temperature color gradient
-temp_color() {
-    local t=$1
-    if   (( t < 40 )); then printf '%s' "$G"
-    elif (( t < 55 )); then printf '%s' "$Y"
-    elif (( t < 70 )); then printf '%s' "$ORANGE"
-    elif (( t < 85 )); then printf '%s' "$R"
-    else                     printf '%s' "$RED_BG"
-    fi
+# ─── Rendering helpers (fork-free: they set variables) ──────────
+# Emoji and bar glyphs are resolved once per run in _ws_init_glyphs
+# (after the CLI decided about emoji/unicode), not per sensor row.
+_WS_E=() _WS_BARS=() _WS_IC_FAN="" _WS_IC_MIN="" _WS_IC_AVG="" _WS_IC_MAX=""
+_ws_init_glyphs() {
+    _WS_E=( "$(_emu '❄')" "$(_emu '🌊')" "$(_emu '🔥')" "$(_emu '🌋')" "$(_emu '💀')" )
+    _WS_IC_FAN=$(_ic '💨') _WS_IC_MIN=$(_ic '📈') _WS_IC_AVG=$(_ic '📉') _WS_IC_MAX=$(_ic '🔺')
+    local i s="" g
+    _WS_BARS=()
+    for (( i = 0; i < 8; i++ )); do
+        g=$(wu_scale "$i"); s+=$g; _WS_BARS+=("$s")
+    done
 }
 
-temp_bar() {
-    local t=$1 max=${2:-100}
-    local idx=$(( t * 8 / max ))
+# _ws_color_v T -> _WS_COL
+_ws_color_v() {
+    local t=$1
+    if   (( t < 40 )); then _WS_COL=$G
+    elif (( t < 55 )); then _WS_COL=$Y
+    elif (( t < 70 )); then _WS_COL=$ORANGE
+    elif (( t < 85 )); then _WS_COL=$R
+    else                     _WS_COL=$RED_BG
+    fi
+}
+# _ws_emoji_v T -> _WS_EMO
+_ws_emoji_v() {
+    local t=$1
+    if   (( t < 35 )); then _WS_EMO=${_WS_E[0]-}
+    elif (( t < 50 )); then _WS_EMO=${_WS_E[1]-}
+    elif (( t < 65 )); then _WS_EMO=${_WS_E[2]-}
+    elif (( t < 80 )); then _WS_EMO=${_WS_E[3]-}
+    else                     _WS_EMO=${_WS_E[4]-}
+    fi
+}
+# _ws_bar_v T [MAX] -> _WS_BAR (colored)
+_ws_bar_v() {
+    local t=$1 max=${2:-100} idx _WS_COL
+    (( max > 0 )) || max=100
+    idx=$(( t * 8 / max ))
     (( idx > 7 )) && idx=7
     (( idx < 0 )) && idx=0
-    local color
-    color=$(temp_color "$t")
-    printf '%s' "$color"
-    for (( i=0; i<=idx; i++ )); do
-        wu_scale "$i"
+    _ws_color_v "$t"
+    _WS_BAR="${_WS_COL}${_WS_BARS[idx]-}${RESET}"
+}
+
+# Backward-compatible printing wrappers.
+temp_color() { local _WS_COL; _ws_color_v "$1"; printf '%s' "$_WS_COL"; }
+temp_emoji() { local _WS_EMO; _ws_emoji_v "$1"; printf '%s' "$_WS_EMO"; }
+temp_bar()   { local _WS_BAR; _ws_bar_v "$1" "${2:-100}"; printf '%s' "$_WS_BAR"; }
+
+_WS_LW=16   # label column: capped AND padded to the same width
+# tline LABEL TEMP [BARMAX] [SUFFIX] [NOCAP]
+tline() {
+    local label="$1" temp="$2" bmax="${3:-100}" suffix="${4:-}" nocap="${5:-}"
+    local _WS_COL _WS_EMO _WS_BAR _WU_CAP _WU_VL val pad
+    _ws_color_v "$temp"; _ws_emoji_v "$temp"; _ws_bar_v "$temp" "$bmax"
+    if [[ -z "$nocap" ]]; then _wu_cap_v "$label" "$_WS_LW"; label=$_WU_CAP; fi
+    _wu_vislen_v "$label"
+    printf -v pad '%*s' $(( _WU_VL < _WS_LW ? _WS_LW - _WU_VL : 0 )) ''
+    printf -v val '%4d°C' "$temp"
+    _LINES+=( "  ${_WS_EMO} ${BOLD}${W}${label}${pad}${RESET} ${_WS_COL}${val}${RESET}  ${_WS_BAR}${suffix}" )
+}
+
+# ─── Sensor classification: ONE list used by every section ──────
+# _ws_class NAME -> _WS_CLS = cpu | gpu | acpi | disk | other
+_ws_class() {
+    case "$1" in
+        coretemp|k10temp|k8temp|zenpower|via_cputemp|cputemp|cpu_temp|ibmpowernv|macsmc*|\
+        cpu*thermal*|*-cpu-thermal|*_cpu_thermal|soc*thermal*|soc_dts*|cpuss*|bigcore*|littlecore*|\
+        cluster*thermal*|loongson*|sparc*temp*|x86_pkg_temp)
+            _WS_CLS=cpu ;;
+        amdgpu|radeon|nouveau|i915|xe|gpu*thermal*|*-gpu-thermal)
+            _WS_CLS=gpu ;;
+        acpitz|acpitz_*|acpitz-*)
+            _WS_CLS=acpi ;;
+        nvme|drivetemp)
+            _WS_CLS=disk ;;
+        *)  _WS_CLS=other ;;
+    esac
+}
+
+# ─── One fork-free hwmon scan shared by all sections ────────────
+# hwmonN is either the attribute dir itself or (old drivers such as
+# f71882fg) a stub whose attrs live on the parent device. We take exactly
+# ONE source dir per hwmon and de-duplicate source dirs by inode (-ef), so
+# no file is ever read twice and no readlink/cat forks are needed.
+_ws_has_inputs() {
+    local a
+    for a in "$1"/temp*_input "$1"/fan*_input; do [[ -e "$a" ]] && return 0; done
+    return 1
+}
+
+_ws_scan() {
+    _WS_H_DIR=() _WS_H_NAME=() _WS_H_CLS=() _WS_H_VIRT=() _WS_H_NT=()
+    _WS_T_H=() _WS_T_IDX=() _WS_T_LBL=() _WS_T_C=() _WS_T_HI=() _WS_T_CR=() _WS_T_OK=() _WS_T_IN=()
+    _WS_F_H=() _WS_F_IDX=() _WS_F_RPM=()
+    local h src hn virt f fn idx v lbl hi cr ok u dup hidx nt a b c
+    local -a srcs=()
+    for h in /sys/class/hwmon/hwmon*; do
+        [[ -d "$h" ]] || continue
+        src=$h
+        if ! _ws_has_inputs "$h" && [[ -d "$h/device" ]] && _ws_has_inputs "$h/device"; then
+            src="$h/device"
+        fi
+        dup=0
+        for u in ${srcs[@]+"${srcs[@]}"}; do [[ "$u" -ef "$src" ]] && { dup=1; break; }; done
+        (( dup )) && continue
+        srcs+=("$src")
+        hn=""
+        wu_read "$h/name" hn || wu_read "$src/name" hn || true
+        wu_trim "$hn" hn
+        [[ -n "$hn" ]] || hn=chip
+        _ws_class "$hn"
+        # hwmon of a thermal zone (/sys/devices/virtual/thermal/...): those
+        # are already listed in THERMAL ZONES (ARM would show them twice).
+        virt=0
+        [[ -e "$h/device/available_policies" || -e "$h/device/policy" ]] && virt=1
+        hidx=${#_WS_H_DIR[@]}
+        nt=0
+        for f in "$src"/temp*_input; do
+            [[ -e "$f" ]] || continue
+            v=""; wu_read "$f" v || continue
+            [[ "$v" =~ ^-?[0-9]+$ ]] || continue
+            fn=${f##*/}; idx=${fn#temp}; idx=${idx%_input}
+            b=${f%_input}
+            lbl=""; wu_read "${b}_label" lbl || true
+            wu_trim "$lbl" lbl
+            hi="" cr=""
+            for a in high max crit; do
+                c=""; wu_read "${b}_$a" c || true
+                [[ "$c" =~ ^-?[0-9]+$ ]] || continue
+                (( c > 0 )) || continue
+                [[ "$a" == crit ]] && cr=$(( c / 1000 ))
+                [[ -z "$hi" ]] && hi=$(( c / 1000 ))
+            done
+            v=$(( v / 1000 ))
+            # fault/alarm set -> wire cut / unpopulated thermistor
+            ok=1
+            (( v <= 0 || v >= 150 )) && ok=0
+            for a in fault alarm crit_alarm; do
+                c=""; wu_read "${b}_$a" c || continue
+                [[ "$c" == 1 ]] && ok=0
+            done
+            _WS_T_H+=("$hidx") _WS_T_IDX+=("$idx") _WS_T_LBL+=("$lbl") _WS_T_C+=("$v")
+            _WS_T_HI+=("$hi") _WS_T_CR+=("$cr") _WS_T_OK+=("$ok") _WS_T_IN+=("$fn")
+            (( ok )) && nt=$(( nt + 1 ))
+        done
+        for f in "$src"/fan*_input; do
+            [[ -e "$f" ]] || continue
+            v=""; wu_read "$f" v || continue
+            [[ "$v" =~ ^[0-9]+$ ]] || continue
+            fn=${f##*/}; idx=${fn#fan}; idx=${idx%_input}
+            _WS_F_H+=("$hidx") _WS_F_IDX+=("$idx") _WS_F_RPM+=("$v")
+        done
+        _WS_H_DIR+=("$h") _WS_H_NAME+=("$hn") _WS_H_CLS+=("$_WS_CLS") _WS_H_VIRT+=("$virt") _WS_H_NT+=("$nt")
     done
-    printf '%s' "$RESET"
+    _WS_SHOWN=()
 }
+declare -A _WS_SHOWN=()
 
-temp_emoji() {
-    local t=$1
-    if   (( t < 35 )); then printf ''"$(_emu "❄")"''
-    elif (( t < 50 )); then printf ''"$(_emu "🌊")"''
-    elif (( t < 65 )); then printf ''"$(_emu "🔥")"''
-    elif (( t < 80 )); then printf ''"$(_emu "🌋")"''
-    else                     printf ''"$(_emu "💀")"''
+# NVIDIA: one nvidia-smi call per report, shared by GPU box, summary, JSON.
+_WS_NV_Q=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu,pci.bus_id
+_ws_nv_query() {
+    _WS_NV=""
+    command -v nvidia-smi >/dev/null 2>&1 || return 0
+    _WS_NV=$(nvidia-smi --query-gpu="$_WS_NV_Q" --format=csv,noheader,nounits 2>/dev/null) || _WS_NV=""
+    return 0
+}
+# _ws_nv_parse LINE -> nv_* vars (trimmed)
+_ws_nv_parse() {
+    local x
+    IFS=',' read -r nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus _ <<< "$1"
+    for x in nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus; do
+        wu_trim "${!x-}" "$x"
+    done
+    [[ "$nv_pow" == "[N/A]" || "$nv_pow" == "N/A" || -z "$nv_pow" ]] && nv_pow="N/A"
+    nv_bus=${nv_bus/#00000000:/0000:}
+    nv_aib="" nv_aibhex=""
+    if [[ -n "$nv_bus" ]]; then
+        nv_aib=$(gpu_aib_vendor "$nv_bus")
+        wu_read "/sys/bus/pci/devices/$nv_bus/subsystem_vendor" nv_aibhex || true
+        nv_aibhex=${nv_aibhex#0x}
     fi
-}
-
-# hwmon reads: skip sensors reporting fault/alarm (wire cut, unpopulated
-# thermistor) or the classic 127 C "open circuit" marker.
-valid_temp() {
-    local input_file="$1" temp="$2"
-    (( temp <= 0 || temp >= 150 )) && return 1
-    local idx
-    idx=$(basename "$input_file" | tr -cd '0-9')
-    local base="${input_file%_input}"
-    local fault_file="${base}_fault"
-    local alarm_file="${base}_alarm"
-    local crit_alarm_file="${base}_crit_alarm"
-    [[ -f "$fault_file" && "$(cat "$fault_file" 2>/dev/null || true)" == "1" ]] && return 1
-    [[ -f "$alarm_file" && "$(cat "$alarm_file" 2>/dev/null || true)" == "1" ]] && return 1
-    [[ -f "$crit_alarm_file" && "$(cat "$crit_alarm_file" 2>/dev/null || true)" == "1" ]] && return 1
+    [[ -n "$nv_aib" && "$nv_aib" != NVIDIA ]] && nv_name="${nv_aib} ${nv_name#NVIDIA }"
     return 0
 }
 
-tline() {
-    local emoji="$1" label="$2" temp="$3" bar="$4" suffix="${5:-}"
-    emoji="${emoji% }"
-    local color pad_l val
-    color=$(temp_color "$temp")
-    pad_l=$(_wu_pad_r "$label" 14)
-    val=$(printf '%4d°C' "$temp")
-    _LINES+=( "  ${emoji} ${BOLD}${W}${pad_l}${RESET} ${color}${val}${RESET}  ${bar}${suffix}" )
+# _ws_gpu_info HIDX -> _WS_GN (display name) _WS_GAIB _WS_GAIBHEX _WS_GBUS _WS_GMHZ
+_ws_gpu_info() {
+    local h=${_WS_H_DIR[$1]} hn=${_WS_H_NAME[$1]} d k v vid="" did="" slot="" r dn="" vend="" l
+    d="$h/device"
+    _WS_GN="" _WS_GAIB="" _WS_GAIBHEX="" _WS_GBUS="" _WS_GMHZ=""
+    if [[ -r "$d/uevent" ]]; then
+        while IFS='=' read -r k v; do
+            case "$k" in
+                PCI_SLOT_NAME) slot=$v ;;
+                PCI_ID) vid=${v%%:*} did=${v#*:} ;;
+            esac
+        done < "$d/uevent" 2>/dev/null || true
+    fi
+    case "$hn" in
+        amdgpu|radeon) vend=AMD ;;
+        i915|xe)       vend=Intel ;;
+        nouveau)       vend=NVIDIA ;;
+    esac
+    if [[ -n "$slot" ]]; then
+        _WS_GBUS=$slot
+        _WS_GAIB=$(gpu_aib_vendor "$slot")
+        wu_read "$d/subsystem_vendor" _WS_GAIBHEX || true
+        _WS_GAIBHEX=${_WS_GAIBHEX#0x}
+    fi
+    if [[ -n "$vid" && -n "$did" ]]; then
+        r=$(wu_pci_lookup "${vid,,}:${did,,}")
+        IFS=$'\t' read -r _ _ dn _ <<< "$r"
+    fi
+    if [[ -n "$dn" ]]; then
+        _WS_GN="${vend:+$vend }$dn"
+    else
+        case "$hn" in
+            amdgpu|radeon) _WS_GN="AMD GPU" ;;
+            i915|xe)       _WS_GN=$(t sens_intel_gpu) ;;
+            nouveau)       _WS_GN="NVIDIA GPU (nouveau)" ;;
+            *)             _WS_GN=$hn ;;
+        esac
+    fi
+    [[ -n "$_WS_GAIB" && "$_WS_GAIB" != "$vend" ]] && _WS_GN="$_WS_GAIB $_WS_GN"
+    # current core clock: hwmon freq1_input (Hz) or amdgpu pp_dpm_sclk "1: 1200Mhz *"
+    v=""
+    if wu_read "$h/freq1_input" v && [[ "$v" =~ ^[0-9]+$ ]] && (( v > 0 )); then
+        _WS_GMHZ=$(( v / 1000000 ))
+    elif [[ -r "$d/pp_dpm_sclk" ]]; then
+        while IFS= read -r l; do
+            [[ "$l" == *'*'* ]] || continue
+            l=${l#*: }; l=${l%% *}; l=${l%[Mm]hz}
+            [[ "$l" =~ ^[0-9]+$ ]] && _WS_GMHZ=$l
+            break
+        done < "$d/pp_dpm_sclk" 2>/dev/null || true
+    fi
+    return 0
 }
 
-print_cpu() {
-    local hwmon=""
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        local name
-        name=$(cat "$d" 2>/dev/null || true)
-        if [[ "$name" == "coretemp" ]]; then
-            hwmon=$(dirname "$d")
-            break
-        fi
+# _ws_gpu_temp HIDX -> _WS_GT (first valid temperature of that hwmon)
+_ws_gpu_temp() {
+    local i
+    _WS_GT=""
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        [[ "${_WS_T_H[i]}" == "$1" && "${_WS_T_OK[i]}" == 1 ]] || continue
+        (( _WS_T_C[i] < 125 )) || continue
+        _WS_GT=${_WS_T_C[i]}; return 0
     done
+}
 
-    if [[ -z "$hwmon" ]]; then
-        pline "${DIM}$(t sens_no_cpu)${RESET}"
-        return
+# Row label for a temp input: "Core 0", or "chip label/idx" on multi-input chips.
+_ws_label_v() {
+    local i=$1 h=${_WS_T_H[$1]} hn
+    hn=${_WS_H_NAME[h]}
+    if (( ${_WS_H_NT[h]} > 1 )); then
+        _WS_LBL="$hn ${_WS_T_LBL[i]:-${_WS_T_IDX[i]}}"
+    else
+        _WS_LBL=${_WS_T_LBL[i]:-$hn}
     fi
+}
 
-    for input_file in "$hwmon"/temp*_input; do
-        [[ -f "$input_file" ]] || continue
-        local idx
-        idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
-        local label_file="${hwmon}/temp${idx}_label"
-        local high_file="${hwmon}/temp${idx}_high"
-        local crit_file="${hwmon}/temp${idx}_crit"
-
-        local label="Sensor $idx"
-        [[ -f "$label_file" ]] && label=$(cat "$label_file" 2>/dev/null) || true
-
-        local raw_temp
-        raw_temp=$(cat "$input_file" 2>/dev/null) || continue
-        [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-        local temp=$(( raw_temp / 1000 ))
-
-        local high="-" crit="-"
-        if [[ -f "$high_file" ]]; then local _hv; _hv=$(cat "$high_file" 2>/dev/null) || true; [[ "$_hv" =~ ^-?[0-9]+$ ]] && high=$(( _hv / 1000 )); fi
-        if [[ -f "$crit_file" ]]; then local _cv; _cv=$(cat "$crit_file" 2>/dev/null) || true; [[ "$_cv" =~ ^-?[0-9]+$ ]] && crit=$(( _cv / 1000 )); fi
-
-        local color emoji bar suffix=""
-        color=$(temp_color "$temp")
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 100)
-        [[ "$high" != "-" ]] && suffix="  hi:${high}° crit:${crit}°"
-        # Thermal throttle alert
-        if [[ "$crit" != "-" ]] && (( temp >= crit )); then
+# ─── Sections ───────────────────────────────────────────────────
+print_cpu() {
+    local i h found=0 temp hi cr suffix lbl
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        h=${_WS_T_H[i]}
+        [[ "${_WS_H_CLS[h]}" == cpu ]] || continue
+        temp=${_WS_T_C[i]}
+        (( temp > -50 && temp < 200 )) || continue
+        hi=${_WS_T_HI[i]} cr=${_WS_T_CR[i]}
+        lbl=${_WS_T_LBL[i]}
+        [[ -n "$lbl" ]] || { (( ${_WS_H_NT[h]} > 1 )) && lbl="${_WS_H_NAME[h]} ${_WS_T_IDX[i]}" || lbl=${_WS_H_NAME[h]}; }
+        suffix=""
+        [[ -n "$hi" && "$hi" != "$cr" ]] && suffix+="  hi:${hi}°"
+        if [[ -n "$cr" ]]; then [[ -n "$suffix" ]] && suffix+=" " || suffix="  "; suffix+="crit:${cr}°"; fi
+        if [[ -n "$cr" ]] && (( temp >= cr )); then
             suffix+="  ${R}$(t sens_crit_throttle)${RESET}"
-        elif [[ "$high" != "-" ]] && (( temp >= high )); then
+        elif [[ -n "$hi" ]] && (( temp >= hi )); then
             suffix+="  ${Y}$(t sens_high_throttle)${RESET}"
         fi
-
-        tline "$emoji" "$label" "$temp" "$bar" "$suffix"
+        tline "$lbl" "$temp" 100 "$suffix"
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1
+        found=1
     done
+    (( found )) || pline "${DIM}$(t sens_no_cpu)${RESET}"
 }
 
 print_gpu() {
-    local found_gpu=0
+    local found_gpu=0 line h nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus nv_aib nv_aibhex
+    local _WS_GN _WS_GAIB _WS_GAIBHEX _WS_GBUS _WS_GMHZ _WS_GT pw
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        _ws_nv_parse "$line"
+        [[ "$nv_temp" =~ ^[0-9]+$ ]] || continue
+        pw="N/A"; [[ "$nv_pow" != "N/A" ]] && pw="${nv_pow}W"
+        tline "$nv_name" "$nv_temp" 100 "" nocap
+        _LINES+=( "  ${DIM}  ├── $(t gpu_fan): ${nv_fan}%  |  $(t gpu_power): ${pw}  |  GPU: ${nv_clk} MHz${RESET}" )
+        _LINES+=( "  ${DIM}  └── $(t gpu_vram): ${nv_vused} / ${nv_vtot} MiB  |  $(t gpu_util): ${nv_util}%  |  Mem: ${nv_mclk} MHz${RESET}" )
+        found_gpu=1
+    done <<< "${_WS_NV-}"
 
-    # ── NVIDIA via nvidia-smi ──────────────────────────────────
-    if command -v nvidia-smi &>/dev/null; then
-        local gpu_info
-        gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || true
-        # resolve AIB partner name from sysfs subsystem_vendor
-        local _aib_name="" _nv_idx=0
-        while IFS=',' read -r name temp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
-            name=$(echo "$name" | xargs)
-            # prepend AIB partner on first match
-            if [[ -z "$_aib_name" ]]; then
-                local _nv_bus
-                for _nv_bus in /sys/bus/pci/devices/*/; do
-                    [[ "$(cat "${_nv_bus}vendor" 2>/dev/null)" == "0x10de" ]] || continue
-                    _aib_name=$(gpu_aib_vendor "$(basename "$_nv_bus")")
-                    break
-                done
-                [[ -n "$_aib_name" ]] && name="${_aib_name} ${name#NVIDIA }"
-            fi
-            temp=$(echo "$temp" | xargs)
-            [[ "$temp" =~ ^[0-9]+$ ]] || continue
-            fan=$(echo "$fan" | xargs)
-            power=$(echo "$power" | xargs)
-            [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
-            local power_str="N/A"
-            [[ "$power" != "N/A" ]] && power_str="${power}W"
-            clk_gpu=$(echo "$clk_gpu" | xargs)
-            clk_mem=$(echo "$clk_mem" | xargs)
-            vram_total=$(echo "$vram_total" | xargs)
-            vram_used=$(echo "$vram_used" | xargs)
-            gpu_util=$(echo "$gpu_util" | xargs)
-
-            local color emoji bar
-            color=$(temp_color "$temp")
-            emoji=$(temp_emoji "$temp")
-            bar=$(temp_bar "$temp" 100)
-
-            tline "$emoji" "$name" "$temp" "$bar"
-            _LINES+=( "  ${DIM}  ├── Fan: ${fan}%  |  Power: ${power_str}  |  GPU: ${clk_gpu} MHz${RESET}" )
-            _LINES+=( "  ${DIM}  ├── VRAM: ${vram_used} / ${vram_total} MiB  |  Util: ${gpu_util}%  |  Mem: ${clk_mem} MHz${RESET}" )
-            found_gpu=1
-        done <<< "$gpu_info"
-    fi
-
-    # ── AMD GPU via hwmon (amdgpu driver) ──────────────────────
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        local hwname
-        hwname=$(cat "$d" 2>/dev/null || true)
-        [[ "$hwname" == "amdgpu" ]] || continue
-        local hdir
-        hdir=$(dirname "$d")
-        local tfile="$hdir/temp1_input"
-        [[ -f "$tfile" ]] || continue
-        local temp_raw
-        temp_raw=$(cat "$tfile" 2>/dev/null) || continue
-        [[ "$temp_raw" =~ ^-?[0-9]+$ ]] || continue
-        local temp=$(( temp_raw / 1000 ))
-        (( temp > 0 && temp < 125 )) || continue
-
-        local gpu_name="AMD GPU"
-        # try to read card model from sysfs
-        local card_dir
-        for card_dir in /sys/class/drm/card*/device/vendor; do
-            [[ -f "$card_dir" ]] || continue
-            local vendor
-            vendor=$(cat "$card_dir" 2>/dev/null)
-            [[ "$vendor" == "0x1002" ]] || continue
-            local devdir
-            devdir=$(dirname "$card_dir")
-            # resolve AIB partner name
-            local _amd_aib=""
-            _amd_aib=$(gpu_aib_vendor "$(basename "$(readlink -f "$devdir")")")
-            if [[ -f "$devdir/uevent" ]]; then
-                local model_line
-                model_line=$(grep "^PCI_ID=" "$devdir/uevent" 2>/dev/null | head -1)
-                [[ -n "$model_line" ]] && gpu_name="AMD GPU (${model_line#*=})"
-            fi
-            [[ -n "$_amd_aib" ]] && gpu_name="AMD GPU ($_amd_aib) -- ${gpu_name#AMD GPU }"
-            break
-        done
-
-        local emoji bar
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 100)
-        tline "$emoji" "$gpu_name" "$temp" "$bar"
-
-        # GPU frequency if available
-        local freq_file="$hdir/pp_dpm_sclk"
-        if [[ -f "$freq_file" ]]; then
-            local freq_line
-            freq_line=$(grep '\*' "$freq_file" 2>/dev/null | head -1 || true)
-            freq_line=$(echo "$freq_line" | sed 's/.*: //; s/ .*//')
-            [[ -n "$freq_line" ]] && _LINES+=( "  ${DIM}  └── $(t sens_clock): ${freq_line}${RESET}" )
-        fi
+    for (( h = 0; h < ${#_WS_H_DIR[@]}; h++ )); do
+        [[ "${_WS_H_CLS[h]}" == gpu ]] || continue
+        _ws_gpu_temp "$h"
+        [[ -n "$_WS_GT" ]] || continue
+        _ws_gpu_info "$h"
+        tline "$_WS_GN" "$_WS_GT" 100 "" nocap
+        [[ -n "$_WS_GMHZ" ]] && _LINES+=( "  ${DIM}  └── $(t sens_clock): ${_WS_GMHZ} MHz${RESET}" )
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1
         found_gpu=1
     done
 
-    # ── Intel GPU via i915 hwmon ───────────────────────────────
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        local hwname
-        hwname=$(cat "$d" 2>/dev/null || true)
-        [[ "$hwname" == "i915" ]] || continue
-        local hdir
-        hdir=$(dirname "$d")
-        local tfile="$hdir/temp1_input"
-        [[ -f "$tfile" ]] || continue
-        local temp_raw
-        temp_raw=$(cat "$tfile" 2>/dev/null) || continue
-        [[ "$temp_raw" =~ ^-?[0-9]+$ ]] || continue
-        local temp=$(( temp_raw / 1000 ))
-        (( temp > 0 && temp < 125 )) || continue
-
-        local emoji bar
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 100)
-        tline "$emoji" "$(t sens_intel_gpu)" "$temp" "$bar"
-
-        local freq_file="$hdir/freq1_input"
-        if [[ -f "$freq_file" ]]; then
-            local freq_raw
-            freq_raw=$(cat "$freq_file" 2>/dev/null) || continue
-            local freq_mhz=$(( freq_raw / 1000000 ))
-            _LINES+=( "  ${DIM}  └── $(t sens_clock): ${freq_mhz} MHz${RESET}" )
-        fi
-        found_gpu=1
-    done
-
-    if [[ $found_gpu -eq 0 ]]; then
+    if (( found_gpu == 0 )); then
         if command -v nvidia-smi &>/dev/null; then
             pline "${DIM}$(t sens_no_gpu)${RESET}"
         else
@@ -333,730 +371,468 @@ print_gpu() {
 }
 
 print_acpi() {
-    local found=0
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        local name
-        name=$(cat "$d" 2>/dev/null || true)
-        if [[ "$name" == "acpitz" ]]; then
-            local hwmon
-            hwmon=$(dirname "$d")
-            for input_file in "$hwmon"/temp*_input; do
-                [[ -f "$input_file" ]] || continue
-                local idx
-                idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
-                local raw_temp
-                raw_temp=$(cat "$input_file" 2>/dev/null) || continue
-                [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-                local temp=$(( raw_temp / 1000 ))
-
-                valid_temp "$input_file" "$temp" || continue
-
-                local color emoji bar
-                color=$(temp_color "$temp")
-                emoji=$(temp_emoji "$temp")
-                bar=$(temp_bar "$temp" 100)
-                tline "$emoji" "$(t sens_acpi) $idx" "$temp" "$bar"
-                found=1
-            done
-        fi
+    local i h n=0
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        h=${_WS_T_H[i]}
+        [[ "${_WS_H_CLS[h]}" == acpi && "${_WS_T_OK[i]}" == 1 ]] || continue
+        n=$(( n + 1 ))
+        tline "ACPI $n" "${_WS_T_C[i]}" 100
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1 _WS_SHOWN[acpitz]=1
     done
-    if (( found == 0 )); then
-        pline "${DIM}$(t sens_no_acpi)${RESET}"
-    fi
+    (( n )) || pline "${DIM}$(t sens_no_acpi)${RESET}"
+}
+
+# Thermal zones not already shown by a hwmon section (same class list).
+# Fills _WS_Z_TYPE/_WS_Z_C.
+_ws_zones() {
+    local z ty v _WS_CLS
+    _WS_Z_TYPE=() _WS_Z_C=()
+    for z in /sys/class/thermal/thermal_zone*; do
+        [[ -d "$z" ]] || continue
+        wu_read "$z/type" ty || continue
+        wu_read "$z/temp" v || continue
+        [[ "$v" =~ ^-?[0-9]+$ ]] || continue
+        v=$(( v / 1000 ))
+        _ws_class "$ty"
+        [[ "$_WS_CLS" == acpi || "$ty" == coretemp ]] && continue
+        [[ -n "${_WS_SHOWN[$ty]+x}" || -n "${_WS_SHOWN[${ty//-/_}]+x}" ]] && continue
+        (( v <= 0 || v > 200 )) && continue
+        _WS_Z_TYPE+=("$ty") _WS_Z_C+=("$v")
+    done
 }
 
 print_thermal_zones() {
-    local found=0
-    for zone_dir in /sys/class/thermal/thermal_zone*/; do
-        [[ -d "$zone_dir" ]] || continue
-        local type_file="${zone_dir}type"
-        local temp_file="${zone_dir}temp"
-        [[ -f "$type_file" ]] && [[ -f "$temp_file" ]] || continue
-
-        local ztype
-        ztype=$(cat "$type_file" 2>/dev/null) || continue
-        local raw_temp
-        raw_temp=$(cat "$temp_file" 2>/dev/null) || continue
-        [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-        local temp=$(( raw_temp / 1000 ))
-
-        [[ "$ztype" == "acpitz" ]] && continue
-        [[ "$ztype" == "coretemp" ]] && continue
-
-        (( temp <= 0 || temp > 200 )) && continue
-
-        local color emoji bar
-        color=$(temp_color "$temp")
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 100)
-
-        tline "$emoji" "$ztype" "$temp" "$bar"
-        found=1
+    local i
+    _ws_zones
+    for (( i = 0; i < ${#_WS_Z_C[@]}; i++ )); do
+        tline "${_WS_Z_TYPE[i]}" "${_WS_Z_C[i]}" 100
     done
-    if (( found == 0 )); then
-        pline "${DIM}$(t sens_all_covered)${RESET}"
-    fi
+    (( ${#_WS_Z_C[@]} )) || pline "${DIM}$(t sens_all_covered)${RESET}"
+}
+
+# Chips not covered by CPU/GPU/ACPI/storage sections, excluding hwmons of
+# thermal zones. _ws_is_chip IDX (temp index) -> rc
+_ws_is_chip_h() {
+    [[ "${_WS_H_VIRT[$1]}" == 0 ]] || return 1
+    case "${_WS_H_CLS[$1]}" in cpu|gpu|acpi|disk) return 1 ;; esac
+    return 0
 }
 
 print_network_temp() {
-    local found=0
-    _WS_SEEN=()
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        local hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
-        # Chips covered by the dedicated CPU/GPU sections are skipped here so
-        # they surface exactly once overall.
-        [[ "$hname" == "coretemp" ]] && continue
-        [[ "$hname" == "k10temp" ]] && continue
-        [[ "$hname" == "acpitz" ]] && continue
-        [[ "$hname" == "amdgpu" ]] && continue
-        [[ "$hname" == "i915" ]] && continue
-
-        # У старых драйверов (f71882fg и др.) атрибуты лежат на platform-устройстве,
-        # а не в каталоге hwmon -- резолвим родительский device-каталог
-        local dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
-        fi
-        [[ -z "$hname" ]] && hname="chip"
-
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for input_file in "$base"/temp*_input; do
-                [[ -f "$input_file" ]] || continue
-                _ws_seen_input "$input_file" || continue
-                local raw_t
-                raw_t=$(cat "$input_file" 2>/dev/null) || continue
-                [[ "$raw_t" =~ ^-?[0-9]+$ ]] || continue
-                local temp=$(( raw_t / 1000 ))
-                valid_temp "$input_file" "$temp" || continue
-
-                local color emoji bar
-                color=$(temp_color "$temp")
-                emoji=$(temp_emoji "$temp")
-                bar=$(temp_bar "$temp" 100)
-                tline "$emoji" "$hname" "$temp" "$bar"
-                found=1
-            done
-        done
+    local i found=0 _WS_LBL
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        _ws_is_chip_h "${_WS_T_H[i]}" || continue
+        [[ "${_WS_T_OK[i]}" == 1 ]] || continue
+        _ws_label_v "$i"
+        tline "$_WS_LBL" "${_WS_T_C[i]}" 100
+        found=1
     done
-    if (( found == 0 )); then
-        pline "${DIM}$(t sens_no_chips)${RESET}"
-    fi
+    (( found )) || pline "${DIM}$(t sens_no_chips)${RESET}"
 }
 
-# Read disk model; fall back to smartctl when sysfs is truncated
-# (USB-SATA adapters split SCSI INQUIRY, e.g. "8CS" for "ST9320328CS").
+# ─── Disks ──────────────────────────────────────────────────────
+# Privileged helpers go through wu_root_run (root/sudo decided ONCE in
+# main); without privileges the plain command is tried (disk group, caps).
+ws_smartctl_run() {
+    local rc=0
+    wu_root_run smartctl "$@" && return 0 || rc=$?
+    (( rc == 126 )) && { smartctl "$@"; return; }
+    return "$rc"
+}
+ws_nvme_run() {
+    local rc=0
+    wu_root_run nvme "$@" && return 0 || rc=$?
+    (( rc == 126 )) && { nvme "$@"; return; }
+    return "$rc"
+}
+
+# ws_disk_model DEV -> prints model (sysfs, smartctl -i when truncated:
+# USB-SATA bridges cut SCSI INQUIRY, e.g. "8CS" for "ST9320328CS").
 ws_disk_model() {
-    local dev="$1" bn model
-    bn=$(basename "$dev")
-    model=""
-    [[ -f "/sys/block/${bn}/device/model" ]] && model=$(cat "/sys/block/${bn}/device/model" 2>/dev/null | xargs)
-    if [[ ${#model} -lt 5 ]] && command -v smartctl &>/dev/null; then
-        local full
-        full=$(ws_smartctl_run -i "$dev" 2>/dev/null | awk -F': ' '/^Device Model:/{print $2; exit}') || true
-        full=$(printf '%s' "$full" | xargs)
-        [[ ${#full} -gt ${#model} ]] && model="$full"
+    local dev="$1" bn model="" full="" l
+    bn=${dev##*/}
+    wu_read "/sys/block/${bn}/device/model" model || true
+    wu_trim "$model" model
+    if (( ${#model} < 5 )) && command -v smartctl >/dev/null 2>&1; then
+        while IFS= read -r l; do
+            case "$l" in
+                "Device Model:"*|"Model Number:"*|"Product:"*) full=${l#*:}; wu_trim "$full" full; break ;;
+            esac
+        done < <(ws_smartctl_run -n standby -i "$dev" 2>/dev/null || true)
+        (( ${#full} > ${#model} )) && model=$full
     fi
     printf '%s' "${model:-$(t hw_unknown)}"
 }
 
-ws_smartctl_run() {
-    if (( EUID == 0 )); then
-        smartctl "$@"
-    elif sudo -n true 2>/dev/null; then
-        sudo -n smartctl "$@"
-    else
-        smartctl "$@"
+# _ws_disk_temp DEV -> _WS_DT ("" if unknown). Order: kernel hwmon
+# (nvme / drivetemp: no root, never wakes the disk), then nvme-cli /
+# smartctl -n standby (skips spun-down HDDs), then hddtemp.
+_ws_disk_temp() {
+    local dev="$1" bn f v="" l a
+    bn=${dev##*/}
+    _WS_DT=""
+    for f in /sys/block/"$bn"/device/hwmon*/temp1_input /sys/block/"$bn"/device/hwmon/hwmon*/temp1_input; do
+        [[ -e "$f" ]] || continue
+        wu_read "$f" v || continue
+        [[ "$v" =~ ^[0-9]+$ ]] && (( v > 0 )) && { _WS_DT=$(( v / 1000 )); return 0; }
+    done
+    v=""
+    if [[ "$bn" == nvme* ]]; then
+        if command -v nvme >/dev/null 2>&1; then
+            while IFS= read -r l; do
+                case "$l" in
+                    [Tt]emperature*:*) l=${l#*:}; wu_trim "$l" l
+                                       [[ "$l" =~ ^([0-9]+) ]] && { v=${BASH_REMATCH[1]}; break; } ;;
+                esac
+            done < <(ws_nvme_run smart-log "$dev" 2>/dev/null || true)
+        fi
     fi
+    if [[ -z "$v" ]] && command -v smartctl >/dev/null 2>&1; then
+        while IFS= read -r l; do
+            case "$l" in
+                *Temperature_Celsius*|*Airflow_Temperature_Cel*|*Temperature_Internal*)
+                    read -ra a <<< "$l"; v=${a[9]:-}; [[ "$v" =~ ^([0-9]+) ]] && v=${BASH_REMATCH[1]}; break ;;
+                "Current Drive Temperature:"*|"Temperature:"*)
+                    l=${l#*:}; wu_trim "$l" l; [[ "$l" =~ ^([0-9]+) ]] && { v=${BASH_REMATCH[1]}; break; } ;;
+            esac
+        done < <(ws_smartctl_run -n standby -A "$dev" 2>/dev/null || true)
+    fi
+    if [[ -z "$v" ]] && command -v hddtemp >/dev/null 2>&1; then
+        v=$(wu_root_run hddtemp -n "$dev" 2>/dev/null) || v=""
+        wu_trim "$v" v
+    fi
+    [[ "$v" =~ ^[0-9]+$ ]] && (( v > 0 && v <= 150 )) && _WS_DT=$v
+    return 0
 }
 
-ws_nvme_run() {
-    if (( EUID == 0 )); then
-        nvme "$@"
-    elif sudo -n true 2>/dev/null; then
-        sudo -n nvme "$@"
-    else
-        nvme "$@"
-    fi
+# Collect disk temps once: _WS_D_DEV _WS_D_MODEL _WS_D_C _WS_D_TYPE
+_ws_disks() {
+    local dev _WS_DT
+    _WS_D_DEV=() _WS_D_MODEL=() _WS_D_C=() _WS_D_TYPE=()
+    for dev in /dev/nvme[0-9]*n[0-9]* /dev/sd[a-z] /dev/sd[a-z][a-z]; do
+        [[ -b "$dev" ]] || continue
+        [[ "$dev" == /dev/nvme*p[0-9]* ]] && continue      # partitions
+        _ws_disk_temp "$dev"
+        [[ -n "$_WS_DT" ]] || continue
+        _WS_D_DEV+=("$dev") _WS_D_C+=("$_WS_DT") _WS_D_MODEL+=("$(ws_disk_model "$dev")")
+        [[ "$dev" == /dev/nvme* ]] && _WS_D_TYPE+=(nvme) || _WS_D_TYPE+=(sata)
+    done
 }
 
 print_disks() {
-    local found=0
-
-    for dev in /dev/nvme*n*; do
-        [[ -b "$dev" ]] || continue
-        local temp
-        temp=$(ws_nvme_run smart-log "$dev" 2>/dev/null | awk '
-            /[Tt]emperature/ {
-                split($0, a, ":")
-                for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
-                    if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
-                }
-            }') || true
-        [[ "$temp" =~ ^[0-9]+$ ]] || continue
-        (( temp > 150 )) && continue
-        local color emoji bar
-        color=$(temp_color "$temp")
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 60)
-        local model
-        model=$(ws_disk_model "$dev")
-        tline "$emoji" "$model" "$temp" "$bar"
-        found=1
+    local i
+    _ws_disks
+    for (( i = 0; i < ${#_WS_D_C[@]}; i++ )); do
+        tline "${_WS_D_MODEL[i]}" "${_WS_D_C[i]}" 60
     done
+    (( ${#_WS_D_C[@]} )) || pline "${DIM}$(t sens_no_disk)${RESET}"
+}
 
-    for dev in /dev/sd?; do
-        [[ -b "$dev" ]] || continue
-        local temp=""
-        if command -v smartctl &>/dev/null; then
-            temp=$(ws_smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
-        fi
-        if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
-            temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
-        fi
-        [[ -z "$temp" || ! "$temp" =~ ^[0-9]+$ || "$temp" == "0" || "$temp" -gt 150 ]] && continue
-
-        model=$(ws_disk_model "$dev")
-
-        local color emoji bar
-        color=$(temp_color "$temp")
-        emoji=$(temp_emoji "$temp")
-        bar=$(temp_bar "$temp" 60)
-        tline "$emoji" "$model" "$temp" "$bar"
-        found=1
+# ─── Cooling ────────────────────────────────────────────────────
+# ACPI thermal cooling devices are *control interfaces*, not fans: they sit
+# at cur=0..max=1 and would mislead into thinking the box has N fans. They
+# are only counted for the footnote. Real fans = fan*_input with RPM > 0.
+_ws_cooling_devs() {
+    local d ty cur
+    _WS_PCLAMP=0 _WS_PROC=0 _WS_ACPIFAN=0
+    for d in /sys/class/thermal/cooling_device*; do
+        [[ -d "$d" ]] || continue
+        wu_read "$d/type" ty || continue
+        cur=0; wu_read "$d/cur_state" cur || cur=0
+        [[ "$cur" =~ ^[0-9]+$ ]] || cur=0
+        case "$ty" in
+            *intel_powerclamp*) _WS_PCLAMP=$(( _WS_PCLAMP + cur )) ;;
+            *Fan*)              _WS_ACPIFAN=$(( _WS_ACPIFAN + 1 )) ;;
+            *Processor*)        _WS_PROC=$(( _WS_PROC + cur )) ;;
+        esac
     done
-
-    if (( found == 0 )); then
-        pline "${DIM}$(t sens_no_disk)${RESET}"
-    fi
+}
+# Fans shown: skip thermal-zone hwmons and CPU/ACPI chips (same helper).
+_ws_fan_ok() {
+    local h=${_WS_F_H[$1]}
+    (( ${_WS_F_RPM[$1]} > 0 )) || return 1
+    [[ "${_WS_H_VIRT[h]}" == 0 ]] || return 1
+    case "${_WS_H_CLS[h]}" in cpu|acpi) return 1 ;; esac
+    return 0
 }
 
 print_cooling() {
-    local total_powerclamp=0 total_processor=0 acpi_fan=0
-
-    # ACPI thermal cooling devices are *control interfaces*, not fans:
-    # they always sit at cur=0..max=1 and would only mislead a user into
-    # thinking the box has N physical fans. So count them only for the
-    # "control interfaces" footnote, never as fans.
-    for dev_dir in /sys/class/thermal/cooling_device*/; do
-        [[ -d "$dev_dir" ]] || continue
-        local type_file="${dev_dir}type"
-        local cur_file="${dev_dir}cur_state"
-        [[ -f "$type_file" ]] || continue
-
-        local dtype
-        dtype=$(cat "$type_file" 2>/dev/null || echo "")
-        local cur=0
-        [[ -f "$cur_file" ]] && cur=$(cat "$cur_file" 2>/dev/null) || true
-
-        case "$dtype" in
-            *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
-            *Fan*) acpi_fan=$(( acpi_fan + 1 )) ;;
-            *Processor*) total_processor=$(( total_processor + cur )) ;;
-        esac
-    done
-
-    # Real fans: only chips that actually report RPM (fan*_input). Fans fed
-    # straight from molex/PSU have no tachometer at all and never show up
-    # here -- that is correct, we must not invent them.
-    local real_fan=0
-    _WS_SEEN=()
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        local hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
-        # CPU/GPU chwmon chips carry no fan*_input, but keep the skip list in
-        # sync with print_network_temp for consistency.
-        [[ "$hname" == "coretemp" ]] && continue
-        [[ "$hname" == "k10temp" ]] && continue
-        [[ "$hname" == "acpitz" ]] && continue
-        [[ "$hname" == "amdgpu" ]] && continue
-        [[ "$hname" == "i915" ]] && continue
-
-        local dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
+    local i rpm color rpmval real_fan=0
+    _ws_cooling_devs
+    for (( i = 0; i < ${#_WS_F_RPM[@]}; i++ )); do
+        _ws_fan_ok "$i" || continue
+        rpm=${_WS_F_RPM[i]}
+        real_fan=$(( real_fan + 1 ))
+        if   (( rpm < 400 )); then color="$R"
+        elif (( rpm < 800 )); then color="$Y"
+        else                       color="$C"
         fi
-        [[ -z "$hname" ]] && hname="chip"
-
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for fan_file in "$base"/fan*_input; do
-                [[ -f "$fan_file" ]] || continue
-                _ws_seen_input "$fan_file" || continue
-                local fidx rpm color
-                fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
-                rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
-                (( rpm > 0 )) || continue
-                real_fan=$(( real_fan + 1 ))
-                if   (( rpm < 400 )); then color="$R"
-                elif (( rpm < 800 )); then color="$Y"
-                else                       color="$C"
-                fi
-                local rpmval
-                rpmval=$(printf '%4d RPM' "$rpm")
-                _LINES+=( "  $(_ic '💨')${BOLD}${W}$(t sens_fan)${fidx}${RESET} ${color}${rpmval}${RESET}  ${DIM}(${hname})${RESET}" )
-            done
-        done
+        printf -v rpmval '%4d RPM' "$rpm"
+        _LINES+=( "  ${_WS_IC_FAN}${BOLD}${W}$(t sens_fan)${_WS_F_IDX[i]}${RESET} ${color}${rpmval}${RESET}  ${DIM}(${_WS_H_NAME[${_WS_F_H[i]}]})${RESET}" )
     done
 
     pline_hw "$(_emu '🌀')" "$(t sens_fan)" "${C}${real_fan} $(t sens_devices)${RESET}"
-    pline_hw "$(_emu '⚙')" "$(t sens_cstates)" "${C}${total_processor} $(t sens_throttle)${RESET}"
-    pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${total_powerclamp} $(t sens_active)${RESET}"
-    (( acpi_fan > 0 )) && pline_hw "$(_emu '📋')" "$(t sens_acpi_fans)" "${DIM}${acpi_fan}${RESET}"
+    pline_hw "$(_emu '⚙')" "$(t sens_cstates)" "${C}${_WS_PROC} $(t sens_throttle)${RESET}"
+    pline_hw "$(_emu '🧊')" "$(t sens_powerclamp)" "${C}${_WS_PCLAMP} $(t sens_active)${RESET}"
+    (( _WS_ACPIFAN > 0 )) && pline_hw "$(_emu '📋')" "$(t sens_acpi_fans)" "${DIM}${_WS_ACPIFAN}${RESET}"
+    (( real_fan )) || pline "${DIM}$(t sens_no_fan_rpm)${RESET}"
+}
 
-    if (( real_fan == 0 )); then
-        pline "${DIM}$(t sens_no_fan_rpm)${RESET}"
+# ─── System (all from /proc, no free/uptime parsing) ────────────
+_ws_sysinfo() {
+    local a b c k v _u s d h m tot=0 avail="" free=0 buf=0 cach=0 rec=0
+    _WS_LOAD="" _WS_UP="" _WS_MT="" _WS_MU="" _WS_MP=""
+    if wu_read /proc/loadavg _u; then
+        read -r a b c _ <<< "$_u"
+        _WS_LOAD="$a $b $c"; wu_trim "$_WS_LOAD" _WS_LOAD
     fi
+    s=""
+    if wu_read /proc/uptime _u; then
+        s=${_u%% *}; s=${s%%.*}
+    fi
+    if [[ "$s" =~ ^[0-9]+$ ]]; then
+        d=$(( s / 86400 )) h=$(( (s % 86400) / 3600 )) m=$(( (s % 3600) / 60 ))
+        if (( d > 0 )); then _WS_UP="${d}d ${h}h ${m}m"
+        elif (( h > 0 )); then _WS_UP="${h}h ${m}m"
+        else _WS_UP="${m}m"; fi
+    fi
+    if [[ -r /proc/meminfo ]]; then
+        while IFS=': ' read -r k v _; do
+            case "$k" in
+                MemTotal)     tot=$v ;;
+                MemAvailable) avail=$v ;;
+                MemFree)      free=$v ;;
+                Buffers)      buf=$v ;;
+                Cached)       cach=$v ;;
+                SReclaimable) rec=$v ;;
+            esac
+        done < /proc/meminfo 2>/dev/null || true
+    fi
+    [[ "$tot" =~ ^[0-9]+$ ]] || tot=0
+    if (( tot > 0 )); then
+        [[ "$avail" =~ ^[0-9]+$ ]] || avail=$(( free + buf + cach + rec ))
+        (( avail > tot )) && avail=$tot
+        _WS_MT=$(( tot / 1024 )) _WS_MU=$(( (tot - avail) / 1024 ))
+        _WS_MP=$(( (tot - avail) * 100 / tot ))
+    fi
+    _WS_CORES=$(nproc 2>/dev/null) || _WS_CORES=""
+    [[ "$_WS_CORES" =~ ^[0-9]+$ ]] || _WS_CORES=1
+    _WS_CPU=$(wu_cpu_model_generic 2>/dev/null) || _WS_CPU=""
+    return 0
 }
 
 print_system() {
-    local uptime_str
-    uptime_str=$(ws_uptime || true)
-    local load
-    load=$(cut -d' ' -f1-3 /proc/loadavg)
-    local cores
-    cores=$(nproc)
-
-    local mem_total mem_used mem_pct
-    read -r mem_total mem_used _ <<< "$(LC_ALL=C free -m | awk '/^Mem:/ {print $2, $3}')"
-    if [[ -n "$mem_total" && "$mem_total" != 0 ]]; then
-        mem_pct=$(( mem_used * 100 / mem_total ))
+    local unk load_color load_int
+    unk=$(t hw_unknown)
+    _ws_sysinfo
+    load_int=${_WS_LOAD%%.*}
+    [[ "$load_int" =~ ^[0-9]+$ ]] || load_int=0
+    if   (( load_int < _WS_CORES / 2 )); then load_color="$G"
+    elif (( load_int < _WS_CORES ));     then load_color="$Y"
+    else                                      load_color="$R"
+    fi
+    pline_hw "$(_emu '🖥')" "$(t sens_cpu)" "${_WS_CPU:-$unk}  ${DIM}(${_WS_CORES} $(t hw_threads))${RESET}"
+    if [[ -n "$_WS_LOAD" ]]; then
+        pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${_WS_LOAD}${RESET}  ${DIM}(1/5/15 min)${RESET}"
     else
-        mem_pct=0
+        pline_hw "$(_emu '📊')" "$(t sens_load)" "${DIM}${unk}${RESET}"
     fi
-
-    local model
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
-
-    local load_color
-    local load_int
-    load_int=$(echo "$load" | cut -d. -f1)
-    if   (( load_int < cores / 2 )); then load_color="$G"
-    elif (( load_int < cores ));     then load_color="$Y"
-    else                                  load_color="$R"
+    if [[ -n "$_WS_MT" ]]; then
+        pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${_WS_MU} MB / ${_WS_MT} MB  ${DIM}(${_WS_MP}%)${RESET}"
+    else
+        pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${DIM}${unk}${RESET}"
     fi
+    pline_hw "$(_emu '⏱')" "$(t sens_uptime)" "${_WS_UP:-$unk}"
+}
 
-    pline_hw "$(_emu '🖥')" "$(t sens_cpu)" "${model}  ${DIM}(${cores} $(t hw_threads))${RESET}"
-    pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${load}${RESET}  ${DIM}(1/5/15 min)${RESET}"
-    pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${mem_used} MB / ${mem_total} MB  ${DIM}(${mem_pct}%)${RESET}"
-    pline_hw "$(_emu '⏱')" "$(t sens_uptime)" "$uptime_str"
+# ─── Summary ────────────────────────────────────────────────────
+# All hwmon temps (each file once, from the shared scan) + NVIDIA.
+_ws_summary_calc() {
+    local i t line nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus _r
+    _WS_SN=0 _WS_SMIN="" _WS_SAVG="" _WS_SMAX=""
+    local sum=0 max=0 min=999
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        t=${_WS_T_C[i]}
+        [[ "${_WS_T_OK[i]}" == 1 ]] || continue
+        sum=$(( sum + t )) _WS_SN=$(( _WS_SN + 1 ))
+        (( t > max )) && max=$t; (( t < min )) && min=$t
+    done
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        IFS=',' read -r _r t _ <<< "$line"; t=${t// /}
+        [[ "$t" =~ ^[0-9]+$ ]] || continue
+        sum=$(( sum + t )) _WS_SN=$(( _WS_SN + 1 ))
+        (( t > max )) && max=$t; (( t < min )) && min=$t
+    done <<< "${_WS_NV-}"
+    (( _WS_SN )) || return 0
+    _WS_SMIN=$min _WS_SMAX=$max _WS_SAVG=$(( sum / _WS_SN ))
 }
 
 print_summary() {
-    local temps=()
-    _WS_SEEN=()
-
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        local dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-        fi
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for f in "$base"/temp*_input; do
-                [[ -f "$f" ]] || continue
-                _ws_seen_input "$f" || continue
-                local _rv
-                _rv=$(cat "$f" 2>/dev/null) || continue
-                [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue
-                local t=$(( _rv / 1000 ))
-                (( t > 0 && t < 200 )) && temps+=("$t")
-            done
-        done
-    done
-
-    if command -v nvidia-smi &>/dev/null; then
-        local gt
-        gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
-        if [[ -n "$gt" ]]; then
-            while IFS= read -r _gline; do
-                [[ -n "$_gline" ]] && [[ "$_gline" =~ ^[0-9]+$ ]] && temps+=("$_gline")
-            done <<< "$gt"
-        fi
-    fi
-
+    local _WS_COL mv av xv cmin cavg cmax
+    _ws_summary_calc
     _LINES=()
-    if (( ${#temps[@]} == 0 )); then
+    if (( _WS_SN == 0 )); then
         _LINES+=( "${DIM}$(t no_data)${RESET}" )
     else
-        local sum=0 max=0 min=999
-        for t in "${temps[@]}"; do
-            sum=$(( sum + t ))
-            (( t > max )) && max=$t
-            (( t < min )) && min=$t
-        done
-        local avg=$(( sum / ${#temps[@]} ))
-
-        local max_color min_color avg_color
-        max_color=$(temp_color "$max")
-        min_color=$(temp_color "$min")
-        avg_color=$(temp_color "$avg")
-
-        local mv av xv
-        mv=$(printf '%4d°C' "$min")
-        av=$(printf '%4d°C' "$avg")
-        xv=$(printf '%4d°C' "$max")
-
-        _LINES+=( "  $(_ic '📈')${BOLD}${W}$(t sens_min)${RESET} ${min_color}${mv}${RESET}   $(_ic '📉')${BOLD}${W}$(t sens_avg)${RESET} ${avg_color}${av}${RESET}   $(_ic '🔺')${BOLD}${W}$(t sens_max)${RESET} ${max_color}${xv}${RESET}" )
+        _ws_color_v "$_WS_SMIN"; cmin=$_WS_COL
+        _ws_color_v "$_WS_SAVG"; cavg=$_WS_COL
+        _ws_color_v "$_WS_SMAX"; cmax=$_WS_COL
+        printf -v mv '%4d°C' "$_WS_SMIN"; printf -v av '%4d°C' "$_WS_SAVG"; printf -v xv '%4d°C' "$_WS_SMAX"
+        _LINES+=( "  ${_WS_IC_MIN}${BOLD}${W}$(t sens_min)${RESET} ${cmin}${mv}${RESET}   ${_WS_IC_AVG}${BOLD}${W}$(t sens_avg)${RESET} ${cavg}${av}${RESET}   ${_WS_IC_MAX}${BOLD}${W}$(t sens_max)${RESET} ${cmax}${xv}${RESET}" )
     fi
     banner
 }
 
 # ─── JSON output ────────────────────────────────────────────────
-# Run a command elevated when possible (mirrors print_disks).
-root_or_sudo() {
-    if (( EUID == 0 )); then "$@"
-    elif sudo -n true 2>/dev/null; then sudo -n "$@"
-    else "$@"; fi
+root_or_sudo() {   # kept for compatibility
+    local rc=0
+    wu_root_run "$@" && return 0 || rc=$?
+    (( rc == 126 )) && { "$@"; return; }
+    return "$rc"
 }
 
+_jn() { wu_json_num "$1"; }
+
 json_out() {
-    local first=1 input_file idx label raw_temp temp high crit hname dev_dir \
-          base model bn name2 ztype zone_dir dev model2
-    _WS_SEEN=()
+    local first i h line
+    _ws_scan
+    _ws_nv_query
+    _ws_sysinfo
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
 
-    local uptime_str load cores mem_total mem_used mem_pct model
-    uptime_str=$(ws_uptime || true)
-    load=$(cut -d' ' -f1-3 /proc/loadavg)
-    cores=$(nproc)
-    read -r mem_total mem_used _ <<< "$(LC_ALL=C free -m | awk '/^Mem:/ {print $2, $3}')"
-    mem_pct=0
-    [[ -n "$mem_total" && "$mem_total" != 0 ]] && mem_pct=$(( mem_used * 100 / mem_total ))
-    model=$(awk -F': *' '/^model name/{print $2; exit}' /proc/cpuinfo)
-
     printf ',\n  "system": {\n'
-    printf '    "cpu": "%s",\n' "$(json_esc "$model")"
-    printf '    "cores": %s,\n' "$(wu_json_num "$cores")"
-    printf '    "load": "%s",\n' "$(json_esc "$load")"
-    printf '    "memory_used_mb": %s,\n' "$(wu_json_num "$mem_used")"
-    printf '    "memory_total_mb": %s,\n' "$(wu_json_num "$mem_total")"
-    printf '    "memory_percent": %s,\n' "$(wu_json_num "$mem_pct")"
-    printf '    "uptime": "%s"\n' "$(json_esc "$uptime_str")"
+    printf '    "cpu": "%s",\n' "$(json_esc "$_WS_CPU")"
+    printf '    "cores": %s,\n' "$(_jn "$_WS_CORES")"
+    printf '    "load": "%s",\n' "$(json_esc "$_WS_LOAD")"
+    printf '    "memory_used_mb": %s,\n' "$(_jn "$_WS_MU")"
+    printf '    "memory_total_mb": %s,\n' "$(_jn "$_WS_MT")"
+    printf '    "memory_percent": %s,\n' "$(_jn "$_WS_MP")"
+    printf '    "uptime": "%s"\n' "$(json_esc "$_WS_UP")"
     printf '  },\n'
 
     printf '  "cpu_cores": [\n'
     first=1
-    local hwmon=""
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        local dname
-        dname=$(cat "$d" 2>/dev/null || true)
-        if [[ "$dname" == "coretemp" ]]; then hwmon=$(dirname "$d"); break; fi
+    local lbl
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        h=${_WS_T_H[i]}
+        [[ "${_WS_H_CLS[h]}" == cpu ]] || continue
+        (( _WS_T_C[i] > -50 && _WS_T_C[i] < 200 )) || continue
+        lbl=${_WS_T_LBL[i]}
+        [[ -n "$lbl" ]] || { (( ${_WS_H_NT[h]} > 1 )) && lbl="Sensor ${_WS_T_IDX[i]}" || lbl=${_WS_H_NAME[h]}; }
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "label": "%s", "chip": "%s", "temp_c": %d, "high_c": %s, "crit_c": %s }' \
+            "$(json_esc "$lbl")" "$(json_esc "${_WS_H_NAME[h]}")" "${_WS_T_C[i]}" \
+            "$(_jn "${_WS_T_HI[i]}")" "$(_jn "${_WS_T_CR[i]}")"
     done
-    if [[ -n "$hwmon" ]]; then
-        for input_file in "$hwmon"/temp*_input; do
-            [[ -f "$input_file" ]] || continue
-            idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
-            label="Sensor $idx"
-            [[ -f "${hwmon}/temp${idx}_label" ]] && label=$(cat "${hwmon}/temp${idx}_label" 2>/dev/null) || true
-            raw_temp=$(cat "$input_file" 2>/dev/null) || continue
-            [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-            temp=$(( raw_temp / 1000 ))
-            high="-"; crit="-"
-            if [[ -f "${hwmon}/temp${idx}_high" ]]; then local _hv2; _hv2=$(cat "${hwmon}/temp${idx}_high" 2>/dev/null) || true; [[ "$_hv2" =~ ^-?[0-9]+$ ]] && high=$(( _hv2 / 1000 )); fi
-            if [[ -f "${hwmon}/temp${idx}_crit" ]]; then local _cv2; _cv2=$(cat "${hwmon}/temp${idx}_crit" 2>/dev/null) || true; [[ "$_cv2" =~ ^-?[0-9]+$ ]] && crit=$(( _cv2 / 1000 )); fi
-            (( first )) && first=0 || printf ',\n'
-            printf '    { "label": "%s", "temp_c": %d, "high_c": %s, "crit_c": %s }' \
-                "$(json_esc "$label")" "$temp" \
-                "$([[ "$high" == "-" ]] && printf 'null' || printf '%s' "$high")" \
-                "$([[ "$crit" == "-" ]] && printf 'null' || printf '%s' "$crit")"
-        done
-    fi
     printf '\n  ],\n'
 
     printf '  "gpu": [\n'
     first=1
-    # resolve AIB partner name for NVIDIA GPUs
-    local _aib_name="" _aib_hex=""
-    for _aib_dir in /sys/bus/pci/devices/*/; do
-        [[ "$(cat "${_aib_dir}vendor" 2>/dev/null)" == "0x10de" ]] || continue
-        _aib_hex=$(cat "${_aib_dir}subsystem_vendor" 2>/dev/null || true)
-        _aib_name=$(gpu_aib_vendor "$(basename "$_aib_dir")")
-        break
-    done
-    # NVIDIA
-    if command -v nvidia-smi &>/dev/null; then
-        local gpu_info gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest
-        gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null) || gpu_info=""
-        while IFS=',' read -r gname gtemp fan power clk_gpu clk_mem vram_total vram_used gpu_util _rest; do
-            gname=$(echo "$gname" | xargs)
-            gtemp=$(echo "$gtemp" | xargs)
-            [[ "$gtemp" =~ ^[0-9]+$ ]] || continue
-            fan=$(echo "$fan" | xargs)
-            power=$(echo "$power" | xargs)
-            [[ "$power" == "[N/A]" || "$power" == "N/A" ]] && power="N/A"
-            clk_gpu=$(echo "$clk_gpu" | xargs)
-            clk_mem=$(echo "$clk_mem" | xargs)
-            vram_total=$(echo "$vram_total" | xargs)
-            vram_used=$(echo "$vram_used" | xargs)
-            gpu_util=$(echo "$gpu_util" | xargs)
-            (( first )) && first=0 || printf ',\n'
-            printf '    { "name": "%s", "driver": "nvidia", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %s, "fan_percent": %s, "power_w": %s, "clock_gpu_mhz": %s, "clock_mem_mhz": %s, "vram_total_mib": %s, "vram_used_mib": %s, "utilization_percent": %s }' \
-                "$(json_esc "$gname")" "$(json_esc "${_aib_hex#0x}")" "$(json_esc "$_aib_name")" "$(wu_json_num "$gtemp")" "$(wu_json_num "$fan")" "$(wu_json_num "$power")" \
-                "$(wu_json_num "$clk_gpu")" "$(wu_json_num "$clk_mem")" "$(wu_json_num "$vram_total")" "$(wu_json_num "$vram_used")" "$(wu_json_num "$gpu_util")"
-        done <<< "$gpu_info"
-    fi
-    # AMD GPU via hwmon
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name2=$(cat "$d" 2>/dev/null || true)
-        [[ "$name2" == "amdgpu" ]] || continue
-        local ahwmon atfile araw_temp atemp
-        ahwmon=$(dirname "$d")
-        atfile="$ahwmon/temp1_input"
-        [[ -f "$atfile" ]] || continue
-        araw_temp=$(cat "$atfile" 2>/dev/null) || continue
-        [[ "$araw_temp" =~ ^-?[0-9]+$ ]] || continue
-        atemp=$(( araw_temp / 1000 ))
-        (( atemp > 0 && atemp < 125 )) || continue
+    local nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus nv_aib nv_aibhex
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        _ws_nv_parse "$line"
+        [[ "$nv_temp" =~ ^[0-9]+$ ]] || continue
         (( first )) && first=0 || printf ',\n'
-        # resolve AIB vendor for AMD GPU
-        local _amd_aib="" _amd_hex="" _amd_name="AMD GPU"
-        for _amd_dir in /sys/bus/pci/devices/*/; do
-            [[ "$(cat "${_amd_dir}vendor" 2>/dev/null)" == "0x1002" ]] || continue
-            _amd_hex=$(cat "${_amd_dir}subsystem_vendor" 2>/dev/null || true)
-            _amd_aib=$(gpu_aib_vendor "$(basename "$_amd_dir")")
-            [[ -n "$_amd_aib" ]] && _amd_name="AMD GPU ($_amd_aib)"
-            break
-        done
-        printf '    { "name": "%s", "driver": "amdgpu", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %d }' \
-            "$(json_esc "$_amd_name")" "$(json_esc "${_amd_hex#0x}")" "$(json_esc "$_amd_aib")" "$atemp"
-    done
-    # Intel GPU via i915 hwmon
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name2=$(cat "$d" 2>/dev/null || true)
-        [[ "$name2" == "i915" ]] || continue
-        local ihwmon itfile iraw_temp itemp
-        ihwmon=$(dirname "$d")
-        itfile="$ihwmon/temp1_input"
-        [[ -f "$itfile" ]] || continue
-        iraw_temp=$(cat "$itfile" 2>/dev/null) || continue
-        [[ "$iraw_temp" =~ ^-?[0-9]+$ ]] || continue
-        itemp=$(( iraw_temp / 1000 ))
-        (( itemp > 0 && itemp < 125 )) || continue
+        printf '    { "name": "%s", "driver": "nvidia", "bus": "%s", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %s, "fan_percent": %s, "power_w": %s, "clock_gpu_mhz": %s, "clock_mem_mhz": %s, "vram_total_mib": %s, "vram_used_mib": %s, "utilization_percent": %s }' \
+            "$(json_esc "$nv_name")" "$(json_esc "$nv_bus")" "$(json_esc "$nv_aibhex")" "$(json_esc "$nv_aib")" "$(_jn "$nv_temp")" "$(_jn "$nv_fan")" "$(_jn "$nv_pow")" \
+            "$(_jn "$nv_clk")" "$(_jn "$nv_mclk")" "$(_jn "$nv_vtot")" "$(_jn "$nv_vused")" "$(_jn "$nv_util")"
+    done <<< "${_WS_NV-}"
+    local _WS_GN _WS_GAIB _WS_GAIBHEX _WS_GBUS _WS_GMHZ _WS_GT
+    for (( h = 0; h < ${#_WS_H_DIR[@]}; h++ )); do
+        [[ "${_WS_H_CLS[h]}" == gpu ]] || continue
+        _ws_gpu_temp "$h"
+        [[ -n "$_WS_GT" ]] || continue
+        _ws_gpu_info "$h"
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1
         (( first )) && first=0 || printf ',\n'
-        printf '    { "name": "%s", "driver": "i915", "temp_c": %d }' "$(t sens_intel_gpu)" "$itemp"
+        printf '    { "name": "%s", "driver": "%s", "bus": "%s", "subsystem_vendor": "%s", "subsystem_name": "%s", "temp_c": %d, "clock_gpu_mhz": %s }' \
+            "$(json_esc "$_WS_GN")" "$(json_esc "${_WS_H_NAME[h]}")" "$(json_esc "$_WS_GBUS")" "$(json_esc "$_WS_GAIBHEX")" \
+            "$(json_esc "$_WS_GAIB")" "$_WS_GT" "$(_jn "$_WS_GMHZ")"
     done
     printf '\n  ],\n'
 
     printf '  "acpi": [\n'
     first=1
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name2=$(cat "$d" 2>/dev/null || true)
-        if [[ "$name2" == "acpitz" ]]; then
-            local ahwmon
-            ahwmon=$(dirname "$d")
-            for input_file in "$ahwmon"/temp*_input; do
-                [[ -f "$input_file" ]] || continue
-                idx=$(printf '%s' "$(basename "$input_file")" | tr -cd '0-9')
-                raw_temp=$(cat "$input_file" 2>/dev/null) || continue
-                [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-                temp=$(( raw_temp / 1000 ))
-                valid_temp "$input_file" "$temp" || continue
-                (( first )) && first=0 || printf ',\n'
-                printf '    { "zone": %s, "temp_c": %d }' "$(wu_json_num "$idx")" "$temp"
-            done
-        fi
+    local n=0
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        h=${_WS_T_H[i]}
+        [[ "${_WS_H_CLS[h]}" == acpi && "${_WS_T_OK[i]}" == 1 ]] || continue
+        n=$(( n + 1 ))
+        _WS_SHOWN[${_WS_H_NAME[h]}]=1 _WS_SHOWN[acpitz]=1
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "zone": %d, "temp_c": %d }' "$n" "${_WS_T_C[i]}"
     done
     printf '\n  ],\n'
 
     printf '  "thermal_zones": [\n'
+    _ws_zones
     first=1
-    for zone_dir in /sys/class/thermal/thermal_zone*/; do
-        [[ -d "$zone_dir" ]] || continue
-        [[ -f "${zone_dir}type" && -f "${zone_dir}temp" ]] || continue
-        ztype=$(cat "${zone_dir}type" 2>/dev/null) || continue
-        raw_temp=$(cat "${zone_dir}temp" 2>/dev/null) || continue
-        [[ "$raw_temp" =~ ^-?[0-9]+$ ]] || continue
-        temp=$(( raw_temp / 1000 ))
-        [[ "$ztype" == "acpitz" || "$ztype" == "coretemp" ]] && continue
-        (( temp <= 0 || temp > 200 )) && continue
+    for (( i = 0; i < ${#_WS_Z_C[@]}; i++ )); do
         (( first )) && first=0 || printf ',\n'
-        printf '    { "type": "%s", "temp_c": %d }' "$(json_esc "$ztype")" "$temp"
+        printf '    { "type": "%s", "temp_c": %d }' "$(json_esc "${_WS_Z_TYPE[i]}")" "${_WS_Z_C[i]}"
     done
     printf '\n  ],\n'
 
     printf '  "chips": [\n'
     first=1
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
-        # Same policy as the terminal view: temp*_input of coretemp/acpitz
-        # duplicates the dedicated CPU/ACPI sections, so they are skipped here.
-        [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
-        dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
-        fi
-        [[ -z "$hname" ]] && hname="chip"
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for input_file in "$base"/temp*_input; do
-                [[ -f "$input_file" ]] || continue
-                _ws_seen_input "$input_file" || continue
-                local _cv3
-                _cv3=$(cat "$input_file" 2>/dev/null) || continue
-                [[ "$_cv3" =~ ^-?[0-9]+$ ]] || continue
-                temp=$(( _cv3 / 1000 ))
-                valid_temp "$input_file" "$temp" || continue
-                (( first )) && first=0 || printf ',\n'
-                printf '    { "chip": "%s", "input": "%s", "temp_c": %d }' \
-                    "$(json_esc "$hname")" "$(json_esc "$(basename "$input_file")")" "$temp"
-            done
-        done
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        h=${_WS_T_H[i]}
+        _ws_is_chip_h "$h" || continue
+        [[ "${_WS_T_OK[i]}" == 1 ]] || continue
+        (( first )) && first=0 || printf ',\n'
+        printf '    { "chip": "%s", "input": "%s", "label": "%s", "temp_c": %d }' \
+            "$(json_esc "${_WS_H_NAME[h]}")" "$(json_esc "${_WS_T_IN[i]}")" "$(json_esc "${_WS_T_LBL[i]}")" "${_WS_T_C[i]}"
     done
     printf '\n  ],\n'
 
     printf '  "disks": [\n'
+    _ws_disks
     first=1
-    for dev in /dev/nvme*n*; do
-        [[ -b "$dev" ]] || continue
-        temp=$(ws_nvme_run smart-log "$dev" 2>/dev/null | awk '
-            /[Tt]emperature/ {
-                split($0, a, ":")
-                for (i=2; i<=length(a); i++) if (a[i] ~ /[0-9]/) {
-                    if (match(a[i], /[0-9]+/)) { print substr(a[i], RSTART, RLENGTH); exit }
-                }
-            }') || true
-        [[ "$temp" =~ ^[0-9]+$ ]] || continue
-        (( temp > 150 )) && continue
-        model=$(ws_disk_model "$dev")
+    for (( i = 0; i < ${#_WS_D_C[@]}; i++ )); do
         (( first )) && first=0 || printf ',\n'
-        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "nvme" }' \
-            "$(json_esc "$dev")" "$(json_esc "$model")" "$temp"
-    done
-    for dev in /dev/sd?; do
-        [[ -b "$dev" ]] || continue
-        temp=""
-        if command -v smartctl &>/dev/null; then
-            temp=$(ws_smartctl_run -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Airflow_Temperature_Cel/ {print $10; exit}') || true
-        fi
-        if [[ -z "$temp" ]] && command -v hddtemp &>/dev/null; then
-            temp=$(sudo -n hddtemp -n "$dev" 2>/dev/null) || true
-        fi
-        [[ -z "$temp" || ! "$temp" =~ ^[0-9]+$ || "$temp" == "0" || "$temp" -gt 150 ]] && continue
-        model2=$(ws_disk_model "$dev")
-        (( first )) && first=0 || printf ',\n'
-        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "sata" }' \
-            "$(json_esc "$dev")" "$(json_esc "$model2")" "$temp"
+        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "%s" }' \
+            "$(json_esc "${_WS_D_DEV[i]}")" "$(json_esc "${_WS_D_MODEL[i]}")" "${_WS_D_C[i]}" "${_WS_D_TYPE[i]}"
     done
     printf '\n  ],\n'
 
-    local total_powerclamp=0 total_processor=0 acpi_fan=0
-    local -a fan_chip=() fan_idx=() fan_rpm=()
-    for dev_dir in /sys/class/thermal/cooling_device*/; do
-        [[ -d "$dev_dir" ]] || continue
-        local tfile="${dev_dir}type" cfile="${dev_dir}cur_state"
-        [[ -f "$tfile" ]] || continue
-        local dtype cur=0
-        dtype=$(cat "$tfile" 2>/dev/null || echo "")
-        [[ -f "$cfile" ]] && cur=$(cat "$cfile" 2>/dev/null) || true
-        case "$dtype" in
-            *intel_powerclamp*) total_powerclamp=$(( total_powerclamp + cur )) ;;
-            *Fan*) acpi_fan=$(( acpi_fan + 1 )) ;;
-            *Processor*) total_processor=$(( total_processor + cur )) ;;
-        esac
+    _ws_cooling_devs
+    local -a fl=()
+    for (( i = 0; i < ${#_WS_F_RPM[@]}; i++ )); do
+        _ws_fan_ok "$i" && fl+=("$i")
     done
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        hname=""
-        [[ -f "${hwmon_dir}name" ]] && hname=$(cat "${hwmon_dir}name" 2>/dev/null) || true
-        # As in the chips section: coretemp/acpitz fans are covered elsewhere
-        # and their hwmon entries only duplicate the count.
-        [[ "$hname" == "coretemp" || "$hname" == "acpitz" ]] && continue
-        dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-            [[ -z "$hname" && -f "$dev_dir/name" ]] && hname=$(cat "$dev_dir/name")
-        fi
-        [[ -z "$hname" ]] && hname="chip"
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for fan_file in "$base"/fan*_input; do
-                [[ -f "$fan_file" ]] || continue
-                _ws_seen_input "$fan_file" || continue
-                local fidx rpm
-                fidx=$(printf '%s' "$(basename "$fan_file")" | tr -cd '0-9')
-                rpm=$(cat "$fan_file" 2>/dev/null || echo 0)
-                (( rpm > 0 )) || continue
-                fan_chip+=("$hname")
-                fan_idx+=("$fidx")
-                fan_rpm+=("$rpm")
-            done
-        done
-    done
-
     printf '  "cooling": {\n'
-    printf '    "real_fans": %d,\n' "${#fan_rpm[@]}"
-    printf '    "processor_throttles": %d,\n' "$total_processor"
-    printf '    "powerclamp_active": %d,\n' "$total_powerclamp"
-    printf '    "acpi_fan_devices": %d,\n' "$acpi_fan"
+    printf '    "real_fans": %d,\n' "${#fl[@]}"
+    printf '    "processor_throttles": %d,\n' "$_WS_PROC"
+    printf '    "powerclamp_active": %d,\n' "$_WS_PCLAMP"
+    printf '    "acpi_fan_devices": %d,\n' "$_WS_ACPIFAN"
     printf '    "fans": [\n'
     first=1
-    local fi
-    for fi in "${!fan_rpm[@]}"; do
+    for i in ${fl[@]+"${fl[@]}"}; do
         (( first )) && first=0 || printf ',\n'
         printf '      { "chip": "%s", "index": %s, "rpm": %d }' \
-            "$(json_esc "${fan_chip[$fi]}")" "$(wu_json_num "${fan_idx[$fi]}")" "${fan_rpm[$fi]}"
+            "$(json_esc "${_WS_H_NAME[${_WS_F_H[i]}]}")" "$(_jn "${_WS_F_IDX[i]}")" "${_WS_F_RPM[i]}"
     done
     printf '\n    ]\n'
     printf '  },\n'
 
     printf '  "summary": {\n'
-    local -a temps=()
-    for hwmon_dir in /sys/class/hwmon/hwmon*/; do
-        [[ -d "$hwmon_dir" ]] || continue
-        dev_dir="$hwmon_dir"
-        if [[ -e "${hwmon_dir}device" ]]; then
-            dev_dir=$(readlink -f "${hwmon_dir}device")
-        fi
-        for base in "$hwmon_dir" "$dev_dir"; do
-            for f in "$base"/temp*_input; do
-                [[ -f "$f" ]] || continue
-                _ws_seen_input "$f" || continue
-                local _rv
-                _rv=$(cat "$f" 2>/dev/null) || continue
-                [[ "$_rv" =~ ^-?[0-9]+$ ]] || continue
-                local t=$(( _rv / 1000 ))
-                (( t > 0 && t < 200 )) && temps+=("$t")
-            done
-        done
-    done
-    if command -v nvidia-smi &>/dev/null; then
-        local gt
-        gt=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null) || true
-        if [[ -n "$gt" ]]; then
-            while IFS= read -r _gline; do
-                [[ -n "$_gline" ]] && [[ "$_gline" =~ ^[0-9]+$ ]] && temps+=("$_gline")
-            done <<< "$gt"
-        fi
-    fi
-    if (( ${#temps[@]} == 0 )); then
+    _ws_summary_calc
+    if (( _WS_SN == 0 )); then
         printf '    "samples": 0, "min_c": null, "avg_c": null, "max_c": null\n'
     else
-        local sum=0 max=0 min=999 t
-        for t in "${temps[@]}"; do
-            sum=$(( sum + t ))
-            (( t > max )) && max=$t
-            (( t < min )) && min=$t
-        done
-        printf '    "samples": %d,\n' "${#temps[@]}"
-        printf '    "min_c": %d,\n' "$min"
-        printf '    "avg_c": %d,\n' "$(( sum / ${#temps[@]} ))"
-        printf '    "max_c": %d\n' "$max"
+        printf '    "samples": %d,\n    "min_c": %d,\n    "avg_c": %d,\n    "max_c": %d\n' \
+            "$_WS_SN" "$_WS_SMIN" "$_WS_SAVG" "$_WS_SMAX"
     fi
     printf '  }\n'
     wu_json_end
 }
 
 print_report() {
+    _ws_scan
+    _ws_nv_query
     box_header "$(_emu '⚡')" "wellsensors" "$(t sens_title)"
 
     box "$(_emu '🧠')" "$(t sens_sys_overview)" print_system
@@ -1070,34 +846,38 @@ print_report() {
 
     print_summary
 
-    printf '\n  %sWellSensors v1.3 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellSensors v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 short_out() {
-    local maxt=0 d name
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name=$(cat "$d" 2>/dev/null || true)
-        case "$name" in
-            coretemp|k10temp|cpu_thermal|zenpower)
-                local t f hdir
-                hdir=$(dirname "$d")
-                for f in "$hdir/temp"*_input; do
-                    [[ -f "$f" ]] || continue
-                    t=$(cat "$f" 2>/dev/null || true)
-                    [[ "$t" =~ ^[0-9]+$ ]] || continue
-                    t=$(( t / 1000 ))
-                    (( t > 0 && t < 125 && t > maxt )) && maxt=$t
-                done ;;
-        esac
+    local i maxt=0 t z ty _WS_CLS
+    _ws_scan
+    for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
+        [[ "${_WS_H_CLS[${_WS_T_H[i]}]}" == cpu ]] || continue
+        t=${_WS_T_C[i]}
+        (( t > 0 && t < 125 && t > maxt )) && maxt=$t
     done
+    if (( maxt == 0 )); then
+        # no CPU hwmon: CPU-class thermal zone (x86_pkg_temp, cpu-thermal ...)
+        for z in /sys/class/thermal/thermal_zone*; do
+            wu_read "$z/type" ty || continue
+            _ws_class "$ty"; [[ "$_WS_CLS" == cpu ]] || continue
+            wu_read "$z/temp" t || continue
+            [[ "$t" =~ ^[0-9]+$ ]] || continue
+            t=$(( t / 1000 ))
+            (( t > 0 && t < 125 && t > maxt )) && maxt=$t
+        done
+    fi
     (( maxt > 0 )) || { printf -- '-\n'; return 0; }
     printf '%d°C\n' "$maxt"
 }
 
 main() {
-    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
     if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
+    # decide root/sudo once in THIS shell (subshells would lose the cache)
+    wu_root_init
+    if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
+    _ws_init_glyphs
 
     if [[ "$_WS_WATCH" == "1" && -t 1 ]]; then
         trap 'exit 130' INT

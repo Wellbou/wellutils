@@ -1,4 +1,4 @@
-.TH WELLDOCTOR 1 "2026" "wellutils 1.4.0" "User Commands"
+.TH WELLDOCTOR 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
 .SH NAME
 welldoctor \- system health check
 .SH SYNOPSIS
@@ -7,10 +7,20 @@ welldoctor \- system health check
 .SH DESCRIPTION
 Runs read-only checks and prints one status line per check plus a summary:
 S.M.A.R.T. health of fixed disks, CPU temperature thresholds, root
-filesystem usage, failed systemd units, leftover .pacnew/.pacsave files and
-orphan packages.
+filesystem usage, failed systemd units, leftover package-manager config files
+(.pacnew/.pacsave, .dpkg-*, .rpmnew/.rpmsave, .apk-new, ._cfg*) and orphan
+packages.
 .PP
-Designed for cron/systemd timers: the exit code reflects the worst finding.
+S.M.A.R.T. is read with
+.BR smartctl (8)
+and needs root or passwordless sudo; otherwise the check is reported as
+unavailable. A disk is critical only when smartctl reports a failed overall
+health self-assessment. Failed-unit checks are skipped (reported as
+unavailable) when systemd is not PID 1, e.g. inside containers.
+.PP
+Designed for cron/systemd timers: the exit code reflects the worst finding,
+in every output mode (plain, box,
+.BR \-\-json ", " \-\-short ).
 .SH EXIT STATUS
 .TP
 .B 0
@@ -20,7 +30,8 @@ All checks passed.
 Warnings found.
 .TP
 .B 2
-Critical findings (failing S.M.A.R.T., temperature >= 85C, root fs >= 90%).
+Critical findings (failing S.M.A.R.T., temperature >= 85C, root fs >= 90%),
+or invalid command-line usage.
 .TP
 .B 3
 Runtime error.
@@ -28,6 +39,7 @@ Runtime error.
 .nf
 welldoctor && echo OK || echo "check your mail"
 welldoctor --json | jq .summary
+welldoctor --short          # e.g. "OK 100/100" or "FAIR 90/100 (W1)"
 .fi
 .SH SEE ALSO
 .BR smartctl (8),

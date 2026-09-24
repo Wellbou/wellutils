@@ -11,6 +11,10 @@ set -euo pipefail
 _WU_TOOLNAME="welldoctor" _WU_NAME="WellDoctor" _WU_VERSION="1.0"
 _WU_SHORT_OK=1
 _WU_TAGLINE="system health check"
+_WU_EXTRA_HELP="Health exit codes (all modes, incl. --json/--short):
+  0 = healthy, 1 = warnings found, 2 = critical findings (or bad CLI usage),
+  3 = runtime error.
+S.M.A.R.T. needs smartctl and root or passwordless sudo; otherwise skipped."
 _WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
 [[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
@@ -122,25 +126,54 @@ wd_orphan_count() {  # prints N (0 when clean); rc=1 = family has no orphan quer
 }
 
 # ─── Checks ─────────────────────────────────────────────────────
-chk_smart() {
-    local dev out
-    local bad=0 checked=0
+# wd_smart_dev NAME -- health of one block device via smartctl -H.
+# Prints ok|fail|skip. The verdict comes ONLY from the health line or the
+# exit status bit 3 ("disk failing"): a bare grep for FAILED used to match
+# the WHEN_FAILED column header of the attribute table -> false alarms.
+wd_smart_dev() {
+    local bn="$1" out rc=0
+    out=$(LC_ALL=C wu_root_run smartctl -H "/dev/$bn" 2>/dev/null) || rc=$?
+    (( rc == 126 || rc == 127 )) && { echo skip; return; }
+    if (( rc & 8 )); then echo fail; return; fi
+    case "$out" in
+        *"self-assessment test result: PASSED"*|*"SMART Health Status: OK"*) echo ok ;;
+        *"self-assessment test result: FAILED"*) echo fail ;;
+        *"SMART Health Status:"*) echo fail ;;
+        *) echo skip ;;   # no health line: mmc, virtual disk, USB bridge, open error
+    esac
+}
+
+# wd_smart_scan -- sets _WD_SM_CHECKED, _WD_SM_BAD (space-separated names),
+# _WD_SM_NA=1 when smartctl/root is unavailable. Cached: runs smartctl once.
+_WD_SM_DONE=0 _WD_SM_CHECKED=0 _WD_SM_BAD="" _WD_SM_NA=0
+wd_smart_scan() {
+    (( _WD_SM_DONE )) && return 0
+    _WD_SM_DONE=1
+    command -v smartctl >/dev/null 2>&1 || { _WD_SM_NA=1; return 0; }
+    wu_root_init
+    (( _WU_ROOT == 0 )) && { _WD_SM_NA=1; return 0; }
+    local dev bn v
     for dev in /sys/block/*; do
-        local bn
-        bn=$(basename "$dev")
-        case "$bn" in loop*|ram*|sr*|zram*) continue ;; esac
-        command -v smartctl &>/dev/null || break
-        out=$(sudo -n smartctl -H "/dev/$bn" 2>/dev/null || true)
-        [[ -z "$out" ]] && continue
-        checked=$(( checked + 1 ))
-        if grep -qiE 'FAILED|Result: (Failed|Unknown)' <<< "$out"; then
-            wd_crit "$(t doc_smart_fail): /dev/$bn"
-            bad=$(( bad + 1 ))
-        fi
+        [[ -e "$dev" ]] || continue
+        bn=${dev##*/}
+        case "$bn" in loop*|ram*|sr*|zram*|dm-*|md*|nbd*|fd*|mtdblock*|mmcblk*|zd*) continue ;; esac
+        v=$(wd_smart_dev "$bn")
+        case "$v" in
+            ok)   _WD_SM_CHECKED=$(( _WD_SM_CHECKED + 1 )) ;;
+            fail) _WD_SM_CHECKED=$(( _WD_SM_CHECKED + 1 )); _WD_SM_BAD+="$bn " ;;
+        esac
     done
-    if (( checked > 0 && bad == 0 )); then
-        wd_ok "$(t doc_smart_ok): $checked"
-    elif (( checked == 0 )); then
+}
+
+chk_smart() {
+    local bn
+    wd_smart_scan
+    for bn in $_WD_SM_BAD; do
+        wd_crit "$(t doc_smart_fail): /dev/$bn"
+    done
+    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]]; then
+        wd_ok "$(t doc_smart_ok): $_WD_SM_CHECKED"
+    elif (( _WD_SM_CHECKED == 0 )); then
         wd_info "$(t doc_smart_na)"
     fi
 }
@@ -180,6 +213,9 @@ wd_units_list() {
     # unavailable: no systemctl, not booted with systemd (no /run/systemd),
     # or client cannot reach the manager ("offline"/"unknown").
     command -v systemctl >/dev/null 2>&1 || return 1
+    # sd_booted(): systemd is PID 1 only if /run/systemd/system exists.
+    # Containers often ship systemctl without a running manager.
+    [[ -d "${_WU_SYSTEMD_RUNDIR:-/run/systemd/system}" ]] || return 1
     local state
     state=$(systemctl is-system-running 2>/dev/null || true)
     case "$state" in
@@ -298,21 +334,17 @@ json_out() {
 
 # Machine-readable pass: emits key|status|detail lines and updates counters.
 wd_checks_machine() {
-    local dev bn out checked=0 bad=0
-    for dev in /sys/block/*; do
-        bn=$(basename "$dev")
-        case "$bn" in loop*|ram*|sr*|zram*) continue ;; esac
-        command -v smartctl &>/dev/null || break
-        out=$(sudo -n smartctl -H "/dev/$bn" 2>/dev/null || true)
-        [[ -z "$out" ]] && continue
-        checked=$(( checked + 1 ))
-        if grep -qiE 'FAILED|Result: (Failed|Unknown)' <<< "$out"; then
-            printf 'smart_%s|critical|%s\n' "$bn" "S.M.A.R.T. FAILED"
-            _WD_CRIT=$(( _WD_CRIT + 1 ))
-            bad=$(( bad + 1 ))
-        fi
+    local bn
+    wd_smart_scan
+    for bn in $_WD_SM_BAD; do
+        printf 'smart_%s|critical|%s\n' "$bn" "S.M.A.R.T. FAILED"
+        _WD_CRIT=$(( _WD_CRIT + 1 ))
     done
-    (( checked > 0 && bad == 0 )) && printf 'smart|ok|%d\n' "$checked"
+    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]]; then
+        printf 'smart|ok|%d\n' "$_WD_SM_CHECKED"
+    elif (( _WD_SM_CHECKED == 0 )); then
+        printf 'smart|na|%s\n' "$( (( _WD_SM_NA )) && echo 'smartctl or root unavailable' || echo 'no SMART-capable disks')"
+    fi
 
     local maxt=0 d f t name
     for d in /sys/class/hwmon/hwmon*/name; do
@@ -343,9 +375,10 @@ wd_checks_machine() {
         else                       printf 'disk|ok|/ %d%%\n' "$pct"; fi
     fi
 
-    if command -v systemctl &>/dev/null; then
-        local failed_list u
-        failed_list=$(wd_units_list) || failed_list=""
+    local failed_list u
+    if ! failed_list=$(wd_units_list); then
+        printf 'units|na|systemd not running\n'
+    else
         if [[ -n "$failed_list" ]]; then
             while IFS= read -r u; do
                 [[ -z "$u" ]] && continue
@@ -407,7 +440,12 @@ short_out() {
 }
 
 main() {
-    if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
+    if [[ "$_WU_SHORT" == "1" ]]; then
+        short_out
+        if (( _WD_CRIT > 0 )); then return 2; fi
+        if (( _WD_WARN > 0 )); then return 1; fi
+        return 0
+    fi
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return $?; fi
 
     box_header "$(_emu '🩺')" "welldoctor" "$(t doc_title)"

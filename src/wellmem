@@ -17,13 +17,62 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse jedec
 
 ORANGE=$'\033[1;38;5;208m'
 
-# Re-use the wellhw-style dmidecode cache so DIMM info is one exec away.
-root_run() {
-    if (( EUID == 0 )); then "$@"
-    elif sudo -n true 2>/dev/null; then sudo -n "$@"
-    else "$@"; fi
+# dmidecode is only needed for the DIMM list in the full report; --short and
+# --json never pay for the exec (or a sudo prompt check).
+_WU_DMIDECODE=""
+wm_load_dmi() {
+    command -v dmidecode >/dev/null 2>&1 || return 0
+    _WU_DMIDECODE=$(wu_root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
+    [[ -n "$_WU_DMIDECODE" ]] || _WU_DMIDECODE=$(dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
 }
-_WU_DMIDECODE=$(root_run dmidecode -t memory 2>/dev/null) || _WU_DMIDECODE=""
+
+# ─── /proc/meminfo, parsed once ─────────────────────────────────
+MI_total=0 MI_free=0 MI_avail="" MI_buffers=0 MI_cached=0 MI_srecl=0 MI_shmem=0
+MI_swtotal=0 MI_swfree=0 MI_htotal=0 MI_hfree=0 MI_hsize=""
+wm_meminfo() {
+    local k v u
+    [[ -r /proc/meminfo ]] || return 0
+    while IFS=': ' read -r k v u; do
+        [[ "$v" =~ ^[0-9]+$ ]] || continue
+        case "$k" in
+            MemTotal) MI_total=$v ;;         MemFree) MI_free=$v ;;
+            MemAvailable) MI_avail=$v ;;     Buffers) MI_buffers=$v ;;
+            Cached) MI_cached=$v ;;          SReclaimable) MI_srecl=$v ;;
+            Shmem) MI_shmem=$v ;;            SwapTotal) MI_swtotal=$v ;;
+            SwapFree) MI_swfree=$v ;;        HugePages_Total) MI_htotal=$v ;;
+            HugePages_Free) MI_hfree=$v ;;   Hugepagesize) MI_hsize="$v${u:+ $u}" ;;
+        esac
+    done < /proc/meminfo 2>/dev/null || true
+    # Kernels < 3.14 have no MemAvailable: estimate it like free(1) did.
+    [[ -n "$MI_avail" ]] || MI_avail=$(( MI_free + MI_buffers + MI_cached ))
+    (( MI_avail > MI_total && MI_total > 0 )) && MI_avail=$MI_total
+    return 0
+}
+
+# NUMA node count: sysfs glob (no fork) -> zoneinfo -> 1.
+wm_numa() {
+    local n=0 d
+    for d in /sys/devices/system/node/node[0-9]*; do [[ -d "$d" ]] && n=$(( n + 1 )); done
+    if (( n == 0 )) && [[ -r /proc/zoneinfo ]]; then
+        n=$(awk '/^Node / { nodes[$2] = 1 } END { c = 0; for (x in nodes) c++; print c }' /proc/zoneinfo 2>/dev/null) || n=0
+        [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    fi
+    (( n > 0 )) || n=1
+    printf '%d' "$n"
+}
+
+# zram compression algorithm: "lzo [lz4] zstd" -> lz4
+wm_zram_algo() {
+    local l="" a="unknown"
+    if wu_read "$1/comp_algorithm" l && [[ "$l" == *"["*"]"* ]]; then
+        a=${l#*[}; a=${a%%]*}
+    elif [[ -n "$l" && "$l" != *" "* ]]; then
+        a=$l
+    elif wu_read "$1/algorithm" l && [[ -n "$l" ]]; then
+        a=$l
+    fi
+    printf '%s' "$a"
+}
 
 # ─── Helpers ─────────────────────────────────────────────────────
 usage_color() {
@@ -39,65 +88,152 @@ usage_bar() {
     local pct=$1 width=${2:-30}
     local filled=$(( pct * width / 100 ))
     local empty=$(( width - filled ))
-    local color
-    color=$(usage_color "$pct")
-    printf '%s' "$color"
+    usage_color "$pct"
     wu_bar "$filled" "$empty"
     printf '%s' "$RESET"
 }
 
+# fmt_kb KB [VAR] -- integer math, one decimal, no awk fork.
 fmt_kb() {
-    local kb=$1
+    local kb=$1 _o t
     [[ "$kb" =~ ^[0-9]+$ ]] || kb=0
     if (( kb >= 1048576 )); then
-        printf '%s GiB' "$(awk -v k="$kb" 'BEGIN { printf "%.1f", k/1048576 }')"
+        t=$(( (kb * 10 + 524288) / 1048576 )); _o="$(( t / 10 )).$(( t % 10 )) GiB"
     elif (( kb >= 1024 )); then
-        printf '%s MiB' "$(awk -v k="$kb" 'BEGIN { printf "%.1f", k/1024 }')"
+        t=$(( (kb * 10 + 512) / 1024 ))
+        if (( t >= 10240 )); then _o="1.0 GiB"; else _o="$(( t / 10 )).$(( t % 10 )) MiB"; fi
     else
-        printf '%d KiB' "$kb"
+        _o="$kb KiB"
     fi
+    if [[ -n "${2:-}" ]]; then printf -v "$2" '%s' "$_o"; else printf '%s' "$_o"; fi
+}
+
+pct_of() {  # pct_of PART TOTAL -> integer percent
+    local p=$1 t=$2
+    (( t > 0 )) || { printf 0; return; }
+    printf '%d' $(( p * 100 / t ))
+}
+
+# ─── DIMM list from dmidecode -t memory ─────────────────────────
+# Fields are anchored on the leading TAB so "Volatile Size", "Logical Size",
+# "Configured Memory Speed", "Bank Locator", "Error Correction Type" etc.
+# can't overwrite the real Size / Speed / Locator / Type values.
+wm_dimms() {
+    local -a dimm_sz=() dimm_type=() dimm_speed=() dimm_manuf=() dimm_pn=() dimm_loc=()
+    local _dline _v _ds="" _dt="" _dp="" _dm="" _dsp="" _dl="" _in=0
+    _wm_flush() {
+        (( _in )) || return 0
+        local mb; mb=$(wu_size_mb "$_ds")
+        [[ "$mb" =~ ^[0-9]+$ ]] || mb=0
+        if (( mb > 0 )); then
+            dimm_sz+=("$mb"); dimm_type+=("$_dt"); dimm_speed+=("$_dsp")
+            dimm_manuf+=("$_dm"); dimm_pn+=("$_dp"); dimm_loc+=("$_dl")
+        fi
+        return 0
+    }
+    while IFS= read -r _dline; do
+        _dline=${_dline%$'\r'}
+        case "$_dline" in
+            "Memory Device"*)
+                _wm_flush
+                _ds=""; _dt=""; _dp=""; _dm=""; _dsp=""; _dl=""; _in=1 ;;
+            $'\tSize: '*)          _ds=${_dline#*: } ;;
+            $'\tType: '*)          wu_trim "${_dline#*: }" _v; wu_junk "$_v" || _dt=$_v ;;
+            $'\tSpeed: '*)         _dsp=$(wu_speed "${_dline#*: }") ;;
+            $'\tManufacturer: '*)  wu_trim "${_dline#*: }" _v; wu_junk "$_v" || _dm=$_v ;;
+            $'\tPart Number: '*)   wu_trim "${_dline#*: }" _v; wu_junk "$_v" || _dp=$_v ;;
+            $'\tLocator: '*)       wu_trim "${_dline#*: }" _v; wu_junk "$_v" || _dl=$_v ;;
+        esac
+    done <<< "$_WU_DMIDECODE"
+    _wm_flush
+    unset -f _wm_flush
+
+    local nmod=${#dimm_sz[@]} i _m _dec _nmb _sz _row
+    (( nmod > 0 )) || return 0
+    _LINES+=( "" )
+    _LINES+=( "  ${BOLD}${W}$(_ic '🧬')DIMM${RESET} (${nmod} $(t_plural "$nmod" mem_module))" )
+    for (( i=0; i<nmod; i++ )); do
+        _m="${dimm_manuf[$i]}"
+        # JEDEC-coded manufacturer ("80AD", "0198", "80AD000080AD")
+        if [[ "$_m" =~ ^[0-9A-Fa-f]{4}$ || "$_m" =~ ^([0-9A-Fa-f]{4})0000[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
+            # Bytes carry an odd-parity bit (0x80): "80AD" = bank 1, 0x2D (SK Hynix).
+            printf -v _dec '%02X%02X' $(( 16#${_m:0:2} & 127 )) $(( 16#${_m:2:2} & 127 ))
+            _dec=$(wu_jedec_decode "$_dec" 2>/dev/null) || _dec=""
+            [[ -n "$_dec" && ! "$_dec" =~ ^[0-9A-Fa-f]{4}$ ]] && _m="$_dec"
+        fi
+        # "Bank 5, Hex 0xCD" (dmidecode >= 3.x on some boards)
+        if [[ "$_m" =~ ^Bank\ ([0-9]+),\ Hex\ 0x([0-9A-Fa-f]{2})$ ]] && declare -F wu_jedec_decode &>/dev/null \
+           && (( BASH_REMATCH[1] >= 1 )); then
+            printf -v _dec '%02X%02X' $(( BASH_REMATCH[1] - 1 )) $(( 16#${BASH_REMATCH[2]} & 127 ))
+            _dec=$(wu_jedec_decode "$_dec" 2>/dev/null) || _dec=""
+            [[ -n "$_dec" && ! "$_dec" =~ ^[0-9A-Fa-f]{4}$ ]] && _m="$_dec"
+        fi
+        _nmb=${dimm_sz[$i]}
+        if (( _nmb >= 1024 && _nmb % 1024 == 0 )); then _sz="$(( _nmb / 1024 )) GiB"
+        elif (( _nmb >= 1024 )); then _sz="$(( _nmb / 1024 )).$(( (_nmb % 1024) * 10 / 1024 )) GiB"
+        else _sz="${_nmb} MiB"
+        fi
+        _row="       └─ ${dimm_loc[$i]:-DIMM $(( i + 1 ))}: ${_sz}"
+        [[ -n "${dimm_type[$i]}" ]] && _row+=" ${dimm_type[$i]}"
+        if [[ -n "${dimm_speed[$i]}" ]]; then
+            if [[ -n "${dimm_type[$i]}" ]]; then _row+="-${dimm_speed[$i]}"; else _row+=" ${dimm_speed[$i]} MT/s"; fi
+        fi
+        _row+="${DIM}"
+        [[ -n "$_m" ]] && _row+=" · ${_m}"
+        [[ -n "${dimm_pn[$i]}" ]] && _row+=" ${dimm_pn[$i]}"
+        _row+="${RESET}"
+        _LINES+=( "$_row" )
+    done
+}
+
+# ECC / EDAC error counters (kernel reports corrected / uncorrected)
+WM_EDAC_DIR=${WM_EDAC_DIR:-/sys/devices/system/edac/mc}
+wm_edac() {
+    [[ -d "$WM_EDAC_DIR" ]] || return 0
+    local ce_total=0 ue_total=0 mc_count=0 mc ce ue
+    for mc in "$WM_EDAC_DIR"/mc*; do
+        [[ -d "$mc" ]] || continue
+        mc_count=$(( mc_count + 1 ))
+        wu_read "$mc/ce_count" ce || ce=0
+        wu_read "$mc/ue_count" ue || ue=0
+        [[ "$ce" =~ ^[0-9]+$ ]] || ce=0
+        [[ "$ue" =~ ^[0-9]+$ ]] || ue=0
+        ce_total=$(( ce_total + ce ))
+        ue_total=$(( ue_total + ue ))
+    done
+    (( mc_count > 0 )) || return 0
+    _LINES+=( "" )
+    local _ecc_color="$G"
+    (( ue_total > 0 )) && _ecc_color="$R"
+    (( ce_total > 0 && ue_total == 0 )) && _ecc_color="$Y"
+    _LINES+=( "  ${BOLD}${W}$(_ic '🔒')ECC / EDAC${RESET} ${mc_count} MC: CE=${_ecc_color}${ce_total}${RESET} UE=${_ecc_color}${ue_total}${RESET}" )
 }
 
 # ─── Content ─────────────────────────────────────────────────────
+ml() {
+    local label="$1" color="$2" value="$3" v
+    printf -v v '%9s' "$value"
+    _LINES+=( "  ${BOLD}$(_wu_pad_r "${label}:" 14)${RESET}  ${color}${v}${RESET}" )
+}
+
 print_all() {
-    local total used free available buffers cached shared
-    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
-    free=$(awk '/^MemFree:/{print $2}' /proc/meminfo)
-    available=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
-    [[ -z "$available" ]] && available="$free"
-    buffers=$(awk '/^Buffers:/{print $2}' /proc/meminfo)
-    cached=$(awk '/^(Cached|SReclaimable):/{s+=$2} END{print s+0}' /proc/meminfo)
-    shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
-    [[ -n "$total" && "$total" -gt 0 ]] || total=1
-    [[ -z "$available" || "$available" -lt 0 ]] && available=0
+    local total=$MI_total available=$MI_avail used
+    local cached=$(( MI_cached + MI_srecl ))
+    (( total > 0 )) || total=1
+    (( available < 0 )) && available=0
     used=$(( total - available ))
     (( used < 0 )) && used=0
 
-    # percentages via awk -- bash integer arithmetic overflows on huge totals
-    local pct_used pct_actual
-    pct_used=$(awk -v t="$total" -v a="$available" 'BEGIN{ printf "%d", (t-a)*100/t }')
-    pct_actual=$(awk -v t="$total" -v u="$used" 'BEGIN{ printf "%d", u*100/t }')
-
+    local pct_used; pct_used=$(pct_of "$used" "$total")
     local total_h used_h available_h buffers_h cached_h shared_h free_h
-    total_h=$(fmt_kb "$total")
-    used_h=$(fmt_kb "$used")
-    available_h=$(fmt_kb "$available")
-    buffers_h=$(fmt_kb "$buffers")
-    cached_h=$(fmt_kb "$cached")
-    shared_h=$(fmt_kb "$shared")
-    free_h=$(fmt_kb "$free")
-
-    local pct_color
-    pct_color=$(usage_color "$pct_used")
+    fmt_kb "$MI_total" total_h;  fmt_kb "$used" used_h
+    fmt_kb "$available" available_h; fmt_kb "$MI_buffers" buffers_h
+    fmt_kb "$cached" cached_h;   fmt_kb "$MI_shmem" shared_h
+    fmt_kb "$MI_free" free_h
 
     _LINES+=( "" )
-    _LINES+=( "  ${BOLD}${pct_color}$(usage_bar "$pct_used" 40)${RESET} ${pct_used}% $(t mem_pct_used)" )
+    _LINES+=( "  ${BOLD}$(usage_bar "$pct_used" 40)${RESET} ${pct_used}% $(t mem_pct_used)" )
     _LINES+=( "" )
-
-    ml() {
-        local label="$1" color="$2" value="$3"
-        _LINES+=( "  ${BOLD}$(_wu_pad_r "${label}:" 14)${RESET}  ${color}$(printf '%8s' "$value")${RESET}" )
-    }
     ml "$(t mem_total)" "$W" "$total_h"
     ml "$(t mem_used)" "$R" "$used_h"
     ml "$(t mem_available)" "$G" "$available_h"
@@ -106,188 +242,68 @@ print_all() {
     ml "$(t mem_shared)" "$DIM" "$shared_h"
     ml "$(t mem_free)" "$DIM" "$free_h"
 
-    local swap_total swap_used swap_free
-    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
-    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo)
-    [[ -n "$swap_total" && "$swap_total" -gt 0 ]] || swap_total=0
-    [[ -z "$swap_free" || "$swap_free" -lt 0 ]] && swap_free=0
+    local swap_total=$MI_swtotal swap_free=$MI_swfree swap_used
+    (( swap_free > swap_total )) && swap_free=$swap_total
     swap_used=$(( swap_total - swap_free ))
-    (( swap_used < 0 )) && swap_used=0
 
     _LINES+=( "" )
     _LINES+=( "  ${BOLD}${W}$(_ic '🔄')$(t mem_swap)${RESET}" )
-
     if (( swap_total > 0 )); then
-        local swap_pct
-        swap_pct=$(awk -v t="$swap_total" -v u="$swap_used" 'BEGIN{ printf "%d", u*100/t }')
-        local swap_total_h swap_used_h swap_free_h
-        swap_total_h=$(fmt_kb "$swap_total")
-        swap_used_h=$(fmt_kb "$swap_used")
-        swap_free_h=$(fmt_kb "$swap_free")
-
-        _LINES+=( "  ${BOLD}$(usage_color "$swap_pct")$(usage_bar "$swap_pct" 40)${RESET} ${swap_pct}% $(t mem_pct_used)" )
+        local swap_pct swap_total_h swap_used_h swap_free_h
+        swap_pct=$(pct_of "$swap_used" "$swap_total")
+        fmt_kb "$swap_total" swap_total_h; fmt_kb "$swap_used" swap_used_h; fmt_kb "$swap_free" swap_free_h
+        _LINES+=( "  ${BOLD}$(usage_bar "$swap_pct" 40)${RESET} ${swap_pct}% $(t mem_pct_used)" )
         _LINES+=( "  $(t mem_total): ${W}${swap_total_h}${RESET}  $(t mem_used): ${R}${swap_used_h}${RESET}  $(t mem_free): ${DIM}${swap_free_h}${RESET}" )
     else
         _LINES+=( "  ${DIM}$(t mem_no_swap)${RESET}" )
     fi
 
-local zram_dev zram_size zram_kb zram_h zram_algorithm
+    local zram_dev zram_size zram_h zram_algorithm zorig zcompr zdata_h zcompr_h zr
     for zram_dev in /sys/block/zram*; do
         [[ -d "$zram_dev" ]] || continue
-        zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
-        zram_kb=$(( zram_size / 1024 ))
-        zram_h=$(fmt_kb "$zram_kb")
-        zram_algorithm=$(awk 'BEGIN{f=0} /\[[^]]+\]/{match($0,/\[[^]]+\]/); printf "%s",substr($0,RSTART+1,RLENGTH-2); f=1; exit} END{if(!f) print "unknown"}' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
-        [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
+        wu_read "$zram_dev/disksize" zram_size || zram_size=0
+        [[ "$zram_size" =~ ^[0-9]+$ ]] || zram_size=0
+        fmt_kb "$(( zram_size / 1024 ))" zram_h
+        zram_algorithm=$(wm_zram_algo "$zram_dev")
         _LINES+=( "" )
         _LINES+=( "  ${BOLD}${W}$(_ic '📦')$(t mem_zram)${RESET}" )
         _LINES+=( "  $(t mem_size): ${G}${zram_h}${RESET}  $(t mem_algorithm): ${DIM}${zram_algorithm}${RESET}" )
-        local zorig=0 zcompr=0
-        if [[ -f "$zram_dev/mm_stat" ]]; then
-            read -r zorig zcompr _ < "$zram_dev/mm_stat" 2>/dev/null || true
-        fi
+        zorig=0 zcompr=0
+        [[ -r "$zram_dev/mm_stat" ]] && { read -r zorig zcompr _ < "$zram_dev/mm_stat"; } 2>/dev/null || true
+        [[ "$zorig" =~ ^[0-9]+$ ]] || zorig=0
+        [[ "$zcompr" =~ ^[0-9]+$ ]] || zcompr=0
         if (( zorig > 0 )); then
-            local zdata_h zcompr_h zratio
-            zdata_h=$(fmt_kb "$(( zorig / 1024 ))")
-            zcompr_h=$(fmt_kb "$(( zcompr / 1024 ))")
-            zratio=$(awk -v a="$zorig" -v b="$zcompr" 'BEGIN{ if (b>0) printf "%.1f", a/b; else print "0" }')
-            _LINES+=( "  ${DIM}$(t mem_zram_data): ${W}${zdata_h}${RESET}  $(t mem_zram_compr): ${W}${zcompr_h}${RESET}  ($(t mem_zram_ratio): ${zratio}x)${RESET}" )
+            fmt_kb "$(( zorig / 1024 ))" zdata_h; fmt_kb "$(( zcompr / 1024 ))" zcompr_h
+            if (( zcompr > 0 )); then zr=$(( zorig * 10 / zcompr )); zr="$(( zr / 10 )).$(( zr % 10 ))"; else zr=0; fi
+            _LINES+=( "  ${DIM}$(t mem_zram_data): ${W}${zdata_h}${RESET}  $(t mem_zram_compr): ${W}${zcompr_h}${RESET}  ($(t mem_zram_ratio): ${zr}x)${RESET}" )
         fi
     done
 
-    local huge_total huge_free huge_size
-    read -r huge_total huge_free huge_size <<< "$(
-        awk '/^HugePages_Total:|^HugePages_Free:|^Hugepagesize:/ {
-            key = $1; sub(/:/, "", key)
-            if (key == "HugePages_Total") total = $2
-            else if (key == "HugePages_Free") free = $2
-            else size = $2 " " $3
-        }
-        END { print total + 0, free + 0, size }' /proc/meminfo
-    )"
-
-    if [[ -n "$huge_size" && "$huge_total" != "0" ]]; then
+    if [[ -n "$MI_hsize" ]] && (( MI_htotal > 0 )); then
         _LINES+=( "" )
         _LINES+=( "  ${BOLD}${W}$(_ic '📏')$(t mem_huge)${RESET}" )
-        _LINES+=( "  $(t mem_total): ${W}${huge_total}${RESET}  $(t mem_free): ${G}${huge_free}${RESET}  $(t mem_size): ${DIM}${huge_size}${RESET}" )
+        _LINES+=( "  $(t mem_total): ${W}${MI_htotal}${RESET}  $(t mem_free): ${G}${MI_hfree}${RESET}  $(t mem_size): ${DIM}${MI_hsize}${RESET}" )
     fi
 
-    if [[ -f /proc/zoneinfo ]]; then
-        local numa_nodes
-        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { c = 0; for (n in nodes) c++; print c }' /proc/zoneinfo)
-        if (( numa_nodes > 1 )); then
-            _LINES+=( "" )
-            _LINES+=( "  ${BOLD}${W}$(_ic '🔢')$(t mem_numa)${RESET} ${numa_nodes}" )
-        fi
+    local numa_nodes; numa_nodes=$(wm_numa)
+    if (( numa_nodes > 1 )); then
+        _LINES+=( "" )
+        _LINES+=( "  ${BOLD}${W}$(_ic '🔢')$(t mem_numa)${RESET} ${numa_nodes}" )
     fi
 
-    # DIMM slots from dmidecode (re-uses wellhw's source variable, set by bootstrap)
-    if [[ -n "${_WU_DMIDECODE:-}" ]]; then
-        local -a dimm_sz=() dimm_type=() dimm_speed=() dimm_manuf=() dimm_pn=() dimm_loc=()
-        local _d_in=0 _ds="" _dt="" _dp="" _dm="" _dsp="" _dl="" _dn=""
-        while IFS= read -r _dline; do
-            case "$_dline" in
-                *[Mm]emory\ [Dd]evice*)
-                    if [[ -n "$_ds" && ! "$_ds" == *No* ]]; then
-                        dimm_sz+=("$_ds"); dimm_type+=("$_dt"); dimm_speed+=("$_dsp")
-                        dimm_manuf+=("$_dm"); dimm_pn+=("$_dp"); dimm_loc+=("$_dl")
-                    fi
-                    _ds=""; _dt=""; _dp=""; _dm=""; _dsp=""; _dl=""; _d_in=1 ;;
-                *Size:*)
-                    _ds="${_dline#*Size: }"; _ds="${_ds%%	*}"; _ds="$(printf '%s' "$_ds" | awk '{$1=$1}1')" ;;
-                *Type:*)        _dt="${_dline#*Type: }"; _dt="${_dt%%	*}"; _dt="$(printf '%s' "$_dt" | awk '{$1=$1}1')" ;;
-                *Speed:*)       _dsp=$(wu_speed "$_dline") ;;
-                *Manufacturer:*) _dm="${_dline#*Manufacturer: }"; _dm="${_dm%%	*}"; _dm="$(printf '%s' "$_dm" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Part\ Number:*) _dp="${_dline#*Part Number: }"; _dp="${_dp%%	*}"; _dp="$(printf '%s' "$_dp" | awk '{$1=$1}1' | tr -d '\r')" ;;
-                *Bank\ Locator:*) : ;;  # skip — covered by Locator below
-                *Locator:*)     _dl="${_dline#*Locator: }"; _dl="${_dl%%	*}"; _dl="$(printf '%s' "$_dl" | awk '{$1=$1}1' | tr -d '\r')" ;;
-            esac
-        done <<< "$_WU_DMIDECODE"
-        if [[ -n "$_ds" && ! "$_ds" == *No* ]]; then
-            dimm_sz+=("$_ds"); dimm_type+=("$_dt"); dimm_speed+=("$_dsp")
-            dimm_manuf+=("$_dm"); dimm_pn+=("$_dp"); dimm_loc+=("$_dl")
-        fi
-        local nmod=${#dimm_sz[@]}
-        if (( nmod > 0 )); then
-            _LINES+=( "" )
-            _LINES+=( "  ${BOLD}${W}$(_ic '🧬')DIMM${RESET} (${nmod} модулей)" )
-            local i
-            for (( i=0; i<nmod; i++ )); do
-                # Try JEDEC decode on hex manufacturer (wellhw has wu_jedec_decode).
-                local _m="${dimm_manuf[$i]}"
-                if [[ "$_m" =~ ^[0-9A-Fa-f]{4}$ ]] && declare -F wu_jedec_decode &>/dev/null; then
-                    local _dec; _dec=$(wu_jedec_decode "$_m" 2>/dev/null) || _dec=""
-                    [[ -n "$_dec" ]] && _m="$_dec"
-                fi
-                # Normalize size via wu_size_mb -> "N GiB" / "N MiB".
-                local _nmb _sz="${dimm_sz[$i]}"
-                _nmb=$(wu_size_mb "$_sz")
-                if (( _nmb >= 1024 )); then _sz="$(( _nmb / 1024 )) GiB"
-                elif (( _nmb > 0 )); then _sz="${_nmb} MiB"
-                fi
-                local _row="       └─ ${dimm_loc[$i]:-DIMM $(( i + 1 ))}: ${_sz} ${dimm_type[$i]}"
-                [[ -n "${dimm_speed[$i]}" ]] && _row+="-${dimm_speed[$i]}"
-                _row+="${DIM}"
-                [[ -n "$_m" ]] && _row+=" · ${_m}"
-                [[ -n "${dimm_pn[$i]}" ]] && _row+=" ${dimm_pn[$i]}"
-                _row+="${RESET}"
-                _LINES+=( "$_row" )
-            done
-        fi
-    fi
-
-    # ECC / EDAC error counters (kernel reports corrected / uncorrected)
-    if [[ -d /sys/devices/system/edac/mc ]]; then
-        local ce_total=0 ue_total=0 mc_count=0
-        for mc in /sys/devices/system/edac/mc/mc*; do
-            [[ -d "$mc" ]] || continue
-            ((mc_count++))
-            local ce ue
-            ce=$(cat "$mc/ce_count" 2>/dev/null) || ce=0
-            ue=$(cat "$mc/ue_count" 2>/dev/null) || ue=0
-            ce_total=$(( ce_total + ce ))
-            ue_total=$(( ue_total + ue ))
-        done
-        if (( mc_count > 0 )); then
-            _LINES+=( "" )
-            local _ecc_color="$G"
-            (( ue_total > 0 )) && _ecc_color="$R"
-            (( ce_total > 0 && ue_total == 0 )) && _ecc_color="$Y"
-            _LINES+=( "  ${BOLD}${W}$(_ic '🔒')ECC / EDAC${RESET} ${mc_count} MC: CE=${_ecc_color}${ce_total}${RESET} UE=${_ecc_color}${ue_total}${RESET}" )
-        fi
-    fi
+    [[ -n "${_WU_DMIDECODE:-}" ]] && wm_dimms
+    wm_edac
+    return 0
 }
 
 # ─── JSON output ────────────────────────────────────────────────
 json_out() {
-    local total free available buffers cached shared used
-    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
-    free=$(awk '/^MemFree:/{print $2}' /proc/meminfo)
-    available=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
-    [[ -z "$available" ]] && available="$free"
-    buffers=$(awk '/^Buffers:/{print $2}' /proc/meminfo)
-    cached=$(awk '/^(Cached|SReclaimable):/{s+=$2} END{print s+0}' /proc/meminfo)
-    shared=$(awk '/^Shmem:/{print $2}' /proc/meminfo)
-    total=${total:-0} free=${free:-0} available=${available:-0}
-    buffers=${buffers:-0} cached=${cached:-0} shared=${shared:-0}
-    used=$(( total - available ))
-
-    local swap_total swap_used swap_free
-    swap_total=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
-    swap_free=$(awk '/^SwapFree:/{print $2}' /proc/meminfo)
-    swap_total=${swap_total:-0} swap_free=${swap_free:-0}
-    swap_used=$(( swap_total - swap_free ))
-
-    local huge_total huge_free huge_size=""
-    huge_total=$(awk '/^HugePages_Total:/{print $2}' /proc/meminfo)
-    huge_free=$(awk '/^HugePages_Free:/{print $2}' /proc/meminfo)
-    huge_size=$(awk '/^Hugepagesize:/{$1=""; sub(/^ /,""); print}' /proc/meminfo)
-    huge_total=${huge_total:-0} huge_free=${huge_free:-0}
-
-    local numa_nodes=1
-    if [[ -f /proc/zoneinfo ]]; then
-        numa_nodes=$(awk '/^Node / { nodes[$2] = 1 } END { c = 0; for (n in nodes) c++; print c }' /proc/zoneinfo)
-    fi
+    local total=$MI_total free=$MI_free available=$MI_avail used
+    local cached=$(( MI_cached + MI_srecl ))
+    used=$(( total - available )); (( used < 0 )) && used=0
+    local swap_total=$MI_swtotal swap_free=$MI_swfree swap_used
+    swap_used=$(( swap_total - swap_free )); (( swap_used < 0 )) && swap_used=0
+    local numa_nodes; numa_nodes=$(wm_numa)
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "memory": {\n'
@@ -295,9 +311,9 @@ json_out() {
     printf '    "used_kb": %d,\n' "$used"
     printf '    "free_kb": %d,\n' "$free"
     printf '    "available_kb": %d,\n' "$available"
-    printf '    "buffers_kb": %d,\n' "$buffers"
+    printf '    "buffers_kb": %d,\n' "$MI_buffers"
     printf '    "cached_kb": %d,\n' "$cached"
-    printf '    "shared_kb": %d\n' "$shared"
+    printf '    "shared_kb": %d\n' "$MI_shmem"
     printf '  },\n'
     printf '  "swap": {\n'
     printf '    "total_kb": %d,\n' "$swap_total"
@@ -305,27 +321,27 @@ json_out() {
     printf '    "free_kb": %d\n' "$swap_free"
     printf '  },\n'
     printf '  "zram": [\n'
-    local first=1 zram_dev zram_size zram_algorithm
+    local first=1 zram_dev zram_size zram_algorithm zorig zcompr zused
     for zram_dev in /sys/block/zram*; do
         [[ -d "$zram_dev" ]] || continue
-        zram_size=$(cat "$zram_dev/disksize" 2>/dev/null || echo "0")
-        zram_algorithm=$(awk 'BEGIN{f=0} /\[[^]]+\]/{match($0,/\[[^]]+\]/); printf "%s",substr($0,RSTART+1,RLENGTH-2); f=1; exit} END{if(!f) print "unknown"}' "$zram_dev/comp_algorithm" 2>/dev/null || echo "unknown")
-        [[ "$zram_algorithm" == "unknown" && -f "$zram_dev/algorithm" ]] && zram_algorithm=$(cat "$zram_dev/algorithm")
-        local zdata_z=0 zcompr_z=0 zused_z=0
-        if [[ -f "$zram_dev/mm_stat" ]]; then
-            read -r zorig zcompr zused _ < "$zram_dev/mm_stat" 2>/dev/null || true
-            zdata_z=${zorig:-0}; zcompr_z=${zcompr:-0}; zused_z=${zused:-0}
-        fi
+        wu_read "$zram_dev/disksize" zram_size || zram_size=0
+        [[ "$zram_size" =~ ^[0-9]+$ ]] || zram_size=0
+        zram_algorithm=$(wm_zram_algo "$zram_dev")
+        zorig=0 zcompr=0 zused=0
+        [[ -r "$zram_dev/mm_stat" ]] && { read -r zorig zcompr zused _ < "$zram_dev/mm_stat"; } 2>/dev/null || true
+        [[ "$zorig" =~ ^[0-9]+$ ]] || zorig=0
+        [[ "$zcompr" =~ ^[0-9]+$ ]] || zcompr=0
+        [[ "$zused" =~ ^[0-9]+$ ]] || zused=0
         (( first )) && first=0 || printf ',\n'
         printf '    { "name": "%s", "size_kb": %d, "algorithm": "%s", "data_kb": %d, "compr_kb": %d, "mem_used_kb": %d }' \
-            "$(json_esc "$(basename "$zram_dev")")" "$(( zram_size / 1024 ))" "$(json_esc "$zram_algorithm")" \
-            "$(( zdata_z / 1024 ))" "$(( zcompr_z / 1024 ))" "$(( zused_z / 1024 ))"
+            "$(json_esc "${zram_dev##*/}")" "$(( zram_size / 1024 ))" "$(json_esc "$zram_algorithm")" \
+            "$(( zorig / 1024 ))" "$(( zcompr / 1024 ))" "$(( zused / 1024 ))"
     done
     printf '\n  ],\n'
     printf '  "hugepages": {\n'
-    printf '    "total": %d,\n' "$huge_total"
-    printf '    "free": %d,\n' "$huge_free"
-    printf '    "size": "%s"\n' "$(json_esc "$huge_size")"
+    printf '    "total": %d,\n' "$MI_htotal"
+    printf '    "free": %d,\n' "$MI_hfree"
+    printf '    "size": "%s"\n' "$(json_esc "$MI_hsize")"
     printf '  },\n'
     printf '  "numa_nodes": %d\n' "$numa_nodes"
     wu_json_end
@@ -333,21 +349,23 @@ json_out() {
 
 # ─── Main ────────────────────────────────────────────────────────
 short_out() {
-    local total avail
-    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null) || total=""
-    avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null) || avail=""
-    [[ "$total" =~ ^[0-9]+$ && "$avail" =~ ^[0-9]+$ ]] || { printf -- '-\n'; return 0; }
-    awk -v u="$(( total - avail ))" -v t="$total" 'BEGIN{printf "%.1f/%.1fGiB\n", u/1048576, t/1048576}'
+    (( MI_total > 0 )) || { printf -- '-\n'; return 0; }
+    local u t
+    u=$(( ( (MI_total - MI_avail) * 10 + 524288 ) / 1048576 ))
+    t=$(( ( MI_total * 10 + 524288 ) / 1048576 ))
+    printf '%d.%d/%d.%dGiB\n' $(( u / 10 )) $(( u % 10 )) $(( t / 10 )) $(( t % 10 ))
 }
 
 main() {
+    wm_meminfo
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi
     if [[ "$_WU_SHORT" == "1" ]]; then short_out; return 0; fi
 
+    wm_load_dmi
     box_header "$(_emu '🧠')" "wellmem" "$(t mem_title)"
     box "$(_emu '🧩')" "$(t mem_ram)" print_all
 
-    printf '\n  %sWellMem v1.1 | %s%s\n\n' "$DIM" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
+    printf '\n  %sWellMem v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
 wu_run main "$@"

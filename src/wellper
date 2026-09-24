@@ -5,37 +5,40 @@
 # No hard deps beyond bash + coreutils. Every section degrades gracefully.
 set -euo pipefail
 
-VERSION="1.0"
-
-# ─── CLI options ─────────────────────────────────────────────────
-_WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_JSON=0 _WU_TERSE=0
-_WU_HTML=0
-_WU_STRICT=0 _WU_DEBUG="" _WU_GROUPS="all" _WU_SECTIONS="all" _LANG_ARG=""
-
-usage() {
-    cat <<'EOF'
-Usage: wellper [options]
-
-Peripherals report: USB devices, displays and audio.
-
-Options:
-  -h, --help                 show this help
-  -V, --version              show version
-      --lang ru|en|auto      output language (auto = from locale)
-      --color always|auto|never   colorize output (auto = tty)
-      --plain                plain text, no box drawing
-      --box                  force box drawing even when piped
-      --no-emoji             drop emoji icons
-      --groups LIST          USB groups: input,media,other or all
-      --sections LIST        sections: usb,displays,audio or all
+# ─── Shared libs ────────────────────────────────────────────────
+_WU_TOOLNAME="wellper" _WU_NAME="WellPer" _WU_VERSION="1.0"
+_WU_TAGLINE="Peripherals report: USB devices, displays and audio."
+_WU_EXTRA_HELP="      --groups LIST          USB groups: input,media,other or all
+      --sections LIST        sections: usb,displays,audio,isa,pcmcia,pci or all
       --strict               exit 1 when no devices are found
       --terse                one-line summary
-      --json                 machine-readable JSON
-      --debug                shell tracing
+  (exit code 1 with --strict when no devices are found)
+"
+_WU_EXTRA_PARSE="wp_extra_parse"
+_WU_TERSE=0 _WU_STRICT=0 _WU_GROUPS="all" _WU_SECTIONS="all"
 
-Exit codes: 0 ok, 1 no devices (--strict), 2 bad CLI, 3 runtime error.
-EOF
+# Tool-specific flags, called by cli.sh wu_parse for anything it doesn't know.
+wp_extra_parse() {
+    _WU_EXTRA_CONSUMED=0
+    case "$1" in
+        --groups|--sections)
+            [[ $# -ge 2 ]] || { printf 'wellper: %s needs a value\n' "$1" >&2; exit 2; }
+            if [[ "$1" == --groups ]]; then _WU_GROUPS="$2"; else _WU_SECTIONS="$2"; fi
+            _WU_EXTRA_CONSUMED=2; return 0 ;;
+        --groups=*)   _WU_GROUPS="${1#*=}";   _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --sections=*) _WU_SECTIONS="${1#*=}"; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --strict) _WU_STRICT=1; _WU_EXTRA_CONSUMED=1; return 0 ;;
+        --terse)  _WU_TERSE=1;  _WU_EXTRA_CONSUMED=1; return 0 ;;
+    esac
+    return 1
 }
+
+_WU_BOOT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="$(dirname -- "$_WU_BOOT_DIR")/share/wellutils"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/local/share/wellutils"
+[[ -f "$_WU_BOOT_DIR/bootstrap.sh" ]] || _WU_BOOT_DIR="/usr/share/wellutils"
+source "$_WU_BOOT_DIR/bootstrap.sh" lang box cli parse
+VERSION="$_WU_VERSION"
 
 norm_list() {
     local out="" tok
@@ -49,172 +52,40 @@ norm_list() {
     printf '%s' "${out# }"
 }
 
-# bash 3.2-compatible lowercase (no ${var,,}; tr is in coreutils/busybox)
-_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-
-parse_args() {
-    while (( $# > 0 )); do
-        case "$1" in
-            -h|--help) usage; exit 0 ;;
-            -V|--version) printf 'WellPer %s\n' "$VERSION"; exit 0 ;;
-            -l|--lang)
-                [[ $# -ge 2 ]] || { printf 'wellper: --lang needs ru|en|auto\n' >&2; exit 2; }
-                _LANG_ARG="$2"; shift 2 ;;
-            --lang=*) _LANG_ARG="${1#*=}"; shift ;;
-            --color)
-                [[ $# -ge 2 ]] || { printf 'wellper: --color needs always|auto|never\n' >&2; exit 2; }
-                _WU_COLOR="$2"; shift 2 ;;
-            --color=*) _WU_COLOR="${1#*=}"; shift ;;
-            --plain) _WU_MODE="plain"; shift ;;
-            --box)   _WU_MODE="box"; shift ;;
-            --no-emoji) _WU_EMOJI="no"; shift ;;
-            --emoji)    _WU_EMOJI="auto"; shift ;;
-            --groups)
-                [[ $# -ge 2 ]] || { printf 'wellper: --groups needs a value\n' >&2; exit 2; }
-                _WU_GROUPS="$2"; shift 2 ;;
-            --groups=*) _WU_GROUPS="${1#*=}"; shift ;;
-            --sections)
-                [[ $# -ge 2 ]] || { printf 'wellper: --sections needs a value\n' >&2; exit 2; }
-                _WU_SECTIONS="$2"; shift 2 ;;
-            --sections=*) _WU_SECTIONS="${1#*=}"; shift ;;
-            --strict) _WU_STRICT=1; shift ;;
-            --terse)  _WU_TERSE=1; shift ;;
-            --json)   _WU_JSON=1; shift ;;
-            --html)   _WU_HTML=1; shift ;;
-            --debug)  _WU_DEBUG=1; shift ;;
-            --short)  printf 'wellper: --short is not supported by this tool\n' >&2; exit 2 ;;
-            -*) printf 'wellper: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
-            *)  printf 'wellper: unexpected argument %s\n' "$1" >&2; usage >&2; exit 2 ;;
-        esac
-    done
+# Validate --groups/--sections (runs inside main, after wu_parse).
+wp_validate() {
+    local g s
+    _WU_GROUPS=$(norm_list "$(_wlc "$_WU_GROUPS")")
+    _WU_SECTIONS=$(norm_list "$(_wlc "$_WU_SECTIONS")")
+    if [[ "$_WU_GROUPS" != "all" ]]; then
+        for g in $_WU_GROUPS; do
+            case "$g" in
+                in|media|other) : ;;
+                *) printf 'wellper: unknown group %s\n' "$g" >&2; exit 2 ;;
+            esac
+        done
+    fi
+    if [[ "$_WU_SECTIONS" != "all" ]]; then
+        for s in $_WU_SECTIONS; do
+            case "$s" in
+                usb|displays|audio|isa|pcmcia|pci) : ;;
+                *) printf 'wellper: unknown section %s\n' "$s" >&2; exit 2 ;;
+            esac
+        done
+    fi
+    return 0
 }
 
-parse_args "$@"
-
-case "$(_wlc "$_WU_COLOR")" in
-    always|auto|never) : ;;
-    *) printf 'wellper: --color must be always|auto|never\n' >&2; exit 2 ;;
-esac
-case "$(_wlc "$_LANG_ARG")" in
-    ""|ru|en|auto) : ;;
-    *) printf 'wellper: --lang must be ru|en|auto\n' >&2; exit 2 ;;
-esac
-_WU_GROUPS=$(norm_list "$(_wlc "$_WU_GROUPS")")
-_WU_SECTIONS=$(norm_list "$(_wlc "$_WU_SECTIONS")")
-if [[ "$_WU_GROUPS" != "all" ]]; then
-    for g in $_WU_GROUPS; do
-        case "$g" in
-            in|media|other) : ;;
-            *) printf 'wellper: unknown group %s\n' "$g" >&2; exit 2 ;;
-        esac
-    done
-fi
-if [[ "$_WU_SECTIONS" != "all" ]]; then
-    for s in $_WU_SECTIONS; do
-        case "$s" in
-            usb|displays|audio|isa|pcmcia|pci) : ;;
-            *) printf 'wellper: unknown section %s\n' "$s" >&2; exit 2 ;;
-        esac
-    done
-fi
-[[ "$_WU_DEBUG" == "1" ]] && set -x
-
-# ─── Language (before sourcing lang.sh) ─────────────────────────
-case "$(_wlc "$_LANG_ARG")" in
-    ru) WELLUTILS_LANG=RU ;;
-    en) WELLUTILS_LANG=EN ;;
-    auto)
-        case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
-            ru*) WELLUTILS_LANG=RU ;;
-        esac ;;
-esac
-
-# ─── Shared libs (dirname → /usr/share/wellutils → /etc (compat)) ──
-
-_WU_LIB="$(dirname "$(readlink -f "$0")")/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/local/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/usr/share/wellutils/lang.sh"
-[[ -f "$_WU_LIB" ]] || _WU_LIB="/etc/wellutils/lang.sh"
-if [[ -f "$_WU_LIB" ]]; then
-    source "$_WU_LIB"
-else
-    t() { printf '%s' "$1"; }
-fi
-
-_WU_BOX="$(dirname "$(readlink -f "$0")")/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="$(dirname "$(dirname "$(readlink -f "$0")")")/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/local/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/usr/share/wellutils/box.sh"
-[[ -f "$_WU_BOX" ]] || _WU_BOX="/etc/wellutils/box.sh"
 # ─── Rare-hardware guards (Termux/PS5/ARM/laptops may lack tools) ──
 command -v awk    >/dev/null 2>&1 || awk()    { :; }
-command -v free   >/dev/null 2>&1 || free()   { printf 'Mem: 0 0 0 0 0 0\n'; }
-command -v df     >/dev/null 2>&1 || df()     { :; }
-command -v uptime >/dev/null 2>&1 || uptime() { :; }
-command -v nproc  >/dev/null 2>&1 || nproc()  { getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1'; }
+command -v od     >/dev/null 2>&1 || od()     { :; }
 command -v date   >/dev/null 2>&1 || date()   { printf '%s' '1970-01-01 00:00:00'; }
-if [[ -f "$_WU_BOX" ]]; then
-    source "$_WU_BOX"
-else
-    # ── Minimal plain fallback -- no box drawing, cannot drift ──
-    R= G= Y= B= M= C= W= DIM= BOLD= RESET=
-    _LINES=()
-    pline()     { _LINES+=( " $*" ); }
-    pline_sub() { _LINES+=( "       └─ $*" ); }
-    pline_hw()  { _LINES+=( "  $1 $2: $3" ); }
-    box()       { local icon="$1" title="$2" fn="$3"; _LINES=(); "$fn"; printf '  %s\n' "$title"; for i in ${_LINES[@]+"${_LINES[@]}"}; do printf '%s\n' "$i"; done; }
-    box_header(){ printf '  %s -- %s\n' "$2" "$3"; }
-    banner()    { for i in ${_LINES[@]+"${_LINES[@]}"}; do printf '%s\n' "$i"; done; }
-    box_top()   { :; }
-    box_row()   { :; }
-    box_bottom(){ :; }
-    pci_slot_devices() { _PCI_BUS=() _PCI_CLASS=() _PCI_DESC=(); }
-fi
 
-# ─── Output policy ───────────────────────────────────────────────
-if [[ -t 1 ]]; then _WU_TTY=1; else _WU_TTY=0; fi
-if [[ -z "$_WU_MODE" ]]; then
-    if [[ $_WU_TTY -eq 0 || $_WU_JSON -eq 1 ]]; then _WU_MODE="plain"; else _WU_MODE="box"; fi
-fi
-[[ "$_WU_MODE" == "plain" ]] && _WU_PLAIN=1 || _WU_PLAIN=0
-case "$_WU_COLOR" in
-    always) _WU_COLOR_ON=1 ;;
-    never)  _WU_COLOR_ON=0 ;;
-    *)
-        if [[ $_WU_TTY -eq 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" && "$_WU_MODE" != "plain" ]]; then
-            _WU_COLOR_ON=1
-        else
-            _WU_COLOR_ON=0
-        fi
-        ;;
-esac
-if [[ "$_WU_EMOJI" == "auto" ]]; then
-    case "${LC_ALL:-${LANG:-}}" in
-        C*|POSIX) _WU_EMOJI="no" ;;
-        *) [[ "${TERM:-}" == "dumb" ]] && _WU_EMOJI="no" || _WU_EMOJI="yes" ;;
-    esac
-fi
-if [[ $_WU_COLOR_ON -eq 0 ]]; then
-    R= G= Y= B= M= C= W= DIM= BOLD= RESET=
-fi
-
-_emu()      { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s' "$1"; }
-_ic()       { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$1"; }
+# Icon + trailing space, nothing at all without emoji (cli.sh's _ic always
+# emits the space, which would indent no-emoji rows by one column).
+_pic()      { [[ "$_WU_EMOJI" == "yes" ]] && printf '%s ' "$(_emoji_clean "$1")"; return 0; }
 _g_has()    { [[ "$_WU_GROUPS" == "all" || " $_WU_GROUPS " == *" $1 "* ]]; }
 _s_has()    { [[ "$_WU_SECTIONS" == "all" || " $_WU_SECTIONS " == *" $1 "* ]]; }
-
-json_esc() {
-    local s="$1"
-    s=${s//\\/\\\\}
-    s=${s//\"/\\\"}
-    s=${s//$'\n'/\\n}
-    s=${s//$'\t'/\\t}
-    s=${s//$'\r'/\\r}
-    s=${s//$'\b'/\\b}
-    s=${s//$'\f'/\\f}
-    printf '%s' "$s"
-}
 
 # ─── USB IDs database (optional) ────────────────────────────────
 # ─── USB IDs database (lazy lookups -- no full-file scan) ────────
@@ -228,15 +99,15 @@ usb_vendor_name() {
     [[ "$1" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
     [[ -n "$USB_IDS_FILE" ]] || return 0
     awk -v v="$(_wlc "$1")" '
-        /^[0-9a-f]{4}[[:space:]]/ { if (tolower($1)==v) { sub(/^[0-9a-f]{4}[[:space:]]+/, ""); print; exit } }
+        /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][ \t]/ { if (tolower($1)==v) { sub(/^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][ \t]+/, ""); print; exit } }
     ' "$USB_IDS_FILE"
 }
 usb_device_name() {
     [[ "$1" =~ ^[0-9a-fA-F]{4}$ && "$2" =~ ^[0-9a-fA-F]{4}$ ]] || return 0
     [[ -n "$USB_IDS_FILE" ]] || return 0
     awk -v v="$(_wlc "$1")" -v p="$(_wlc "$2")" '
-        /^[0-9a-f]{4}[[:space:]]/ { insec = ($1 == v); next }
-        insec && $0 ~ "^" "\t" p "[[:space:]]" { sub(/^[^ ]+ +/, ""); print; exit }
+        /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][ \t]/ { if (insec) exit; insec = ($1 == v); next }
+        insec && $0 ~ ("^\t" p "[ \t]") { sub(/^\t[0-9a-f]+[ \t]+/, ""); print; exit }
     ' "$USB_IDS_FILE"
 }
 
@@ -253,8 +124,11 @@ junk_manufacturer() {
         *)  return 1 ;;
     esac
 }
-clean_name() {
-    printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/ /g'
+clean_name() {  # trim + squeeze whitespace, fork-free
+    local s="${1//[$'\t\r\n']/ }"
+    while [[ "$s" == *"  "* ]]; do s=${s//  / }; done
+    s=${s# }; s=${s% }
+    printf '%s' "$s"
 }
 
 speed_label() {
@@ -377,19 +251,19 @@ type_label() {
 
 icon_for() {
     case "$1" in
-        keyboard) printf '%s' "$(_ic '⌨')" ;;
-        mouse)    printf '%s' "$(_ic '🖱')" ;;
-        tablet)   printf '%s' "$(_ic '🎨')" ;;
-        gamepad)  printf '%s' "$(_ic '🎮')" ;;
-        webcam)   printf '%s' "$(_ic '📷')" ;;
-        audio)    printf '%s' "$(_ic '🎧')" ;;
-        printer)  printf '%s' "$(_ic '🖨')" ;;
-        phone)    printf '%s' "$(_ic '📱')" ;;
-        network)  printf '%s' "$(_ic '📶')" ;;
-        storage)  printf '%s' "$(_ic '💾')" ;;
-        hub)      printf '%s' "$(_ic '🔌')" ;;
-        hid)      printf '%s' "$(_ic '⚙')" ;;
-        *)        printf '%s' "$(_ic '🔌')" ;;
+        keyboard) printf '%s' "$(_pic '⌨')" ;;
+        mouse)    printf '%s' "$(_pic '🖱')" ;;
+        tablet)   printf '%s' "$(_pic '🎨')" ;;
+        gamepad)  printf '%s' "$(_pic '🎮')" ;;
+        webcam)   printf '%s' "$(_pic '📷')" ;;
+        audio)    printf '%s' "$(_pic '🎧')" ;;
+        printer)  printf '%s' "$(_pic '🖨')" ;;
+        phone)    printf '%s' "$(_pic '📱')" ;;
+        network)  printf '%s' "$(_pic '📶')" ;;
+        storage)  printf '%s' "$(_pic '💾')" ;;
+        hub)      printf '%s' "$(_pic '🔌')" ;;
+        hid)      printf '%s' "$(_pic '⚙')" ;;
+        *)        printf '%s' "$(_pic '🔌')" ;;
     esac
 }
 
@@ -644,7 +518,7 @@ render_displays() {
     for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
         local name="${DISP_NAME[$i]:-}" vend="${DISP_VEND[$i]:-}" mode="${DISP_MODE[$i]:-}" conn="${DISP_CONN[$i]:-}"
         [[ -z "$name" ]] && name="$(t per_unknown)"
-        pline "  $(_ic '🖥')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
+        pline "  $(_pic '🖥')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
         local subs=() k
         [[ -n "$vend" ]] && subs+=( "$(t per_vendor): $(pnp_vendor "$vend")" )
         [[ -n "$conn" ]] && subs+=( "$(t per_interface): ${conn}" )
@@ -706,9 +580,9 @@ render_audio() {
         local desc="${AUDIO_DESC[$i]:-}" idx="${AUDIO_IDX[$i]:-}"
         [[ -z "$desc" ]] && continue
         if [[ -n "$idx" ]]; then
-            pline "  $(_ic '🔊')${BOLD}${W}[${idx}] ${desc}${RESET}"
+            pline "  $(_pic '🔊')${BOLD}${W}[${idx}] ${desc}${RESET}"
         else
-            pline "  $(_ic '🔊')${BOLD}${W}${desc}${RESET}"
+            pline "  $(_pic '🔊')${BOLD}${W}${desc}${RESET}"
         fi
     done
 }
@@ -760,7 +634,7 @@ render_isa() {
         local meta=""
         [[ -n "$irq" && "$irq" != "0" ]] && meta+=" · IRQ ${irq}"
         [[ -n "$dma" && "$dma" != "0" ]] && meta+=" · DMA ${dma}"
-        pline "  $(_ic '🔧')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
+        pline "  $(_pic '🔧')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
     done
 }
 
@@ -804,7 +678,7 @@ render_pcmcia() {
         local meta=""
         [[ -n "$func" ]] && meta+=" · ${func}"
         [[ -n "$irq" && "$irq" != "0" ]] && meta+=" · IRQ ${irq}"
-        pline "  $(_ic '💳')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
+        pline "  $(_pic '💳')${BOLD}${W}${name}${RESET}${DIM}${meta}${RESET}"
     done
 }
 
@@ -826,7 +700,7 @@ render_pci() {
     fi
     local i
     for (( i=0; i<${#PCI_BUS[@]}; i++ )); do
-        pline "  $(_ic '🔌')${BOLD}${W}${PCI_BUS[$i]}${RESET}  ${DIM}${PCI_DESC[$i]}${RESET}"
+        pline "  $(_pic '🔌')${BOLD}${W}${PCI_BUS[$i]}${RESET}  ${DIM}${PCI_DESC[$i]}${RESET}"
     done
 }
 
@@ -839,11 +713,8 @@ json_out() {
     n_isa=${#ISA_NAME[@]}
     n_pcm=${#PCM_NAME[@]}
     n_pci=${#PCI_BUS[@]}
-    printf '{\n'
-    printf '  "tool": "wellper",\n'
-    printf '  "version": "%s",\n' "$VERSION"
-    printf '  "date": "%s",\n' "$(json_esc "$(date '+%Y-%m-%d %H:%M:%S')")"
-    printf '  "summary": {\n'
+    wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
+    printf ',\n  "summary": {\n'
     printf '    "usb": %d,\n' "$n_usb"
     printf '    "displays": %d,\n' "$n_disp"
     printf '    "audio": %d,\n' "$n_aud"
@@ -935,6 +806,7 @@ terse_out() {
 
 # ─── Main ────────────────────────────────────────────────────────
 main() {
+    wp_validate
     collect_usb
     collect_displays
     if (( ${#DISP_NAME[@]} == 0 )); then collect_displays_xrandr; fi
@@ -942,22 +814,6 @@ main() {
     collect_isa
     collect_pcmcia
     collect_pci
-
-    if [[ $_WU_HTML -eq 1 ]]; then
-        # HTML page via the shared converter in cli.sh; render in a colored
-        # subprocess so the normal code path stays untouched.
-        local clidir="${_WU_LIB%/*}"
-        source "$clidir/cli.sh" 2>/dev/null || true
-        if ! declare -F wu_html_page &>/dev/null; then
-            printf 'wellper: cli.sh not found for --html\n' >&2
-            return 3
-        fi
-        _WU_TOOLNAME="wellper" _WU_NAME="WellPer" _WU_VERSION="1.4.0"
-        local out _rc=0
-        out=$("$0" --color always --box) || _rc=$?
-        wu_html_page "$out"
-        return "$_rc"
-    fi
 
     if [[ $_WU_JSON -eq 1 ]]; then
         json_out
@@ -968,11 +824,7 @@ main() {
         return 0
     fi
 
-    if [[ "$_WU_MODE" == "plain" ]]; then
-        printf '\n  %s%s %s -- %s %s\n\n' "$(_ic '🎮')" "$BOLD" 'wellper' "$(t per_title)" "$RESET"
-    else
-        box_header "$(_ic '🎮')" "wellper" "$(t per_title)"
-    fi
+    box_header "$(_emu '🎮')" "wellper" "$(t per_title)"
 
     local total=${#USB_NAME[@]} dcount=${#DISP_NAME[@]} acount=${#AUDIO_DESC[@]}
     local isacount=${#ISA_NAME[@]} pcmcount=${#PCM_NAME[@]} pcicount=${#PCI_BUS[@]}
@@ -991,47 +843,49 @@ main() {
     (( isacount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_isa): ${W}${isacount}${RESET}"; }
     (( pcmcount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pcmcia): ${W}${pcmcount}${RESET}"; }
     (( pcicount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pci): ${W}${pcicount}${RESET}"; }
-    [[ -n "$line" ]] && printf '\n  %s\n\n' "$line"
+    if [[ -n "$line" ]]; then
+        if [[ "$_WU_PLAIN" == "1" ]]; then printf '  %s\n\n' "$line"; else printf '\n  %s\n\n' "$line"; fi
+    fi
 
     if _s_has usb; then
         if (( total == 0 )); then
-            box "$(_ic '🔌')" "$(t per_usb)" render_usb_in
+            box "$(_pic '🔌')" "$(t per_usb)" render_usb_in
         else
             for grp in in media other; do
                 _g_has "$grp" || continue
                 ci=$(count_grp "$grp")
                 (( ci > 0 )) || continue
                 case "$grp" in
-                    in)    box "$(_ic '🖱')" "$(t per_input) (${ci})" render_usb_in ;;
-                    media) box "$(_ic '📷')" "$(t per_media) (${ci})" render_usb_media ;;
-                    other) box "$(_ic '🧩')" "$(t per_other) (${ci})" render_usb_other ;;
+                    in)    box "$(_pic '🖱')" "$(t per_input) (${ci})" render_usb_in ;;
+                    media) box "$(_pic '📷')" "$(t per_media) (${ci})" render_usb_media ;;
+                    other) box "$(_pic '🧩')" "$(t per_other) (${ci})" render_usb_other ;;
                 esac
             done
         fi
     fi
 
     if _s_has displays; then
-        box "$(_ic '🖥')" "$(t per_displays) (${dcount})" render_displays
+        box "$(_pic '🖥')" "$(t per_displays) (${dcount})" render_displays
     fi
 
     if _s_has audio; then
         if (( acount > 0 )); then
-            box "$(_ic '🔊')" "$(t per_audio) (${acount})" render_audio
+            box "$(_pic '🔊')" "$(t per_audio) (${acount})" render_audio
         else
-            box "$(_ic '🔊')" "$(t per_audio)" render_audio_none
+            box "$(_pic '🔊')" "$(t per_audio)" render_audio_none
         fi
     fi
 
     if _s_has isa && (( isacount > 0 )); then
-        box "$(_ic '🔧')" "$(t per_isa) (${isacount})" render_isa
+        box "$(_pic '🔧')" "$(t per_isa) (${isacount})" render_isa
     fi
 
     if _s_has pcmcia && (( pcmcount > 0 )); then
-        box "$(_ic '💳')" "$(t per_pcmcia) (${pcmcount})" render_pcmcia
+        box "$(_pic '💳')" "$(t per_pcmcia) (${pcmcount})" render_pcmcia
     fi
 
     if _s_has pci && (( pcicount > 0 )); then
-        box "$(_ic '🔌')" "$(t per_pci) (${pcicount})" render_pci
+        box "$(_pic '🔌')" "$(t per_pci) (${pcicount})" render_pci
     fi
 
     printf '\n  %sWellPer v%s | %s%s\n\n' "$DIM" "$VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
@@ -1042,4 +896,4 @@ main() {
     return 0
 }
 
-main "$@"
+wu_run main "$@"
