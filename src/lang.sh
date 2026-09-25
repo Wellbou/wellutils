@@ -6,9 +6,15 @@
 
 _WELLUTILS_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
 
-# Read saved language preference
+# Read saved language preference (pure bash: no sed, so tools also start
+# with a minimal PATH, e.g. busybox rescue shells or the restricted-PATH
+# tests -- an unguarded `sed` there died with rc=127 under set -e+pipefail).
 if [[ -f "$_WELLUTILS_LANG_FILE" ]]; then
-    _WELLUTILS_LANG=$( { sed -n '/^[A-Za-z]/{p;q}' "$_WELLUTILS_LANG_FILE" 2>/dev/null || true; } | tr -d '[:space:]')
+    _WELLUTILS_LANG=""
+    while IFS= read -r _wll || [[ -n "$_wll" ]]; do
+        _wll=${_wll//[[:space:]]/}
+        [[ -n "$_wll" && "$_wll" != \#* ]] && { _WELLUTILS_LANG=$_wll; break; }
+    done < "$_WELLUTILS_LANG_FILE" 2>/dev/null || true
 fi
 
 # Detect language from session/system locale
@@ -16,12 +22,16 @@ _wu_detect_lang() {
     case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
         ru*) WELLUTILS_LANG="RU"; return 0 ;;
     esac
-    local _sys_lang=""
-    if [[ -r /etc/locale.conf ]]; then
-        _sys_lang=$(sed -n 's/^LANG=//p' /etc/locale.conf | head -1 | tr -d '"')
-    elif [[ -r /etc/default/locale ]]; then
-        _sys_lang=$(sed -n 's/^LANG=//p' /etc/default/locale | head -1 | tr -d '"')
-    fi
+    local _sys_lang="" _f _line
+    # Arch/Fedora keep it in /etc/locale.conf, Debian in /etc/default/locale.
+    for _f in /etc/locale.conf /etc/default/locale; do
+        [[ -r "$_f" ]] || continue
+        while IFS= read -r _line || [[ -n "$_line" ]]; do
+            case "$_line" in
+                LANG=*) _sys_lang=${_line#LANG=}; _sys_lang=${_sys_lang//\"/}; break 2 ;;
+            esac
+        done < "$_f" 2>/dev/null || true
+    done
     case "$(printf '%s' "$_sys_lang" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
         ru*) WELLUTILS_LANG="RU" ;;
     esac
@@ -459,6 +469,10 @@ _T_EN[pwr_no_profile]="no power profile manager"
 _T_EN[pwr_no_rate]="rate unavailable"
 _T_EN[doc_title]="System Health Check"
 _T_EN[doc_smart_fail]="S.M.A.R.T. FAILED"
+_T_EN[doc_smart_warn]="S.M.A.R.T. warning"
+_T_EN[doc_smart_past]="past marginal attribute"
+_T_EN[doc_smart_errlog]="error log has entries"
+_T_EN[doc_smart_selflog]="self-test log has errors"
 _T_EN[doc_smart_ok]="S.M.A.R.T. healthy"
 _T_EN[doc_smart_na]="S.M.A.R.T. unavailable"
 _T_EN[doc_temp_hot]="CPU temperature critical"
@@ -990,6 +1004,10 @@ _T_RU[pwr_no_profile]="менеджер профилей не найден"
 _T_RU[pwr_no_rate]="потребление недоступно"
 _T_RU[doc_title]="Проверка здоровья системы"
 _T_RU[doc_smart_fail]="S.M.A.R.T. ПРОВАЛЕН"
+_T_RU[doc_smart_warn]="S.M.A.R.T. предупреждение"
+_T_RU[doc_smart_past]="маргинальный атрибут в прошлом"
+_T_RU[doc_smart_errlog]="в журнале есть ошибки"
+_T_RU[doc_smart_selflog]="в журнале самотестирования есть ошибки"
 _T_RU[doc_smart_ok]="S.M.A.R.T. исправен"
 _T_RU[doc_smart_na]="S.M.A.R.T. недоступен"
 _T_RU[doc_temp_hot]="Критическая температура CPU"

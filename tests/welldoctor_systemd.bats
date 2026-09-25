@@ -14,9 +14,12 @@ exit 0
 STUB
     chmod +x "$FAKEBIN/systemctl"
     mkdir -p "$FAKEBIN/run/systemd/system"
+    # Hermetic even where the host runs systemd (or where no systemd runs
+    # at all, e.g. CI containers): the stubbed manager is "running".
+    export _WU_SYSTEMD_RUNDIR="$FAKEBIN/run/systemd/system"
 }
 
-teardown() { rm -rf "$FAKEBIN"; }
+teardown() { rm -rf "$FAKEBIN"; unset _WU_SYSTEMD_RUNDIR; }
 
 @test "degraded systemd lists failed units (F1 regression)" {
     export PATH="$FAKEBIN:$PATH"

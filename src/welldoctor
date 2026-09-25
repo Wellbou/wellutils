@@ -23,6 +23,13 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box parse
 
 _WD_WARN=0 _WD_CRIT=0
 
+# mktemp is coreutils, but a stripped rescue PATH may lack it -- fall back
+# to a PID-tagged file instead of dying with rc=127 (see chk_confleft).
+command -v mktemp >/dev/null 2>&1 || mktemp() {
+    local _f="${TMPDIR:-/tmp}/welldoctor-$$-$RANDOM.tmp"
+    : > "$_f" 2>/dev/null && printf '%s' "$_f"
+}
+
 wd_warn() { _WD_WARN=$(( _WD_WARN + 1 )); printf '  %s⚠%s %s\n' "$Y" "$RESET" "$*"; }
 wd_crit() { _WD_CRIT=$(( _WD_CRIT + 1 )); printf '  %s✘%s %s\n' "$R" "$RESET" "$*"; }
 wd_ok()   { printf '  %s✔%s %s\n' "$G" "$RESET" "$*"; }
@@ -126,26 +133,83 @@ wd_orphan_count() {  # prints N (0 when clean); rc=1 = family has no orphan quer
 }
 
 # ─── Checks ─────────────────────────────────────────────────────
-# wd_smart_dev NAME -- health of one block device via smartctl -H.
-# Prints ok|fail|skip. The verdict comes ONLY from the health line or the
-# exit status bit 3 ("disk failing"): a bare grep for FAILED used to match
-# the WHEN_FAILED column header of the attribute table -> false alarms.
+# wd_smart_dev NAME -- health of one block device via a single smartctl -a.
+# Prints ok | fail | warn:detail | skip. The overall verdict comes ONLY
+# from the health line or exit bit 3 ("disk failing"): matching bare FAILED
+# used to hit the WHEN_FAILED column header -> false alarms. But -H alone
+# is not enough either: a disk can PASS overall while remapped sectors pile
+# up (e.g. 184 reallocated + "marginal Attributes" on an old Toshiba), so
+# the attribute table is scanned too: pending/uncorrectable sectors and
+# FAILING_NOW are critical, remapped/event counts and past-marginal flags
+# are warnings.
 wd_smart_dev() {
     local bn="$1" out rc=0
-    out=$(LC_ALL=C wu_root_run smartctl -H "/dev/$bn" 2>/dev/null) || rc=$?
+    out=$(LC_ALL=C wu_root_run smartctl -a "/dev/$bn" 2>/dev/null) || rc=$?
     (( rc == 126 || rc == 127 )) && { echo skip; return; }
     if (( rc & 8 )); then echo fail; return; fi
+    local health=unknown
     case "$out" in
-        *"self-assessment test result: PASSED"*|*"SMART Health Status: OK"*) echo ok ;;
-        *"self-assessment test result: FAILED"*) echo fail ;;
-        *"SMART Health Status:"*) echo fail ;;
-        *) echo skip ;;   # no health line: mmc, virtual disk, USB bridge, open error
+        *"self-assessment test result: FAILED"*) health=fail ;;
+        *"SMART Health Status:"*)
+            case "$out" in
+                *"SMART Health Status: OK"*) health=ok ;;
+                *) health=fail ;;
+            esac ;;
+        *"self-assessment test result: PASSED"*) health=ok ;;
     esac
+    [[ "$health" == fail ]] && { echo fail; return; }
+    [[ "$health" == unknown ]] && { echo skip; return; }  # mmc/USB bridge/open error
+    local line id name flag val worst thr typ upd when raw r
+    local failing_now=0 past_marginal=0
+    local -a w=()
+    local nvme_used="" nvme_spare="" nvme_spare_thr="" nvme_media=""
+    while IFS= read -r line; do
+        case "$line" in
+            *"FAILING_NOW"*) failing_now=1 ;;
+            *"marginal Attributes"*|*"In_the_past"*) past_marginal=1 ;;
+            "Media and Data Integrity Errors:"*) nvme_media=${line##*:}; nvme_media=${nvme_media//[!0-9]/} ;;
+            "Percentage Used:"*) nvme_used=${line##*:}; nvme_used=${nvme_used//[!0-9]/} ;;
+            "Available Spare:"*) nvme_spare=${line##*:}; nvme_spare=${nvme_spare//[!0-9]/} ;;
+            "Available Spare Threshold:"*) nvme_spare_thr=${line##*:}; nvme_spare_thr=${nvme_spare_thr//[!0-9]/} ;;
+        esac
+        read -r id name flag val worst thr typ upd when raw <<< "$line"
+        [[ "$id" =~ ^[0-9]+$ && "$name" =~ ^[A-Za-z] ]] || continue
+        [[ "$val" =~ ^[0-9]+$ && "$worst" =~ ^[0-9]+$ && "$thr" =~ ^[0-9]+$ ]] || continue
+        [[ "$when" == "FAILING_NOW" ]] && { echo fail; return; }
+        r=${raw%% *}; [[ "$r" =~ ^[0-9]+$ ]] || r=0
+        case "$id" in
+            197|198) (( 10#$r > 0 )) && { echo fail; return; } ;;  # data at risk
+            5|196|183|184|187) (( 10#$r > 0 )) && w+=("$name=$((10#$r))") ;;
+        esac
+    done <<< "$out"
+    if [[ -n "$nvme_media" ]]; then
+        (( 10#$nvme_media > 0 )) && w+=("MediaErrors=$((10#$nvme_media))")
+    fi
+    if [[ -n "$nvme_used" ]]; then
+        (( 10#$nvme_used >= 90 )) && w+=("Used=$((10#$nvme_used))%")
+    fi
+    if [[ -n "$nvme_spare" && -n "$nvme_spare_thr" ]]; then
+        (( 10#$nvme_spare < 10#$nvme_spare_thr )) && { echo fail; return; }
+    fi
+    (( failing_now )) && { echo fail; return; }
+    if (( ${#w[@]} > 0 || past_marginal )) || (( rc & 240 )); then
+        local d=""
+        (( ${#w[@]} > 0 )) && { local IFS=,; d="${w[*]}"; unset IFS; }
+        (( past_marginal )) && d+="${d:+, }$(t doc_smart_past)"
+        (( rc & 64 )) && d+="${d:+, }$(t doc_smart_errlog)"
+        (( rc & 128 )) && d+="${d:+, }$(t doc_smart_selflog)"
+        [[ -z "$d" ]] && d="smartctl rc=$rc"
+        printf 'warn:%s\n' "$d"
+        return
+    fi
+    echo ok
 }
 
-# wd_smart_scan -- sets _WD_SM_CHECKED, _WD_SM_BAD (space-separated names),
-# _WD_SM_NA=1 when smartctl/root is unavailable. Cached: runs smartctl once.
+# wd_smart_scan -- sets _WD_SM_CHECKED, _WD_SM_BAD (failed names),
+# _WD_SM_WN/_WD_SM_WD (warned names/details), _WD_SM_NA=1 when
+# smartctl/root is unavailable. Cached: runs smartctl once per disk.
 _WD_SM_DONE=0 _WD_SM_CHECKED=0 _WD_SM_BAD="" _WD_SM_NA=0
+_WD_SM_WN=() _WD_SM_WD=()
 wd_smart_scan() {
     (( _WD_SM_DONE )) && return 0
     _WD_SM_DONE=1
@@ -153,7 +217,8 @@ wd_smart_scan() {
     wu_root_init
     (( _WU_ROOT == 0 )) && { _WD_SM_NA=1; return 0; }
     local dev bn v
-    for dev in /sys/block/*; do
+    # _WD_SYSBLOCK overrides the scan root (tests point it at a fake tree).
+    for dev in ${_WD_SYSBLOCK:-/sys/block}/*; do
         [[ -e "$dev" ]] || continue
         bn=${dev##*/}
         case "$bn" in loop*|ram*|sr*|zram*|dm-*|md*|nbd*|fd*|mtdblock*|mmcblk*|zd*) continue ;; esac
@@ -161,17 +226,22 @@ wd_smart_scan() {
         case "$v" in
             ok)   _WD_SM_CHECKED=$(( _WD_SM_CHECKED + 1 )) ;;
             fail) _WD_SM_CHECKED=$(( _WD_SM_CHECKED + 1 )); _WD_SM_BAD+="$bn " ;;
+            warn:*) _WD_SM_CHECKED=$(( _WD_SM_CHECKED + 1 ))
+                _WD_SM_WN+=("$bn"); _WD_SM_WD+=("${v#warn:}") ;;
         esac
     done
 }
 
 chk_smart() {
-    local bn
+    local bn i
     wd_smart_scan
     for bn in $_WD_SM_BAD; do
         wd_crit "$(t doc_smart_fail): /dev/$bn"
     done
-    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]]; then
+    for (( i=0; i<${#_WD_SM_WN[@]}; i++ )); do
+        wd_warn "$(t doc_smart_warn): /dev/${_WD_SM_WN[i]} (${_WD_SM_WD[i]})"
+    done
+    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]] && (( ${#_WD_SM_WN[@]} == 0 )); then
         wd_ok "$(t doc_smart_ok): $_WD_SM_CHECKED"
     elif (( _WD_SM_CHECKED == 0 )); then
         wd_info "$(t doc_smart_na)"
@@ -254,15 +324,15 @@ chk_disk() {
 }
 
 chk_confleft() {
-    local n=0 f fam list
-    list=$(mktemp)
-    wd_confleft_file > "$list" || { rm -f "$list"; wd_info "$(t doc_confleft_na)"; return; }
+    local n=0 f fam files
+    # No temp file: the list is tiny, and mktemp may be missing on
+    # stripped-down systems (the scan must not die with rc=127 there).
+    if ! files=$(wd_confleft_file 2>/dev/null); then wd_info "$(t doc_confleft_na)"; return; fi
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
         n=$(( n + 1 ))
         (( n <= 5 )) && wd_info "$(t doc_confleft): $f"
-    done < "$list"
-    rm -f "$list"
+    done <<< "$files"
     if (( n > 5 )); then
         wd_info "$(t doc_confleft_more): +$(( n - 5 ))"
     fi
@@ -334,13 +404,17 @@ json_out() {
 
 # Machine-readable pass: emits key|status|detail lines and updates counters.
 wd_checks_machine() {
-    local bn
+    local bn i
     wd_smart_scan
     for bn in $_WD_SM_BAD; do
         printf 'smart_%s|critical|%s\n' "$bn" "S.M.A.R.T. FAILED"
         _WD_CRIT=$(( _WD_CRIT + 1 ))
     done
-    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]]; then
+    for (( i=0; i<${#_WD_SM_WN[@]}; i++ )); do
+        printf 'smart_%s|warning|%s\n' "${_WD_SM_WN[i]}" "${_WD_SM_WD[i]}"
+        _WD_WARN=$(( _WD_WARN + 1 ))
+    done
+    if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]] && (( ${#_WD_SM_WN[@]} == 0 )); then
         printf 'smart|ok|%d\n' "$_WD_SM_CHECKED"
     elif (( _WD_SM_CHECKED == 0 )); then
         printf 'smart|na|%s\n' "$( (( _WD_SM_NA )) && echo 'smartctl or root unavailable' || echo 'no SMART-capable disks')"

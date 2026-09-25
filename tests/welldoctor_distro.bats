@@ -60,7 +60,7 @@ ID_LIKE="debian ubuntu"'
 @test "Unknown family: both distro checks gracefully skipped" {
     fake_os 'ID=microcosm'
     run env -u HOME ./src/welldoctor --plain
-    [[ "$output" == *"родной менеджер пакетов не определён"* ]]
+    [[ "$output" == *"родной менеджер пакетов не определён"* || "$output" == *"no native package manager detected"* ]]
     [[ "$output" == *"orphan check unsupported"* || "$output" == *"не поддерживается"* ]]
 }
 

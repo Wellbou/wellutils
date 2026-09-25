@@ -116,10 +116,16 @@ _whtml_tool() {
 
 # Raw --json output of one sibling tool into PATH (validated later, all at
 # once, by a single python run -- starting python per tool is slow on SBCs).
+# --ami is English only, so data is collected in English there; otherwise a
+# RU host locale would leak Cyrillic detail strings into the English report.
 _whtml_collect_json() {
     local path="$1" name="$2" tool
     tool=$(_whtml_tool "$name") || { : > "$path"; return 0; }
-    "$tool" --json > "$path" 2>/dev/null </dev/null || true
+    if (( _WHTML_AMI )); then
+        "$tool" --json --lang en > "$path" 2>/dev/null </dev/null || true
+    else
+        "$tool" --json > "$path" 2>/dev/null </dev/null || true
+    fi
 }
 
 _whtml_hostname() {
