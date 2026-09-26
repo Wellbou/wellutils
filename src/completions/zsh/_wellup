@@ -23,6 +23,7 @@ _wellup() {
         '--list[only list available updates, do not install]' \
         '--yes[apply updates without confirmation]' \
         '-y[apply updates without confirmation]' \
+        '--full[apt\: full-upgrade (may remove packages) instead of upgrade]' \
         '--pacnew[list leftover .pacnew/.pacsave files in /etc]' \
         '--self-update[update wellutils itself from GitHub]' \
         '--self[alias of --self-update]' \

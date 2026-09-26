@@ -103,8 +103,14 @@ _whtml_log() { [[ "${WHTML_DEBUG:-0}" == 1 ]] && printf '  [whtml] %s\n' "$*" >&
 # a checkout (tools adjacent to whtml), from an installation (tools in
 # ../bin relative to the LIBDIR), or purely via PATH.
 _whtml_tool() {
-    local name="$1" cand
-    for cand in "$_WU_BOOT_DIR/$name" "$(dirname "$_WU_BOOT_DIR")/bin/$name" "$(dirname "$_WU_BOOT_DIR")/$name"; do
+    local name="$1" cand self_dir=""
+    # 1) next to the real whtml script (checkout, or $P/bin of an install)
+    self_dir=$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null) || self_dir=""
+    [[ -n "$self_dir" ]] && self_dir="${self_dir%/*}"
+    # 2) $P/bin derived from the lib dir $P/share/wellutils; 3) legacy spots
+    for cand in ${self_dir:+"$self_dir/$name"} \
+                "${_WU_BOOT_DIR%/share/wellutils}/bin/$name" \
+                "$_WU_BOOT_DIR/$name" "${_WU_BOOT_DIR%/*}/bin/$name" "${_WU_BOOT_DIR%/*}/$name"; do
         [[ -x "$cand" ]] && { printf '%s' "$cand"; return 0; }
     done
     if command -v "$name" >/dev/null 2>&1; then
@@ -240,6 +246,12 @@ def load(name):
 
 def esc(s):
     return h.escape(str(s)) if s not in (None, '') else ''
+
+_PH_RE = re.compile(r'__[A-Z][A-Z0-9_]*__')
+def fill(tpl, mapping):
+    """Single-pass placeholder substitution: a value that itself contains
+    '__FOO__' (e.g. a hostname) is never re-expanded by a later key."""
+    return _PH_RE.sub(lambda m: mapping.get(m.group(0), m.group(0)), tpl)
 
 def js(s):
     # Value for a <script> block: JSON string literal, with <, >, & and the
@@ -516,7 +528,7 @@ def run():
 
 # ===================================================================
 def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
-    css = CSS_CLI.replace('__FONT__', '')
+    css = fill(CSS_CLI, {'__FONT__': ''})
 
     out = ["<!DOCTYPE html>", "<html lang=\"%s\">" % lang.lower(), "<head>",
            "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
@@ -524,9 +536,9 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
            "<style>", css, "</style>", "</head>",
            "<body data-theme=\"dark\">"]
     # header
-    out.append(HEADER_CLI.replace('__USER__', esc(user)).replace('__HOST__', esc(host.get('host','')))
-               .replace('__HELP__', R('хелп','help')).replace('__SEARCH__', R('поиск','search'))
-               .replace('__THEME__', R('тема','theme')).replace('__DL__', R('Скачать HTML','Download HTML')))
+    out.append(fill(HEADER_CLI, {'__USER__': esc(user), '__HOST__': esc(host.get('host','')),
+               '__HELP__': R('хелп','help'), '__SEARCH__': R('поиск','search'),
+               '__THEME__': R('тема','theme'), '__DL__': R('Скачать HTML','Download HTML')}))
     # nav main
     nav = ['<nav id="nav" aria-label="tabs">']
     for i, p in enumerate(panels):
@@ -552,18 +564,18 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
             out.append('</div>')
         out.append('</div>')
     out.append('</main>')
-    out.append(FOOTER_CLI.replace('__VER__', esc(wu_ver)).replace('__TS__', esc(ts))
-               .replace('__HINT__', esc(R('<- -> или цифры для навигации','<- -> or digits to navigate'))))
-    out.append(HELP_CLI.replace('__H1__', R('Клавиатура','Keyboard'))
-               .replace('__H1K__', esc('<- -> / ^ v')).replace('__H1V__', R('переключить вкладку','switch tab'))
-               .replace('__H2K__', 'Tab / Enter').replace('__H2V__', R('внутренняя вкладка','inner tab'))
-               .replace('__H3K__', '1…9 / 0').replace('__H3V__', R('перейти к вкладке','jump to tab'))
-               .replace('__H4K__', 'Home / End').replace('__H4V__', R('первая / последняя','first / last'))
-               .replace('__H5K__', '/').replace('__H5V__', R('фильтр строк','filter rows'))
-               .replace('__H6K__', 't').replace('__H6V__', R('тёмная / светлая тема','dark / light theme'))
-               .replace('__H7K__', '?').replace('__H7V__', R('эта справка','this help'))
-               .replace('__H8K__', 'Esc').replace('__H8V__', R('закрыть','close'))
-               .replace('__VER2__', esc(wu_ver)))
+    out.append(fill(FOOTER_CLI, {'__VER__': esc(wu_ver), '__TS__': esc(ts),
+               '__HINT__': esc(R('<- -> или цифры для навигации','<- -> or digits to navigate'))}))
+    out.append(fill(HELP_CLI, {'__H1__': R('Клавиатура','Keyboard'),
+               '__H1K__': esc('<- -> / ^ v'), '__H1V__': R('переключить вкладку','switch tab'),
+               '__H2K__': 'Tab / Enter', '__H2V__': R('внутренняя вкладка','inner tab'),
+               '__H3K__': '1…9 / 0', '__H3V__': R('перейти к вкладке','jump to tab'),
+               '__H4K__': 'Home / End', '__H4V__': R('первая / последняя','first / last'),
+               '__H5K__': '/', '__H5V__': R('фильтр строк','filter rows'),
+               '__H6K__': 't', '__H6V__': R('тёмная / светлая тема','dark / light theme'),
+               '__H7K__': '?', '__H7V__': R('эта справка','this help'),
+               '__H8K__': 'Esc', '__H8V__': R('закрыть','close'),
+               '__VER2__': esc(wu_ver)}))
     out.append(JS_CLI)
     out.append('</body></html>')
     return ''.join(out)
@@ -573,7 +585,7 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
     font_decl = ''
     if FONT_B64:
         font_decl = "@font-face{font-family:'BIOS';src:url(data:font/woff;base64," + FONT_B64 + ") format('woff')}"
-    head_css = CSS_AMI.replace('__FONT__', font_decl)
+    head_css = fill(CSS_AMI, {'__FONT__': font_decl})
 
     out = ["<!DOCTYPE html>", "<html lang=\"en\">", "<head>",
            "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
@@ -643,7 +655,7 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
     bd = [esc(str(d.get('model','') or d.get('name','') or 'None')) for d in (disks[:4] if disks else [])]
     while len(bd) < 4: bd.append('None')
     boot_disks_js = '[' + ','.join(js(x) for x in bd) + ']'
-    js_boot = JS_AMI.replace('__BOOT_CPU__', boot_cpu).replace('__BOOT_MEM__', boot_mem).replace('__BOOT_DISKS__', boot_disks_js)
+    js_boot = fill(JS_AMI, {'__BOOT_CPU__': boot_cpu, '__BOOT_MEM__': boot_mem, '__BOOT_DISKS__': boot_disks_js})
     out.append(js_boot)
     out.append('</body></html>')
     return ''.join(out)
@@ -1211,7 +1223,7 @@ while [[ $# -gt 0 ]]; do
             --version|-V) echo "whtml $_WU_VERSION"; exit 0 ;;
             --json)     echo "whtml: --json is not supported (this tool emits HTML)" >&2; exit 2 ;;
             --*)        echo "whtml: unknown option: $1" >&2; exit 2 ;;
-            *)          _WU_REST+=("$1"); shift ;;
+            *)          printf 'whtml: unexpected argument: %s (see --help)\n' "$1" >&2; exit 2 ;;
         esac
     fi
 done

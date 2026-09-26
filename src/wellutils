@@ -16,7 +16,11 @@ _wu_self="$0"
 _wu_real="$(readlink -f -- "$_wu_self" 2>/dev/null || true)"
 [[ -n "$_wu_real" ]] || _wu_real="$_wu_self"
 _WU_DIR="$(cd -- "$(dirname -- "$_wu_real")" 2>/dev/null && pwd || dirname -- "$_wu_real")"
-_WU_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
+# No HOME and no XDG_CONFIG_HOME: there is no per-user place to save the
+# preference (writing it to a shared /tmp would leak into other users).
+_WU_LANG_FILE=""
+if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then _WU_LANG_FILE="$XDG_CONFIG_HOME/wellutils/lang.conf"
+elif [[ -n "${HOME:-}" ]]; then _WU_LANG_FILE="$HOME/.config/wellutils/lang.conf"; fi
 
 # ─── Shared libs (own dir first, then ../share/wellutils, then system) ──
 _WU_BOOT_DIR="$_WU_DIR"
@@ -82,6 +86,7 @@ show_help() {
     printf '    %s--html%s   %s\n' "$G" "$RESET" "$(t opt_html)"
     printf '    %s--json%s   %s\n' "$G" "$RESET" "$(t opt_json)"
     printf '    %s--all%s / %s--full%s / %s--no-logo%s        %s\n' "$G" "$RESET" "$G" "$RESET" "$G" "$RESET" "$(t opt_more)"
+    printf '    %s--<option>%s               %s\n' "$G" "$RESET" "$(t opt_passthru)"
     printf '    %s--help%s                   %s\n' "$G" "$RESET" "$(t launcher_help)"
     printf '\n'
     printf '  %s%s:%s  usb=wellusb  wusb=wellusb  pci=wellpci  wpci=wellpci\n' "$DIM" "$(t launcher_aliases)" "$RESET"
@@ -104,8 +109,14 @@ set_lang() {
     case "$lang" in
         RU|EN|ENG)
             [[ "$lang" == "ENG" ]] && lang="EN"
-            mkdir -p "$(dirname "$_WU_LANG_FILE")"
-            echo "$lang" > "$_WU_LANG_FILE"
+            if [[ -z "$_WU_LANG_FILE" ]]; then
+                printf '  %s%s:%s %s\n\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_no_home)" >&2
+                exit 1
+            fi
+            if ! { mkdir -p "${_WU_LANG_FILE%/*}" && printf '%s\n' "$lang" > "$_WU_LANG_FILE"; } 2>/dev/null; then
+                printf '  %s%s:%s %s %s\n\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_lang_write_fail)" "$_WU_LANG_FILE" >&2
+                exit 1
+            fi
             printf '  %s%s:%s %s%s%s\n\n' "$G" "$(t launcher_set_lang_done)" "$RESET" "$BOLD" "$lang" "$RESET"
             ;;
         *)
@@ -117,10 +128,13 @@ set_lang() {
 
 # ─── Parse args ─────────────────────────────────────────────────
 # Global output flags may precede the command (`wellutils --json mem`);
-# they are forwarded to the tool. `--lang X` without a command stays the
-# legacy "set language persistently" action.
+# they are forwarded to the tool. Any other --option before the command
+# (e.g. `wellutils --all fetch`) is passed through to the tool as-is, after
+# the global flags. `--lang X` without a command stays the legacy "set
+# language persistently" action.
 CMD=""
 FWD=()
+PASS=()
 LANG_ARG=""
 WANT_HELP=0
 WANT_VERSION=0
@@ -146,6 +160,7 @@ while [[ $# -gt 0 ]]; do
             FWD+=("$1"); shift; continue ;;
         --help|-h)    WANT_HELP=1; shift; continue ;;
         --version|-V) WANT_VERSION=1; shift; continue ;;
+        -?*)          PASS+=("$1"); shift; continue ;;
         usb|wellusb|wusb)          CMD="wellusb" ;;
         pci|wellpci|wpci)          CMD="wellpci" ;;
         block|wellblock|wblock)    CMD="wellblock" ;;
@@ -174,6 +189,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$CMD" ]]; then
+    if (( ${#PASS[@]} > 0 )) && (( ! WANT_HELP && ! WANT_VERSION )); then
+        printf '  %s%s:%s %s: %s\n\n' "$R" "$(t launcher_error)" "$RESET" "$(t launcher_opt_needs_cmd)" "${PASS[*]}" >&2
+        exit 2
+    fi
     if (( WANT_VERSION )); then
         printf '%s %s\n' "wellutils" "$_WU_VERSION"
         exit 0
@@ -196,6 +215,22 @@ if [[ -n "$LANG_ARG" ]]; then
 fi
 (( WANT_HELP )) && FWD+=(--help)
 (( WANT_VERSION )) && FWD+=(--version)
+
+# whtml has its own small CLI (HTML output only): terminal-rendering flags
+# make no sense there and would be rejected, so drop them for it.
+if [[ "$CMD" == whtml ]]; then
+    _wu_keep=() _wu_i=0
+    while (( _wu_i < ${#FWD[@]} )); do
+        case "${FWD[_wu_i]}" in
+            --color) _wu_i=$(( _wu_i + 2 )); continue ;;
+            --color=*|--plain|--short|--box|--emoji|--no-emoji|--html) ;;
+            *) _wu_keep+=("${FWD[_wu_i]}") ;;
+        esac
+        _wu_i=$(( _wu_i + 1 ))
+    done
+    FWD=(${_wu_keep[@]+"${_wu_keep[@]}"})
+fi
+FWD+=(${PASS[@]+"${PASS[@]}"})
 
 # Prefer the tool next to this launcher (same install / checkout), then PATH.
 if [[ -f "$_WU_DIR/$CMD" && -x "$_WU_DIR/$CMD" ]]; then

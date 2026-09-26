@@ -17,7 +17,7 @@
   [![Language: Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](src/wfetch_art.py)
   [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)](install.sh)
   [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)](windows/well.ps1)
-  [![Version: 1.4.0-54](https://img.shields.io/badge/Version-1.4.0--54-22272E)](PKGBUILD)
+  [![Version: 1.4.0-55](https://img.shields.io/badge/Version-1.4.0--55-22272E)](PKGBUILD)
   [![License: MIT](https://img.shields.io/badge/License-MIT-C16CFF)](src/LICENSE)
 
 </div>
@@ -92,7 +92,16 @@ no S.M.A.R.T., no sensor readings, no vendor-ID names).
 
 - **Rootless:** `./install.sh --prefix=$HOME/.local` puts everything
   into your home directory, no sudo needed. Make sure `~/.local/bin` is
-  in your `PATH`.
+  in your `PATH`. For a non-writable prefix (the default `/usr/local`)
+  the installer says it will use `sudo`/`doas` before doing so; without
+  a terminal it only proceeds when `sudo -n` works (passwordless).
+- **Package-owned files:** the installer never overwrites a file that
+  belongs to a distro package (checked with `pacman -Qo` / `dpkg -S` /
+  `rpm -qf`), e.g. an AUR build of wellutils installed into the same
+  prefix; it skips it and exits with 2. Pass `--force` to overwrite
+  anyway. `--uninstall` only removes manifest entries inside the prefix.
+- **Installer exit codes:** 0 ok, 1 environment problem (no bash 4, no
+  privileges, no curl/wget), 2 bad option or some files skipped/failed.
 - **Termux (Android):** works without root; the installer uses `pkg`
   and installs into Termux's own `$PREFIX`. Some data (S.M.A.R.T.,
   dmidecode, part of sysfs) is simply not visible to apps on Android,
@@ -244,13 +253,20 @@ Short aliases are installed as commands: `wusb`, `wpci`, `wblock`,
 `wellutils wram --plain`.
 
 `wellup` asks for confirmation before applying updates; pass `--yes`
-to skip the prompt (for scripts and cron). It can also update the
+to skip the prompt (for scripts and cron). On Arch `--check` uses
+`checkupdates` (pacman-contrib) when installed, so the list is fresh
+without syncing the real database. On Debian/Ubuntu it runs
+`apt-get upgrade` (never removes packages); `--full` switches to
+`apt-get full-upgrade`. Exit codes: 0 ok, 2 bad CLI, 3 no package
+manager / update or self-update failed (with `--json`, a failed version
+fetch still prints a `"status": "no-remote"` object before exiting 3). It can also update the
 suite itself from GitHub:
 
 ```sh
 wellup --check                # only list available updates
 wellup                        # list, then ask before applying
 wellup --yes                  # apply without confirmation
+wellup --full                 # apt: full-upgrade (may remove packages)
 wellup --self-update          # check and update wellutils
 wellup --self-update --check  # only report the version difference
 ```
@@ -303,6 +319,42 @@ All tools share the envelope `{ "tool", "version", "date", ... }`. The
 full tutorial - watchdogs, cron checks, inventory diffs - lives in
 [`docs/SCRIPTING.md`](docs/SCRIPTING.md), and the real output of every
 tool is in [SAMPLES.md](SAMPLES.md).
+
+## New in 1.4.0-55
+
+Second audit round: I re-checked every finding from the previous one
+and sent fresh eyes over the new code, and they found quite a few real
+bugs. Most of them only bite on unusual hardware, so no surprise they
+survived this long.
+
+- `set -e` crashes: several functions could return 1 on their last line
+  (missing sysfs node, `nvidia-smi` printing `N/A`) and kill the whole
+  tool. They now end with `return 0`, and every `$(...)` that can fail
+  has a fallback.
+- Core/thread counts on hybrid CPUs (Alder Lake, RK3399, Apple M1) were
+  wrong: only the first lscpu section was read. Threads now come from
+  the real CPU count, cores from unique physical/core id pairs.
+- `wellsensors` used to hide sensors exactly when they were hot (alarm
+  flag dropped them from the report) and dropped fans on Asahi/POWER
+  machines. Both fixed.
+- USB classification rewritten: Bluetooth adapters, RNDIS gadgets, Xbox
+  pads, MTP phones and HID keyboards/mice are detected by class codes
+  and drivers instead of name guessing.
+- Terminal escape injection: a hostile USB/DMI/disk name could write
+  escape sequences to your terminal. Control characters are stripped
+  now; invalid UTF-8 no longer breaks `--json` either.
+- `wellnet` survived a failing `ip` (Termux/Android) with empty output
+  instead of dying, and falls back to `/proc` when tools exist but fail.
+- `wellfetch` detects the real terminal (kitty/WezTerm/Konsole/...) and
+  counts packages, CPUs and input devices correctly.
+- `welldoctor` needs no temp files at all now and reads more sensor
+  chips; `wellup` learned Clear Linux (`swupd`), Void version parsing
+  and `--full` for apt.
+- Installer safety: `--uninstall` never touches files outside the
+  prefix, and installing over distro-owned files now refuses unless
+  `--force` is given.
+- Narrow terminals: long hint lines wrap instead of overflowing at 60
+  columns.
 
 ## New in 1.4.0-54
 

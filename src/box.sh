@@ -36,13 +36,16 @@ wu_scale() {
 # ─── GPU AIB vendor detection ────────────────────────────────────
 # Reads subsystem_vendor from sysfs for a PCI bus address.
 gpu_aib_vendor() {
-    local bus="$1" hex _dev
+    local bus="$1" hex="" _dev
     # Keep non-zero PCI domains (0001:01:00.0 on POWER/ARM servers, VMD).
     [[ "$bus" == *:*:* ]] || bus="0000:${bus}"
     _dev="/sys/bus/pci/devices/${bus}"
-    [[ -d "$_dev" ]] || _dev=$(find /sys/bus/pci/devices/ -maxdepth 1 -name "*:${bus}" -type d 2>/dev/null | head -1)
-    [[ -d "$_dev" ]] || { printf ''; return; }
-    hex=$(cat "${_dev}/subsystem_vendor" 2>/dev/null) || { printf ''; return; }
+    if [[ ! -d "$_dev" ]]; then            # other domain: glob, no find|head fork
+        local _g
+        for _g in /sys/bus/pci/devices/*:"${bus#*:}"; do [[ -d "$_g" ]] && { _dev=$_g; break; }; done
+    fi
+    [[ -d "$_dev" ]] || return 0
+    { IFS= read -r hex < "${_dev}/subsystem_vendor"; } 2>/dev/null || [[ -n "${hex:-}" ]] || return 0
     hex="${hex#0x}"
     case "$hex" in
         1043) printf 'ASUS'       ;;
@@ -352,7 +355,28 @@ _wu_cap_v() {
 }
 wucap() { local _WU_CAP; _wu_cap_v "$1" "$2"; printf '%s' "$_WU_CAP"; }
 
+# _wu_wrap_print PREFIX WIDTH TEXT [SGR] -- word-wrap TEXT to WIDTH display
+# columns, printing each line as PREFIX + SGR + line + RESET. Used for the
+# unframed hint lines under manual frames so they never overflow narrow
+# terminals. Words longer than WIDTH are capped.
+_wu_wrap_print() {
+    local pre=$1 w=$2 sgr=${4:-} line="" lw=0 word _WU_VL _WU_CAP
+    local -a words=()
+    (( w < 10 )) && w=10
+    read -r -a words <<< "$3" || true     # no glob expansion of "*" in text
+    for word in ${words[@]+"${words[@]}"}; do
+        _wu_vislen_v "$word"
+        if (( _WU_VL > w )); then _wu_cap_v "$word" "$w"; word=$_WU_CAP; _WU_VL=$w; fi
+        if (( lw == 0 )); then line=$word; lw=$_WU_VL
+        elif (( lw + 1 + _WU_VL <= w )); then line+=" $word"; lw=$(( lw + 1 + _WU_VL ))
+        else printf '%s%s%s%s\n' "$pre" "$sgr" "$line" "${RESET:-}"; line=$word; lw=$_WU_VL; fi
+    done
+    (( lw )) && printf '%s%s%s%s\n' "$pre" "$sgr" "$line" "${RESET:-}"
+    return 0
+}
+
 # Terminal width budget for frames (COLUMNS is resolved in cli.sh).
+
 _wu_cols() { local c=${COLUMNS:-100}; [[ "$c" =~ ^[0-9]+$ ]] || c=100; (( c < 20 )) && c=20; printf -v _WU_COLS '%d' "$c"; }
 
 # Longest _LINES width clamped to the terminal (min 8) into $_WU_MAXW.
@@ -521,39 +545,41 @@ banner() {
 # drops orphan bottoms -- so frames are always straight, whatever the text.
 _wu_reframe() {
     local line strip kind="" _WU_VL _WU_CAP _WU_SA _WU_COLS maxw
-    local -a blk=() ; local btitle="" bw=0 i pad rline
+    local -a blk=() blkw=() L_k=() L_s=() L_w=()
+    local btitle="" btw=0 bw=0 i j n pad rline
     _wu_cols; maxw=$(( _WU_COLS - 4 ))
     local gw=0     # one width for every section -> a tidy column of boxes
     _wu_rf_flush() {
         [[ -n "$kind" ]] || return 0
-        local w=$bw
+        local w=$bw k iw
         [[ "$kind" == sec ]] && (( gw > w )) && w=$gw
         (( w > maxw )) && w=$maxw
         if [[ "$kind" == hdr ]]; then
             printf -v rline '%*s' "$w" ''; rline=${rline// /═}
             printf '  %s╔%s╗%s\n' "$C" "$rline" "$RESET"
-            for i in ${blk[@]+"${blk[@]}"}; do
-                _wu_vislen_v "$i"; if (( _WU_VL > w )); then _wu_cap_v "$i" "$w"; i=$_WU_CAP; _wu_vislen_v "$i"; fi
-                printf -v pad '%*s' $(( w - _WU_VL )) ''
+            for (( k = 0; k < ${#blk[@]}; k++ )); do
+                i=${blk[k]} iw=${blkw[k]}
+                if (( iw > w )); then _wu_cap_v "$i" "$w"; i=$_WU_CAP; _wu_vislen_v "$i"; iw=$_WU_VL; fi
+                printf -v pad '%*s' $(( w - iw )) ''
                 printf '  %s║%s%s%s%s%s║%s\n' "$C" "$RESET" "$i" "$RESET" "$pad" "$C" "$RESET"
             done
             printf '  %s╚%s╝%s\n' "$C" "$rline" "$RESET"
         else
-            local tw fill
-            _wu_vislen_v "$btitle"; tw=$_WU_VL
+            local tw=$btw fill
             if (( 4 + tw + 2 > w )); then _wu_cap_v "$btitle" $(( w - 6 > 3 ? w - 6 : 3 )); btitle=$_WU_CAP; _wu_vislen_v "$btitle"; tw=$_WU_VL; fi
             fill=$(( w - 4 - tw )); (( fill < 1 )) && fill=1
             printf -v rline '%*s' "$fill" ''; rline=${rline// /─}
             printf '  %s┌───%s%s%s %s┐%s\n' "$C" "$RESET" "$btitle" "$RESET" "$C$rline" "$RESET"
-            for i in ${blk[@]+"${blk[@]}"}; do
-                _wu_vislen_v "$i"; if (( _WU_VL > w )); then _wu_cap_v "$i" "$w"; i=$_WU_CAP; _wu_vislen_v "$i"; fi
-                printf -v pad '%*s' $(( w - _WU_VL )) ''
+            for (( k = 0; k < ${#blk[@]}; k++ )); do
+                i=${blk[k]} iw=${blkw[k]}
+                if (( iw > w )); then _wu_cap_v "$i" "$w"; i=$_WU_CAP; _wu_vislen_v "$i"; iw=$_WU_VL; fi
+                printf -v pad '%*s' $(( w - iw )) ''
                 printf '  %s│%s%s%s%s%s│%s\n' "$C" "$RESET" "$i" "$RESET" "$pad" "$C" "$RESET"
             done
             printf -v rline '%*s' "$w" ''; rline=${rline// /─}
             printf '  %s└%s┘%s\n' "$C" "$rline" "$RESET"
         fi
-        kind=""; blk=(); btitle=""; bw=0
+        kind=""; blk=(); blkw=(); btitle=""; btw=0; bw=0
     }
     _wu_rf_trim() {   # strip trailing spaces / SGR codes / a closing border
         local s="$1" prev=""
@@ -565,36 +591,39 @@ _wu_reframe() {
         done
         printf -v _WU_SA '%s' "$s"
     }
-    # pass 1: widest section row / title
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in
-            *"  ┌───"*) _wu_strip_ansi "$line"; _wu_rf_trim "${_WU_SA#*┌───}"; _wu_vislen_v "$_WU_SA"; (( _WU_VL + 7 > gw )) && gw=$(( _WU_VL + 7 )) ;;
-            *"  │"*)    _wu_strip_ansi "$line"; [[ "$_WU_SA" == "  │"* ]] || continue
-                        _wu_rf_trim "${_WU_SA#*│}"; _wu_vislen_v "$_WU_SA"; (( _WU_VL > gw )) && gw=$_WU_VL ;;
-        esac
-    done <<< "$1"
-    (( gw > maxw )) && gw=$maxw
+    # pass 1: classify + trim + measure every line ONCE (widths are cached
+    # in L_w so pass 2 never re-measures); track the widest section row.
+    n=0
     while IFS= read -r line || [[ -n "$line" ]]; do
         _wu_strip_ansi "$line"; strip=$_WU_SA
+        L_w[n]=0
         case "$strip" in
-            "  ╔"*) _wu_rf_flush; kind=hdr ;;
-            "  ║"*)
-                [[ "$kind" == hdr ]] || { _wu_rf_flush; kind=hdr; }
-                _wu_rf_trim "${line#*║}"; line="$_WU_SA  "
-                blk+=( "$line" ); _wu_vislen_v "$line"; (( _WU_VL > bw )) && bw=$_WU_VL ;;
-            "  ╚"*) _wu_rf_flush ;;
-            "  ┌"*)
-                _wu_rf_flush; kind=sec
-                _wu_rf_trim "${line#*┌───}"; btitle=$_WU_SA
-                _wu_vislen_v "$btitle"; bw=$(( _WU_VL + 7 )) ;;
-            "  │"*)
-                if [[ "$kind" != sec ]]; then _wu_rf_flush; printf '  %s\n' "${line#*│}"; continue; fi
-                _wu_rf_trim "${line#*│}"; line=$_WU_SA
-                blk+=( "$line" ); _wu_vislen_v "$line"; (( _WU_VL > bw )) && bw=$_WU_VL ;;
-            "  └"*) _wu_rf_flush ;;   # recomputed bottom (orphans are dropped)
-            *) _wu_rf_flush; printf '%s\n' "$line" ;;
+            "  ╔"*) L_k[n]=H; L_s[n]="" ;;
+            "  ║"*) L_k[n]=h; _wu_rf_trim "${line#*║}"; L_s[n]="$_WU_SA  "; _wu_vislen_v "${L_s[n]}"; L_w[n]=$_WU_VL ;;
+            "  ╚"*) L_k[n]=E; L_s[n]="" ;;
+            "  ┌"*) L_k[n]=S; _wu_rf_trim "${line#*┌───}"; L_s[n]=$_WU_SA; _wu_vislen_v "$_WU_SA"; L_w[n]=$_WU_VL
+                    (( _WU_VL + 7 > gw )) && gw=$(( _WU_VL + 7 )) ;;
+            "  │"*) L_k[n]=r; _wu_rf_trim "${line#*│}"; L_s[n]=$_WU_SA; _wu_vislen_v "$_WU_SA"; L_w[n]=$_WU_VL
+                    (( _WU_VL > gw )) && gw=$_WU_VL ;;
+            "  └"*) L_k[n]=E; L_s[n]="" ;;
+            *)      L_k[n]=o; L_s[n]=$line ;;
         esac
+        n=$(( n + 1 ))
     done <<< "$1"
+    (( gw > maxw )) && gw=$maxw
+    # pass 2: emit
+    for (( j = 0; j < n; j++ )); do
+        case "${L_k[j]}" in
+            H) _wu_rf_flush; kind=hdr ;;
+            h) [[ "$kind" == hdr ]] || { _wu_rf_flush; kind=hdr; }
+               blk+=( "${L_s[j]}" ); blkw+=( "${L_w[j]}" ); (( L_w[j] > bw )) && bw=${L_w[j]} ;;
+            S) _wu_rf_flush; kind=sec; btitle=${L_s[j]}; btw=${L_w[j]}; bw=$(( btw + 7 )) ;;
+            r) if [[ "$kind" != sec ]]; then _wu_rf_flush; printf '  %s\n' "${L_s[j]}"; continue; fi
+               blk+=( "${L_s[j]}" ); blkw+=( "${L_w[j]}" ); (( L_w[j] > bw )) && bw=${L_w[j]} ;;
+            E) _wu_rf_flush ;;   # recomputed bottom (orphans are dropped)
+            *) _wu_rf_flush; printf '%s\n' "${L_s[j]}" ;;
+        esac
+    done
     _wu_rf_flush
     unset -f _wu_rf_flush _wu_rf_trim
 }

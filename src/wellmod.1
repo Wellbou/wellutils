@@ -1,6 +1,6 @@
-.TH WELLMOD 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
+.TH WELLMOD 1 "September 2026" "wellutils 1.4.0-55" "wellutils"
 .SH NAME
-Wellmod \- L i s t s   l o a d e d   k e r n e l   m o d u l e s   w i t h   t h e i r   s i z e s   a n d   d e p e n d e n c i e s ,
+wellmod \- list loaded kernel modules with their sizes and dependencies
 .SH SYNOPSIS
 .B wellmod
 [\fIOPTIONS\fR]
@@ -37,6 +37,15 @@ Disable emoji icons.
 .B \-\-json
 Machine-readable JSON on stdout; errors still go to stderr.
 .TP
+.BI \-\-deps " MODULE"
+Show the dependencies of \fIMODULE\fR from \fImodules.dep\fR (dashes and
+underscores are equivalent). If the module is unknown or
+\fImodules.dep\fR is missing, the box view reports it and the JSON view
+prints \fB"found": false\fR; both exit with status \fB1\fR.
+.TP
+.BI \-\-filter ", " \-f " PATTERN"
+Only list modules whose name matches \fIPATTERN\fR.
+.TP
 .B \-\-debug
 Enable verbose tracing.
 .SH EXIT STATUS
@@ -44,7 +53,11 @@ Enable verbose tracing.
 .B 0
 Success.
 .TP
+.B 1
+\fB\-\-deps\fR: module not found (also with \fB\-\-json\fR).
+.TP
 .B 2
+
 Invalid command-line usage.
 .TP
 .B 3

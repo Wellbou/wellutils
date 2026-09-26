@@ -1,6 +1,6 @@
 pkgbase = wellutils
 	pkgdesc = Colourful system and peripheral reporting tools (wellper, wellhw, wellmem, wellusb, wellpci, wellblock, wellcpu, wellgpu, wellmod, wellsensors, wellfetch, wellup, wellnet, wellpower, welldoctor, whtml)
-	pkgver = 1.4.0.54
+	pkgver = 1.4.0.55
 	pkgrel = 1
 	url = https://github.com/Wellbou/wellutils
 	arch = any
@@ -22,7 +22,7 @@ pkgbase = wellutils
 	optdepends = iw: Wi-Fi SSID and signal info (wellnet)
 	options = !debug
 	options = !strip
-	source = wellutils-1.4.0-54.tar.gz::https://github.com/Wellbou/wellutils/archive/refs/tags/v1.4.0-54.tar.gz
+	source = wellutils-1.4.0-55.tar.gz::https://github.com/Wellbou/wellutils/archive/refs/tags/v1.4.0-55.tar.gz
 	sha256sums = SKIP
 
 pkgname = wellutils

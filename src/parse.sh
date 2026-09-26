@@ -67,7 +67,7 @@ wu_size_mb() {
     local s lc num frac="" unit mult
     s="${1// /}"
     [ -z "$s" ] && { printf 0; return; }
-    lc=$(printf '%s' "$s" | LC_ALL=C tr 'A-Z' 'a-z')
+    lc=${s,,}
     case "$lc" in
         *out*|*spec*|*unknown*|*n/a*|*none*|*no*module*|*\?*) printf 0; return ;;
     esac
@@ -130,6 +130,16 @@ wu_trim() {
     if [[ -n "${2:-}" ]]; then printf -v "$2" '%s' "$__wu_t"; else printf '%s' "$__wu_t"; fi
 }
 
+# wu_strip_ctl STR VAR -- remove C0 control bytes and DEL (\x01-\x1f, \x7f)
+# from device/firmware strings so a crafted USB/SMBIOS/SCSI string cannot
+# inject terminal escape sequences. Pure bash; LC_ALL=C is scoped to this
+# function so multibyte text is matched byte-wise and left intact.
+wu_strip_ctl() {
+    local LC_ALL=C __wsc=$1
+    [[ "$__wsc" == *[$'\x01'-$'\x1f'$'\x7f']* ]] && __wsc=${__wsc//[$'\x01'-$'\x1f'$'\x7f']/}
+    printf -v "$2" '%s' "$__wsc"
+}
+
 # wu_junk STR -- 0 when STR is a firmware placeholder, not real data.
 # No-name RAM sticks and cheap boards fill SMBIOS with these.
 wu_junk() {
@@ -143,6 +153,8 @@ wu_junk() {
         "<out of spec>"|"out of spec"|"no module installed"|"not installed"|"empty"|\
         0|00|0000|00000000|0000000000000000|ffff|ffffffff|"ffffffffffffffff"|\
         manufacturer*|"modulepartnumber"*|"partnum"*|"serial number"*|"serialnum"*|"asset tag"*|\
+        sernum*|"ser num"*|serial#*|assettagnum*|assettag*|"asset tag num"*|"asset-tag"*|\
+        "chassis serial number"*|"system serial number"*|"base board serial number"*|\
         "123456789"|"1234567890"|"xxxxx"*|"none."|"no dimm"|"dimm_?") return 0 ;;
     esac
     return 1
@@ -287,21 +299,51 @@ wu_dt_model() {
     printf '%s' "$m"
 }
 
+# wu_riscv_uarch_name UARCH -- "sifive,u74-mc" -> "SiFive U74-MC" (raw
+# string for unknown vendors). Shared by every tool (wellcpu, wellfetch,
+# wellsensors, wellhw) via wu_cpu_model_generic. Result in _WU_RV.
+wu_riscv_uarch_name() {
+    local u="$1" v chip
+    v=${u%%,*} chip=${u#*,}
+    [[ "$u" == *,* ]] || { _WU_RV=$u; return 0; }
+    case "${v,,}" in
+        sifive)       _WU_RV="SiFive ${chip^^}" ;;
+        starfive)     _WU_RV="StarFive ${chip^^}" ;;
+        bananapi|bpi) _WU_RV="Banana Pi ${chip^^}" ;;
+        spacemit)     _WU_RV="SpacemiT ${chip^^}" ;;
+        tenstorrent)  _WU_RV="Tenstorrent ${chip^^}" ;;
+        thead|t-head) _WU_RV="T-Head ${chip^^}" ;;
+        *)            _WU_RV=$u ;;
+    esac
+    return 0
+}
+
 # wu_cpu_model_generic -- best-effort CPU name on any architecture, from
 # /proc/cpuinfo only (x86, LoongArch, POWER/Xenon, s390, MIPS, RISC-V, ARM,
 # SPARC, Alpha, m68k, SuperH) with device-tree fallback. One awk pass.
 wu_cpu_model_generic() {
-    local f=/proc/cpuinfo m="" k impl part parts p n line out="" dt
+    local f=/proc/cpuinfo m="" k impl part parts p n line out="" dt isa _WU_RV
     if [[ -r "$f" ]]; then
         for k in "model name" "cpu model" "cpu" "processor" "Processor" "uarch" "cpu type" "system type"; do
             m=$(wu_kv "$f" "$k")
             case "$k" in
                 processor|Processor) [[ "$m" =~ ^[0-9]+$ ]] && m="" ;;   # "processor : 0" is an index
                 cpu) m=${m%%,*} ;;                                     # "POWER9 (raw), altivec supported"
+                uarch) [[ -n "$m" ]] && { wu_riscv_uarch_name "$m"; m=$_WU_RV; } ;;
             esac
             [[ -n "$m" ]] && break
         done
+        if [[ -z "$m" ]]; then
+            isa=$(wu_kv "$f" "isa")
+            if [[ -n "$isa" ]]; then
+                # RISC-V without uarch: board name + base ISA ("rv64imafdc")
+                dt=$(wu_dt_model)
+                m="${dt:+$dt, }RISC-V ${isa%%_*}"
+            fi
+        fi
         impl=$(wu_kv "$f" "CPU implementer")
+        # ARM (incl. ARM32 "model name : ARMv7 Processor rev 4 (v7l)", which
+        # is generic): the MIDR parts (Cortex-A53, ...) are far more useful.
         if [[ -n "$impl" ]]; then
             # ARM: group distinct parts -> "4× Cortex-A55 + 4× Cortex-A76"
             parts=$(awk -F: 'tolower($1) ~ /^cpu part/ {gsub(/[ \t]/,"",$2); c[tolower($2)]++}
@@ -330,13 +372,25 @@ wu_cpu_model_generic() {
 # wu_os_pretty -- distro name on anything: os-release (both locations,
 # Termux $PREFIX), legacy release files, Android getprop.
 wu_os_pretty() {
-    local f v line
+    local f v="" line nm ver
     for f in "${WF_OSFILE:-}" /etc/os-release /usr/lib/os-release "${PREFIX:-/nonexistent}/etc/os-release"; do
         [[ -n "$f" && -r "$f" ]] || continue
+        v="" nm="" ver=""
         while IFS= read -r line; do
-            case "$line" in PRETTY_NAME=*) v=${line#PRETTY_NAME=}; v=${v//\"/}; v=${v//\'/}; break ;; esac
-        done < "$f"
-        [[ -n "${v:-}" ]] && { printf '%s' "$v"; return 0; }
+            line=${line%$'\r'}
+            case "$line" in
+                PRETTY_NAME=*) v=${line#PRETTY_NAME=} ;;
+                NAME=*)        nm=${line#NAME=} ;;
+                VERSION=*)     ver=${line#VERSION=} ;;
+            esac
+        done 2>/dev/null < "$f" || true
+        v=${v//\"/}; v=${v//\'/}
+        # No PRETTY_NAME (minimal/embedded os-release): NAME [VERSION].
+        if [[ -z "$v" ]]; then
+            nm=${nm//\"/}; nm=${nm//\'/}; ver=${ver//\"/}; ver=${ver//\'/}
+            [[ -n "$nm" ]] && v="$nm${ver:+ $ver}"
+        fi
+        [[ -n "$v" ]] && { printf '%s' "$v"; return 0; }
     done
     if [[ "$(uname -o 2>/dev/null)" == Android ]] || [[ -n "${TERMUX_VERSION:-}" ]]; then
         v=$(getprop ro.build.version.release 2>/dev/null)

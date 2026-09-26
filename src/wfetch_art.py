@@ -234,60 +234,37 @@ def resize_rgba(px, w, h, new_w, new_h):
     return out
 
 
-def read_terminal_response(timeout=0.5):
-    """Read until BEL or ST (ESC \\); parse 'i=NNN' image id out of it."""
-    if not sys.stdin.isatty():
-        return None
-    fd = sys.stdin.fileno()
-    try:
-        attrs = termios.tcgetattr(fd)
-    except Exception:
-        return None
-    new = termios.tcgetattr(fd)
-    new[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
-    new[6][termios.VMIN] = 0
-    new[6][termios.VTIME] = 1
-    data = b""
-    try:
-        termios.tcsetattr(fd, termios.TCSANOW, new)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            r, _, _ = select.select([fd], [], [], 0.05)
-            if not r:
-                continue
-            chunk = os.read(fd, 256)
-            if not chunk:
-                break
-            data += chunk
-            if b"\x1b\\" in data or b"\x07" in data:
-                break
-    finally:
-        try:
-            termios.tcsetattr(fd, termios.TCSANOW, attrs)
-        except Exception:
-            pass
-    m = re.search(rb"[;,]i=(\d+)", data)
-    return int(m.group(1)) if m else None
+KITTY_CHUNK = 4096  # protocol limit for one base64 payload chunk
+
+
+def kitty_image_id():
+    """Stable non-zero 24-bit image id so re-runs replace, not pile up."""
+    return (zlib.crc32(b"wellfetch-logo") & 0xFFFFFF) or 1
 
 
 def emit_kitty(png, px_w, px_h, cols, rows):
-    """Transmit + place an image via the kitty graphics protocol.
+    """Transmit + display an image via the kitty graphics protocol.
 
-    The terminal answers with an image id (U=1) which we read back, then draw
-    the image scaled to `cols` cells x `rows` cells at the cursor position.
-    Supported by kitty, wezterm, konsole 23.04+ and ghostty (foot only
-    speaks sixel, so it is not listed).
+    One a=T (transmit & place) command with a fixed image id, quiet mode q=2
+    (the terminal sends no reply, so nothing has to be read back), scaled to
+    `cols` x `rows` cells at the cursor. The base64 payload is split into
+    <=4096-byte chunks: m=1 on every chunk but the last (m=0); control keys
+    are only allowed on the first chunk. Supported by kitty, wezterm,
+    konsole 23.04+ and ghostty.
     """
     b64 = base64.b64encode(png).decode("ascii")
-    sys.stdout.write("\x1b_Ga=T,f=100,s=%d,v=%d,U=1,m=1;%s\x1b\\" % (px_w, px_h, b64))
-    sys.stdout.flush()
-    iid = read_terminal_response()
-    if iid is None:
-        sys.stdout.write("\n")
-        return
-    sys.stdout.write("\x1b_Ga=p,i=%d,q=2,c=%d,r=%d\x1b\\" % (iid, cols, rows))
-    sys.stdout.flush()
+    parts = [b64[k:k + KITTY_CHUNK] for k in range(0, len(b64), KITTY_CHUNK)] or [""]
+    out = []
+    for n, part in enumerate(parts):
+        more = 1 if n < len(parts) - 1 else 0
+        if n == 0:
+            ctl = "a=T,f=100,i=%d,q=2,c=%d,r=%d,m=%d" % (kitty_image_id(), cols, rows, more)
+        else:
+            ctl = "m=%d" % more
+        out.append("\x1b_G%s;%s\x1b\\" % (ctl, part))
+    sys.stdout.write("".join(out))
     sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 def emit_iterm(png, px_w):
@@ -324,10 +301,17 @@ def _gfx_cache_dir():
 
 
 def _logo_key(path):
+    """Content key for cache file names. md5 is not a security use here, but
+    FIPS-mode OpenSSL makes hashlib.md5 raise ValueError: fall back to crc32
+    (plus length) which is always available."""
     try:
-        return hashlib.md5(open(path, "rb").read()).hexdigest()[:16]
+        data = open(path, "rb").read()
     except OSError:
         return "0000000000000000"
+    try:
+        return hashlib.md5(data).hexdigest()[:16]
+    except (ValueError, AttributeError, TypeError):
+        return "%08x%08x" % (zlib.crc32(data) & 0xFFFFFFFF, len(data) & 0xFFFFFFFF)
 
 
 def gfx_png_cached(path):

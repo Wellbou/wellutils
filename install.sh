@@ -50,6 +50,7 @@ fi
 DO_DEPS=1
 DO_FILES=1
 DRY=0
+FORCE=0
 UNINSTALL=0
 SUDO=""
 PM_SUDO=""
@@ -82,7 +83,10 @@ Options:
   --deps-only      install dependencies and stop before copying files
   --prefix=PATH    install prefix (default: /usr/local; Termux: \$PREFIX;
                    NixOS: ~/.local). Rootless: --prefix=\$HOME/.local
-  --uninstall      remove files installed previously (uses a manifest)
+  --uninstall      remove files installed previously (uses a manifest;
+                   only paths inside the prefix are ever removed)
+  --force          overwrite files that belong to a distro package
+                   (pacman/dpkg/rpm); without it such files are skipped
   --dry-run        print what would be done, change nothing
   --hardware       show detected kernel / hardware profile and exit
   --help           show this help
@@ -95,6 +99,13 @@ Environment:
   WELLUTILS_REF       git ref (tag/branch) to download instead of the newest tag
   WELLUTILS_RAW       raw.githubusercontent.com base URL override
   WELLUTILS_API       api.github.com base URL override
+
+Privileges: when the prefix is not writable, file operations run through
+sudo (or doas); the installer says so first. Without a terminal this only
+works if 'sudo -n' needs no password -- otherwise use --prefix=\$HOME/.local.
+
+Exit codes: 0 ok, 1 environment error (no bash 4 / no privileges / no
+downloader), 2 bad usage or some files could not be installed/were refused.
 EOF
 }
 
@@ -155,6 +166,7 @@ need_root() {
     if [[ -d "$PREFIX/bin" && ! -w "$PREFIX/bin" ]]; then can_write=0; fi
     if [[ $can_write -eq 1 ]]; then
         SUDO=""
+        return 0
     elif (( ! IS_TERMUX )) && have sudo; then
         SUDO="sudo"
     elif (( ! IS_TERMUX )) && have doas; then
@@ -164,6 +176,18 @@ need_root() {
         echo "       Install into your home instead:  ./install.sh --prefix=\$HOME/.local" >&2
         exit 1
     fi
+    echo "==> $PREFIX is not writable by $(id -un 2>/dev/null || echo you): file operations will use $SUDO" >&2
+    echo "    (no root needed with:  ./install.sh --prefix=\$HOME/.local)" >&2
+    # Without a terminal a password prompt can never be answered: only go
+    # on when the privilege tool works non-interactively.
+    if ! "$SUDO" -n true 2>/dev/null; then
+        if ! { : > /dev/tty; } 2>/dev/null; then
+            echo "error: $SUDO needs a password but there is no terminal to ask for it." >&2
+            echo "       Re-run from a terminal, as root, or rootless with --prefix=\$HOME/.local" >&2
+            exit 1
+        fi
+    fi
+    return 0
 }
 
 # privileges for the package manager (independent of the install prefix)
@@ -464,6 +488,65 @@ collect_files() {
     (( ${#tools[@]} > 0 ))
 }
 
+# Owners of existing paths in the distro package database, looked up in ONE
+# query per package manager (per-file pacman -Qqo takes ~0.1 s each).
+# Same databases `wellup --self-update` consults to detect packaged installs.
+# Fills PKG_OWN[path]="manager:package" for owned paths only.
+declare -A PKG_OWN=()
+pkg_owner_scan() {
+    local -a ex=()
+    local f line p n
+    for f in "$@"; do [[ -e "$f" || -L "$f" ]] && ex+=("$f"); done
+    (( ${#ex[@]} > 0 )) || return 0
+    if have pacman; then
+        # "PATH is owned by PKG VER"
+        while IFS= read -r line; do
+            [[ "$line" == *" is owned by "* ]] || continue
+            p="${line%% is owned by *}"; n="${line##* is owned by }"
+            PKG_OWN["$p"]="pacman:${n%% *}"
+        done < <(LC_ALL=C pacman -Qo -- "${ex[@]}" 2>/dev/null || true)
+    fi
+    if have dpkg; then
+        # "pkg1, pkg2: PATH"  (diversions start with "diversion by")
+        while IFS= read -r line; do
+            [[ "$line" == *": /"* && "$line" != diversion* ]] || continue
+            p="/${line#*: /}"; n="${line%%: /*}"
+            [[ -n "${PKG_OWN[$p]:-}" ]] || PKG_OWN["$p"]="dpkg:${n%%,*}"
+        done < <(LC_ALL=C dpkg -S -- "${ex[@]}" 2>/dev/null || true)
+    fi
+    if have rpm; then
+        # one line per argument, in order, as long as nothing has two owners
+        local -a out=()
+        local i
+        while IFS= read -r line; do out+=("$line"); done \
+            < <(LC_ALL=C rpm -qf --qf '%{NAME}\n' -- "${ex[@]}" 2>/dev/null || true)
+        if (( ${#out[@]} == ${#ex[@]} )); then
+            for (( i=0; i<${#ex[@]}; i++ )); do
+                [[ "${out[i]}" == *" "* || -z "${out[i]}" ]] && continue
+                [[ -n "${PKG_OWN[${ex[i]}]:-}" ]] || PKG_OWN["${ex[i]}"]="rpm:${out[i]}"
+            done
+        else
+            for f in "${ex[@]}"; do
+                n=$(LC_ALL=C rpm -qf --qf '%{NAME}\n' -- "$f" 2>/dev/null) || continue
+                [[ -n "${PKG_OWN[$f]:-}" ]] || PKG_OWN["$f"]="rpm:${n%%$'\n'*}"
+            done
+        fi
+    fi
+    return 0
+}
+
+# 0 = may write DST. Refuses (rc 1, with a message) to replace a file that
+# a distro package owns, unless --force.
+may_overwrite() {
+    local dst="$1" own
+    [[ -e "$dst" || -L "$dst" ]] || return 0
+    (( FORCE )) && return 0
+    own="${PKG_OWN[$dst]:-}"
+    [[ -n "$own" ]] || return 0
+    echo "    skip: $dst belongs to package ${own#*:} (${own%%:*}); use --force to overwrite" >&2
+    return 1
+}
+
 # ─── install files ─────────────────────────────────────────────
 do_install() {
     local src="$1" i fail=0 d
@@ -479,17 +562,28 @@ do_install() {
 
     run install -d "$BINDIR" "$LIBDIR" "$MANDIR" "$BASHCOMP" "$ZSHCOMP" "$FISHCOMP" || return 1
     [[ -f "$src/LICENSE" ]] && { run install -d "$LICDIR" || fail=1; }
+    pkg_owner_scan ${F_DST[@]+"${F_DST[@]}"} ${L_DST[@]+"${L_DST[@]}"} ${old[@]+"${old[@]}"}
+    # only files we actually wrote go into the manifest: a refused,
+    # package-owned file must never be deleted by a later --uninstall
+    local -a new=()
     for (( i=0; i<${#F_SRC[@]}; i++ )); do
-        run install -m"${F_MODE[i]}" "${F_SRC[i]}" "${F_DST[i]}" \
-            || { echo "error: could not install ${F_DST[i]}" >&2; fail=1; }
+        may_overwrite "${F_DST[i]}" || { fail=1; continue; }
+        if run install -m"${F_MODE[i]}" "${F_SRC[i]}" "${F_DST[i]}"; then
+            new+=("${F_DST[i]}")
+        else
+            echo "error: could not install ${F_DST[i]}" >&2; fail=1
+        fi
     done
     for (( i=0; i<${#L_SRC[@]}; i++ )); do
+        may_overwrite "${L_DST[i]}" || { fail=1; continue; }
         # relative link: survives DESTDIR-style moves of the prefix
-        run ln -sf "${L_SRC[i]}" "${L_DST[i]}" || { echo "error: could not link ${L_DST[i]}" >&2; fail=1; }
+        if run ln -sf "${L_SRC[i]}" "${L_DST[i]}"; then
+            new+=("${L_DST[i]}")
+        else
+            echo "error: could not link ${L_DST[i]}" >&2; fail=1
+        fi
     done
-
-    local -a new=()
-    new=(${F_DST[@]+"${F_DST[@]}"} ${L_DST[@]+"${L_DST[@]}"} "$MANIFEST")
+    new+=("$MANIFEST")
     # stale files from the previous install (e.g. completions that used to
     # go to /usr/share/...) -- only paths our own manifest recorded
     local o n keep
@@ -497,9 +591,11 @@ do_install() {
         # Never touch anything outside our prefix: old releases wrote
         # completions to /usr/share/..., which may now belong to a distro
         # package (e.g. the pacman build of wellutils).
-        [[ "$o" == "$PREFIX"/* ]] || continue
+        [[ "$o" == "${PREFIX%/}"/* ]] || continue
         keep=0
         for n in "${new[@]}"; do [[ "$o" == "$n" ]] && { keep=1; break; }; done
+        # a file we no longer write may meanwhile belong to a package
+        if (( ! keep )) && [[ -e "$o" || -L "$o" ]] && [[ -n "${PKG_OWN[$o]:-}" ]]; then keep=1; fi
         (( keep )) || { [[ -e "$o" || -L "$o" ]] && run rm -f "$o"; } || true
     done
 
@@ -526,6 +622,15 @@ do_uninstall() {
     local f
     while IFS= read -r f; do
         [[ -n "$f" && "$f" != "$MANIFEST" ]] || continue
+        # A (tampered or legacy) manifest must never make us delete files
+        # outside the prefix, e.g. /usr/share/... owned by a distro package.
+        case "$f" in
+            "${PREFIX%/}"/*) ;;
+            *) echo "    skip: $f is outside $PREFIX (not removed)" >&2; continue ;;
+        esac
+        case "/$f/" in
+            */../*|*/./*) echo "    skip: $f is not a normalized path (not removed)" >&2; continue ;;
+        esac
         [[ -e "$f" || -L "$f" ]] || continue
         run rm -f "$f" || echo "    warning: could not remove $f" >&2
     done < "$MANIFEST"
@@ -557,6 +662,7 @@ while (( $# > 0 )); do
         --deps-only)   DO_FILES=0 ;;
         --uninstall)   UNINSTALL=1 ;;
         --dry-run)     DRY=1 ;;
+        --force)       FORCE=1 ;;
         --hardware)    _kver="$(detect_kernel)"; _kmaj="$(kernel_major "$_kver")"; echo "kernel: $_kver"; echo "profile: $(detect_hardware_profile "$_kver" "$_kmaj")"; detect_exotic_hardware; exit 0 ;;
         --prefix=*)    PREFIX="${arg#*=}" ;;
         --prefix)      [[ $# -ge 2 ]] || { echo "error: --prefix needs a path" >&2; exit 2; }; PREFIX="$2"; shift ;;

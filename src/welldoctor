@@ -23,12 +23,8 @@ source "$_WU_BOOT_DIR/bootstrap.sh" lang cli box parse
 
 _WD_WARN=0 _WD_CRIT=0
 
-# mktemp is coreutils, but a stripped rescue PATH may lack it -- fall back
-# to a PID-tagged file instead of dying with rc=127 (see chk_confleft).
-command -v mktemp >/dev/null 2>&1 || mktemp() {
-    local _f="${TMPDIR:-/tmp}/welldoctor-$$-$RANDOM.tmp"
-    : > "$_f" 2>/dev/null && printf '%s' "$_f"
-}
+# No temp files anywhere: results are collected in shell variables, so an
+# unwritable/missing TMPDIR or a PATH without mktemp cannot break a run.
 
 wd_warn() { _WD_WARN=$(( _WD_WARN + 1 )); printf '  %s⚠%s %s\n' "$Y" "$RESET" "$*"; }
 wd_crit() { _WD_CRIT=$(( _WD_CRIT + 1 )); printf '  %s✘%s %s\n' "$R" "$RESET" "$*"; }
@@ -107,10 +103,9 @@ wd_orphan_count() {  # prints N (0 when clean); rc=1 = family has no orphan quer
             n=$(pacman -Qtdq 2>/dev/null | wc -l || echo 0) ;;
         deb)
             out=$(LC_ALL=C apt-get -s autoremove 2>/dev/null || true)
-            n=$(awk '/^The following packages *will be REMOVED:$/{f=1; next}
-                     /^[0-9]+ (upgraded|installed), /{f=0}
-                     f{c++}
-                     END{print c+0}' <<< "$out") ;;
+            # simulation lines ("Remv pkg [ver]") are stable across apt
+            # versions; the human header changed in apt 2.9 (REMOVING:)
+            n=$(awk '/^Remv /{c++} END{print c+0}' <<< "$out") ;;
         rpm)
             if command -v dnf &>/dev/null; then
                 out=$(LC_ALL=C dnf list autoremove 2>/dev/null || true)
@@ -248,24 +243,33 @@ chk_smart() {
     fi
 }
 
-chk_temp() {
-    local maxt=0 d f t name
+# wd_cpu_maxt -- hottest CPU/SoC sensor in whole °C -> _WD_MAXT (0 = none).
+# No forks: wu_read + parameter expansion only.
+_WD_MAXT=0
+wd_cpu_maxt() {
+    local d f t name hd
+    _WD_MAXT=0
     for d in /sys/class/hwmon/hwmon*/name; do
         [[ -f "$d" ]] || continue
-        name=$(cat "$d" 2>/dev/null || true)
+        wu_read "$d" name || continue
         case "$name" in
-            coretemp|k10temp|zenpower|cpu_thermal)
-                local hd
-                hd=$(dirname "$d")
+            coretemp|k10temp|zenpower|cpu_thermal|soc_thermal|soc-thermal|ibmpowernv|macsmc*|cpu*thermal*)
+                hd=${d%/*}
                 for f in "$hd/temp"*_input; do
                     [[ -f "$f" ]] || continue
-                    t=$(cat "$f" 2>/dev/null || true)
+                    wu_read "$f" t || continue
                     [[ "$t" =~ ^[0-9]+$ ]] || continue
-                    t=$(( t / 1000 ))
-                    (( t > maxt )) && maxt=$t
+                    t=$(( 10#$t / 1000 ))
+                    (( t > _WD_MAXT )) && _WD_MAXT=$t
                 done ;;
         esac
     done
+    return 0
+}
+
+chk_temp() {
+    local maxt
+    wd_cpu_maxt; maxt=$_WD_MAXT
     if (( maxt == 0 )); then
         wd_info "$(t doc_temp_na)"
     elif (( maxt >= 85 )); then
@@ -382,17 +386,16 @@ json_out() {
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     # Run checks in THIS shell (not a process substitution): the summary
     # counters and the exit contract depend on _WD_WARN/_WD_CRIT living here.
-    local _ck; _ck=$(mktemp)
-    wd_checks_machine > "$_ck"
+    wd_checks_machine
     printf ',\n  "checks": [\n'
-    local first=1 key st val
-    while IFS='|' read -r key st val; do
+    local first=1 key st val row
+    for row in ${_WD_ML[@]+"${_WD_ML[@]}"}; do
+        IFS='|' read -r key st val <<< "$row"
         [[ -z "$key" ]] && continue
         (( first )) && first=0 || printf ',\n'
         printf '    { "check": "%s", "status": "%s", "detail": "%s" }' \
             "$(json_esc "$key")" "$st" "$(json_esc "${val:-}")"
-    done < "$_ck"
-    rm -f "$_ck"
+    done
     printf '\n  ],\n'
     printf '  "summary": { "warnings": %d, "critical": %d }\n' "$_WD_WARN" "$_WD_CRIT"
     wu_json_end
@@ -402,86 +405,76 @@ json_out() {
     return 0
 }
 
-# Machine-readable pass: emits key|status|detail lines and updates counters.
+# Machine-readable pass: fills _WD_ML with key|status|detail rows and
+# updates the counters -- all in the current shell, no temp files.
+_WD_ML=()
+wd_ml() { _WD_ML+=("$1"); }
 wd_checks_machine() {
-    local bn i
+    local bn i _r=""
+    _WD_ML=()
     wd_smart_scan
     for bn in $_WD_SM_BAD; do
-        printf 'smart_%s|critical|%s\n' "$bn" "S.M.A.R.T. FAILED"
+        printf -v _r 'smart_%s|critical|%s' "$bn" "S.M.A.R.T. FAILED"; wd_ml "$_r"
         _WD_CRIT=$(( _WD_CRIT + 1 ))
     done
     for (( i=0; i<${#_WD_SM_WN[@]}; i++ )); do
-        printf 'smart_%s|warning|%s\n' "${_WD_SM_WN[i]}" "${_WD_SM_WD[i]}"
+        printf -v _r 'smart_%s|warning|%s' "${_WD_SM_WN[i]}" "${_WD_SM_WD[i]}"; wd_ml "$_r"
         _WD_WARN=$(( _WD_WARN + 1 ))
     done
     if (( _WD_SM_CHECKED > 0 )) && [[ -z "$_WD_SM_BAD" ]] && (( ${#_WD_SM_WN[@]} == 0 )); then
-        printf 'smart|ok|%d\n' "$_WD_SM_CHECKED"
+        printf -v _r 'smart|ok|%d' "$_WD_SM_CHECKED"; wd_ml "$_r"
     elif (( _WD_SM_CHECKED == 0 )); then
-        printf 'smart|na|%s\n' "$( (( _WD_SM_NA )) && echo 'smartctl or root unavailable' || echo 'no SMART-capable disks')"
+        printf -v _r 'smart|na|%s' "$( (( _WD_SM_NA )) && echo 'smartctl or root unavailable' || echo 'no SMART-capable disks')"; wd_ml "$_r"
     fi
 
-    local maxt=0 d f t name
-    for d in /sys/class/hwmon/hwmon*/name; do
-        [[ -f "$d" ]] || continue
-        name=$(cat "$d" 2>/dev/null || true)
-        case "$name" in
-            coretemp|k10temp|zenpower|cpu_thermal)
-                local hd; hd=$(dirname "$d")
-                for f in "$hd/temp"*_input; do
-                    [[ -f "$f" ]] || continue
-                    t=$(cat "$f" 2>/dev/null || true)
-                    [[ "$t" =~ ^[0-9]+$ ]] || continue
-                    t=$(( t / 1000 ))
-                    (( t > maxt )) && maxt=$t
-                done ;;
-        esac
-    done
-    if   (( maxt >= 85 )); then printf 'temp|critical|%d°C\n' "$maxt"; _WD_CRIT=$(( _WD_CRIT + 1 ))
-    elif (( maxt >= 70 )); then printf 'temp|warning|%d°C\n' "$maxt";  _WD_WARN=$(( _WD_WARN + 1 ))
-    elif (( maxt > 0 ));   then printf 'temp|ok|%d°C\n' "$maxt"; fi
+    local maxt
+    wd_cpu_maxt; maxt=$_WD_MAXT
+    if   (( maxt >= 85 )); then printf -v _r 'temp|critical|%d°C' "$maxt"; wd_ml "$_r"; _WD_CRIT=$(( _WD_CRIT + 1 ))
+    elif (( maxt >= 70 )); then printf -v _r 'temp|warning|%d°C' "$maxt"; wd_ml "$_r";  _WD_WARN=$(( _WD_WARN + 1 ))
+    elif (( maxt > 0 ));   then printf -v _r 'temp|ok|%d°C' "$maxt"; wd_ml "$_r"; fi
 
     local pct use
     use=$(df -P / 2>/dev/null | awk 'NR==2{print $5}') || use=""
     if [[ "$use" == *%* ]]; then
         pct="${use%\%}"
-        if   (( pct >= 90 )); then printf 'disk|critical|/ %d%%\n' "$pct"; _WD_CRIT=$(( _WD_CRIT + 1 ))
-        elif (( pct >= 80 )); then printf 'disk|warning|/ %d%%\n' "$pct";  _WD_WARN=$(( _WD_WARN + 1 ))
-        else                       printf 'disk|ok|/ %d%%\n' "$pct"; fi
+        if   (( pct >= 90 )); then printf -v _r 'disk|critical|/ %d%%' "$pct"; wd_ml "$_r"; _WD_CRIT=$(( _WD_CRIT + 1 ))
+        elif (( pct >= 80 )); then printf -v _r 'disk|warning|/ %d%%' "$pct"; wd_ml "$_r";  _WD_WARN=$(( _WD_WARN + 1 ))
+        else                       printf -v _r 'disk|ok|/ %d%%' "$pct"; wd_ml "$_r"; fi
     fi
 
     local failed_list u
     if ! failed_list=$(wd_units_list); then
-        printf 'units|na|systemd not running\n'
+        printf -v _r 'units|na|systemd not running'; wd_ml "$_r"
     else
         if [[ -n "$failed_list" ]]; then
             while IFS= read -r u; do
                 [[ -z "$u" ]] && continue
-                printf 'unit_%s|warning|failed\n' "$(awk '{print $1}' <<< "$u")"
+                printf -v _r 'unit_%s|warning|failed' "$(awk '{print $1}' <<< "$u")"; wd_ml "$_r"
                 _WD_WARN=$(( _WD_WARN + 1 ))
             done <<< "$failed_list"
         else
-            printf 'units|ok|0\n'
+            printf -v _r 'units|ok|0'; wd_ml "$_r"
         fi
     fi
 
-    local fam pn on cf
+    local fam pn on
     fam=$(wd_family)
     if [[ -n "$fam" ]]; then
-        cf=$(mktemp)
-        if wd_confleft_file > "$cf" 2>/dev/null; then
-            pn=$(wc -l < "$cf" || echo 0)
-            pn=$(printf '%s' "$pn" | tr -d '[:space:]'); [[ "$pn" =~ ^[0-9]+$ ]] || pn=0
-            if (( pn > 0 )); then printf 'confleft|warning|%d\n' "$pn"; _WD_WARN=$(( _WD_WARN + 1 ))
-            else printf 'confleft|ok|0\n'; fi
+        local cfl cfx
+        if cfl=$(wd_confleft_file 2>/dev/null); then
+            pn=0
+            while IFS= read -r cfx; do [[ -n "$cfx" ]] && pn=$(( pn + 1 )); done <<< "$cfl"
+            if (( pn > 0 )); then printf -v _r 'confleft|warning|%d' "$pn"; wd_ml "$_r"; _WD_WARN=$(( _WD_WARN + 1 ))
+            else wd_ml 'confleft|ok|0'; fi
         else
-            printf 'confleft|na|unknown family\n'
+            wd_ml 'confleft|na|unknown family'
         fi
-        rm -f "$cf"
         on=$(wd_orphan_count) || on=""
-        if   [[ -z "$on" ]]; then  printf 'orphans|na|unsupported on %s\n' "$fam"
-        elif (( on > 0 ));    then printf 'orphans|warning|%d\n' "$on"; _WD_WARN=$(( _WD_WARN + 1 ))
-        else                       printf 'orphans|ok|0\n'; fi
+        if   [[ -z "$on" ]]; then  printf -v _r 'orphans|na|unsupported on %s' "$fam"; wd_ml "$_r"
+        elif (( on > 0 ));    then printf -v _r 'orphans|warning|%d' "$on"; wd_ml "$_r"; _WD_WARN=$(( _WD_WARN + 1 ))
+        else                       printf -v _r 'orphans|ok|0'; wd_ml "$_r"; fi
     fi
+    return 0
 }
 
 # Overall system state for --short and the summary line.
@@ -502,7 +495,7 @@ wd_state_word() {
 }
 
 short_out() {
-    wd_checks_machine >/dev/null
+    wd_checks_machine
     local word; word=$(wd_state_word)
     if (( _WD_CRIT > 0 )); then
         printf '%s %d/100 (C%d W%d)\n' "$word" "$(wd_score)" "$_WD_CRIT" "$_WD_WARN"

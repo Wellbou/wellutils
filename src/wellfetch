@@ -148,9 +148,9 @@ wfv_user() {
 
 wfv_os() {
     local pretty arch
-    pretty=$(wu_os_pretty 2>/dev/null)
+    pretty=$(wu_os_pretty 2>/dev/null) || pretty=""
     wf_clean_v "$pretty"; pretty=$_WF_C
-    arch=$(uname -m 2>/dev/null)
+    arch=$(uname -m 2>/dev/null) || arch=""
     if [[ -n "$pretty" ]]; then
         wf_pushl os wf_os "$pretty${arch:+ ($arch)}"
     else
@@ -179,7 +179,7 @@ wfv_uptime() {
         boot=$(( now - s ))
         printf -v bt '%(%Y-%m-%d %H:%M)T' "$boot" 2>/dev/null || bt=""
     elif command -v date >/dev/null 2>&1; then
-        now=$(date +%s 2>/dev/null)
+        now=$(date +%s 2>/dev/null) || now=""
         if [[ "$now" =~ ^[0-9]+$ ]]; then
             boot=$(( now - s ))
             bt=$(date -d "@$boot" '+%F %H:%M' 2>/dev/null) || bt=""
@@ -212,14 +212,68 @@ wfv_wm() {
     wf_pushl wm wf_wm "${_WF_C:--}"
 }
 
-wfv_terminal() {
+# Real terminal emulator: env markers first, then walk the parent chain via
+# /proc/PID/{comm,stat} (no forks), TERM as the last resort.
+wf_term_detect() {
+    _WF_TERM=""
     local v="${TERM_PROGRAM:-}"
     if [[ -n "$v" ]]; then
+        case "$v" in
+            vscode) v="VS Code" ;; Apple_Terminal) v="Apple Terminal" ;;
+        esac
         [[ -n "${TERM_PROGRAM_VERSION:-}" ]] && v+=" $TERM_PROGRAM_VERSION"
-    else
-        v="${TERM:-}"
+        _WF_TERM=$v; return 0
     fi
-    wf_clean_v "$v"
+    if [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == xterm-kitty ]]; then _WF_TERM="kitty"; return 0; fi
+    if [[ -n "${WEZTERM_EXECUTABLE:-}${WEZTERM_PANE:-}" ]]; then _WF_TERM="WezTerm"; return 0; fi
+    if [[ -n "${ALACRITTY_WINDOW_ID:-}${ALACRITTY_SOCKET:-}${ALACRITTY_LOG:-}" ]]; then _WF_TERM="Alacritty"; return 0; fi
+    if [[ -n "${KONSOLE_VERSION:-}" ]]; then _WF_TERM="Konsole"; return 0; fi
+    if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then _WF_TERM="Ghostty"; return 0; fi
+    if [[ -n "${TERMUX_VERSION:-}" ]]; then _WF_TERM="Termux"; return 0; fi
+    if [[ -n "${GNOME_TERMINAL_SCREEN:-}${GNOME_TERMINAL_SERVICE:-}" ]]; then _WF_TERM="GNOME Terminal"; return 0; fi
+    local pid=${PPID:-} n=0 comm stat ppid
+    while [[ "$pid" =~ ^[0-9]+$ ]] && (( pid > 1 && n < 8 )); do
+        comm=""; { read -r comm < "/proc/$pid/comm"; } 2>/dev/null || break
+        case "$comm" in
+            kitty) _WF_TERM="kitty" ;;
+            alacritty) _WF_TERM="Alacritty" ;;
+            wezterm*) _WF_TERM="WezTerm" ;;
+            konsole) _WF_TERM="Konsole" ;;
+            gnome-terminal*) _WF_TERM="GNOME Terminal" ;;
+            kgx|gnome-console) _WF_TERM="GNOME Console" ;;
+            xfce4-terminal) _WF_TERM="Xfce Terminal" ;;
+            tilix) _WF_TERM="Tilix" ;;
+            terminator) _WF_TERM="Terminator" ;;
+            foot|footclient) _WF_TERM="foot" ;;
+            ghostty) _WF_TERM="Ghostty" ;;
+            st) _WF_TERM="st" ;;
+            urxvt*|rxvt*) _WF_TERM="rxvt-unicode" ;;
+            xterm) _WF_TERM="XTerm" ;;
+            lxterminal) _WF_TERM="LXTerminal" ;;
+            mate-terminal) _WF_TERM="MATE Terminal" ;;
+            qterminal) _WF_TERM="QTerminal" ;;
+            terminology) _WF_TERM="Terminology" ;;
+            yakuake) _WF_TERM="Yakuake" ;;
+            guake) _WF_TERM="Guake" ;;
+            tmux*) _WF_TERM="tmux" ;;
+            screen) _WF_TERM="screen" ;;
+            sshd*) _WF_TERM="SSH" ;;
+            login|agetty|getty) _WF_TERM="${TERM:-tty}" ;;
+            code|codium|code-oss) _WF_TERM="VS Code" ;;
+        esac
+        [[ -n "$_WF_TERM" ]] && return 0
+        stat=""; { read -r stat < "/proc/$pid/stat"; } 2>/dev/null || break
+        stat=${stat##*) }; read -r _ ppid _ <<< "$stat"
+        pid=$ppid; n=$(( n + 1 ))
+    done
+    if [[ -n "${VTE_VERSION:-}" ]]; then _WF_TERM="VTE ${VTE_VERSION}"; return 0; fi
+    _WF_TERM="${TERM:-}"
+    return 0
+}
+
+wfv_terminal() {
+    wf_term_detect
+    wf_clean_v "$_WF_TERM"
     wf_pushl terminal wf_terminal "${_WF_C:--}"
 }
 
@@ -249,15 +303,48 @@ wfv_font() {
     wf_pushl font wf_font "${_WF_C:--}"
 }
 
+# Physical cores = unique (physical id, core id) pairs over all packages;
+# threads = number of "processor" entries. sysfs topology as fallback
+# (ARM cpuinfo has no core id), nproc last. Fork-free except nproc.
+wf_cpu_topo() {
+    _WF_CORES="" _WF_THREADS=""
+    local k v line pk="0" nproc_=0 f c
+    local -A pairs=()
+    if [[ -r /proc/cpuinfo ]]; then
+        while IFS= read -r line; do
+            k=${line%%:*}; k=${k%"${k##*[![:space:]]}"}
+            v=${line#*:}; v=${v# }
+            case "$k" in
+                processor) nproc_=$(( nproc_ + 1 )) ;;
+                "physical id") pk=$v ;;
+                "core id") pairs["$pk/$v"]=1 ;;
+            esac
+            [[ -z "$line" ]] && pk="0"
+        done 2>/dev/null < /proc/cpuinfo || true
+    fi
+    if (( ${#pairs[@]} == 0 )); then
+        for f in /sys/devices/system/cpu/cpu[0-9]*/topology/core_id; do
+            [[ -r "$f" ]] || continue
+            c=""; wu_read "$f" c || continue
+            pk="0"; wu_read "${f%/core_id}/physical_package_id" pk || pk="0"
+            pairs["$pk/$c"]=1
+        done
+    fi
+    (( ${#pairs[@]} > 0 )) && _WF_CORES=${#pairs[@]}
+    if (( nproc_ > 0 )); then _WF_THREADS=$nproc_
+    else
+        _WF_THREADS=$(nproc 2>/dev/null) || _WF_THREADS=""
+        [[ "$_WF_THREADS" =~ ^[0-9]+$ ]] || _WF_THREADS=""
+    fi
+    return 0
+}
+
 wfv_cpu() {
     local m cores threads="" freq="" load="" khz="" detail="" f
-    m=$(wu_cpu_model_generic 2>/dev/null)
+    m=$(wu_cpu_model_generic 2>/dev/null) || m=""
     wf_clean_v "$m"; m=$_WF_C
-    cores=$(wu_kv /proc/cpuinfo "cpu cores")
-    [[ "$cores" =~ ^[0-9]+$ ]] || cores=""
-    threads=$(nproc 2>/dev/null) || threads=""
-    [[ "$threads" =~ ^[0-9]+$ ]] || threads=""
-    freq=$(wu_kv /proc/cpuinfo "cpu MHz")
+    wf_cpu_topo; cores=$_WF_CORES threads=$_WF_THREADS
+    freq=$(wu_kv /proc/cpuinfo "cpu MHz" 2>/dev/null) || freq=""
     if [[ ! "$freq" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         freq=""
         for f in /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq; do
@@ -319,7 +406,7 @@ wf_gpu_sysfs() {
         name=""
         if [[ -n "$pciid" ]]; then
             vid=${pciid%%:*} did=${pciid#*:}
-            name=$(wu_pci_name "$vid" "$did" 2>/dev/null)
+            name=$(wu_pci_name "$vid" "$did" 2>/dev/null) || name=""
             [[ -n "$name" ]] || name="PCI $pciid"
         elif [[ -n "$compat" ]]; then
             name=$compat
@@ -353,8 +440,8 @@ wfv_gpu() {
     fi
     (( ${#_WF_GPUS[@]} )) || wf_gpu_sysfs
     if (( ${#_WF_GPUS[@]} == 0 )) && command -v getprop >/dev/null 2>&1; then
-        name=$(getprop ro.hardware.egl 2>/dev/null)
-        [[ -n "$name" ]] || name=$(getprop ro.hardware.vulkan 2>/dev/null)
+        name=$(getprop ro.hardware.egl 2>/dev/null) || name=""
+        [[ -n "$name" ]] || { name=$(getprop ro.hardware.vulkan 2>/dev/null) || name=""; }
         [[ -n "$name" ]] && _WF_GPUS+=("$name")
     fi
     if (( ${#_WF_GPUS[@]} == 0 )); then wf_pushl gpu wf_gpu "-"; return 0; fi
@@ -603,20 +690,34 @@ wfv_audio() {
 
 # wf_classify_v BCLASS PRODUCT MANUFACTURER -> $_WF_CLS
 wf_classify_v() {
-    local bclass="$1" hay="$2 $3"
+    local bclass="$1" hay="$2 $3" w
     hay=${hay,,}
+    # Word view: non-alphanumerics -> spaces, padded, so " mic " / " cam "
+    # match whole words only (not "Microsoft", "Camber", "dynamic").
+    w=" ${hay//[!a-z0-9]/ } "
     case "$hay" in
         *xp-pen*|*wacom*|*huion*|*gaomon*|*drawing*|*graphics*|*pen*tablet*|*graphire*|*bamboo*|*intuos*|*cintiq*|*stylus*)
             _WF_CLS=tablet; return 0 ;;
         *touch*) _WF_CLS=touchscreen; return 0 ;;
-        *keyboard*|*k63*|*k55*|*k70*|*typewriter*) _WF_CLS=keyboard; return 0 ;;
-        *mouse*|*trackball*|*deathadder*|*razer*|*logitech*g*) _WF_CLS=mouse; return 0 ;;
+        *keyboard*|*k63*|*k55*|*k70*|*typewriter*|*blackwidow*|*huntsman*|*ornata*) _WF_CLS=keyboard; return 0 ;;
+        *mouse*|*trackball*|*deathadder*|*basilisk*|*naga*|*mamba*|*viper*) _WF_CLS=mouse; return 0 ;;
+    esac
+    case "$w" in
+        *" logitech g"[0-9]*|*" mx master"*|*" mx anywhere"*) _WF_CLS=mouse; return 0 ;;
+    esac
+    case "$hay" in
         *gamepad*|*controller*|*xbox*|*dualshock*|*joystick*|*fightstick*|*nintendo*)
             _WF_CLS=gamepad; return 0 ;;
-        *webcam*|*camera*|*cam*) _WF_CLS=webcam; return 0 ;;
-        *headset*|*headphone*|*earphone*|*microphone*|*audio*|*mic*) _WF_CLS=audio; return 0 ;;
+        *storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*|*card*reader*) _WF_CLS=storage; return 0 ;;
+        *webcam*|*camera*) _WF_CLS=webcam; return 0 ;;
+        *headset*|*headphone*|*earphone*|*microphone*|*audio*) _WF_CLS=audio; return 0 ;;
+    esac
+    case "$w" in
+        *" cam "*) _WF_CLS=webcam; return 0 ;;
+        *" mic "*) _WF_CLS=audio; return 0 ;;
+    esac
+    case "$hay" in
         *wlan*|*wireless*lan*|*wifi*|*wi-fi*|*802.11*|*ralink*|*mediatek*|*bluetooth*) _WF_CLS=network; return 0 ;;
-        *storage*|*flash*|*disk*|*ssd*|*sata*|*hdd*) _WF_CLS=storage; return 0 ;;
         *printer*|*scanner*|*mfp*) _WF_CLS=printer; return 0 ;;
         *phone*|*huawei*|*honor*|*xiaomi*|*redmi*|*pixel*|*galaxy*|*samsung*|*nokia*|*oppo*|*vivo*|*oneplus*|*realme*|*android*|*mao-lx*)
             _WF_CLS=phone; return 0 ;;
@@ -715,6 +816,9 @@ wfv_peripherals() {
                     evname=${evline#*Name=}; evname=${evname//\"/}
                     wf_clean_v "$evname"; evname=$_WF_C
                     evskip="" ;;
+                S:\ *Sysfs=*)
+                    # uinput/virtual devices (ckb vKB, ydotool, ...) are not hardware
+                    case "${evline#*Sysfs=}" in */devices/virtual/*) evskip=1 ;; esac ;;
                 P:\ *)
                     # skip USB devices -- already detected via /sys/bus/usb
                     case "${evline#*Phys=}" in usb-*) evskip=1 ;; esac ;;
@@ -806,13 +910,13 @@ wfv_packages() {
         (( _WF_N )) && parts+=("$_WF_N apk")
     fi
     if command -v xbps-query >/dev/null 2>&1; then
-        n=$(xbps-query -l 2>/dev/null | wc -l); n=${n// /}
+        n=$(xbps-query -l 2>/dev/null | wc -l) || n=0; n=${n// /}
         [[ "$n" =~ ^[1-9][0-9]*$ ]] && parts+=("$n xbps")
     fi
     # rpm only where an rpm database actually exists (Debian ships the
     # binary without packages; rpm -qa is also the slowest query here).
     if command -v rpm >/dev/null 2>&1 && [[ -d /var/lib/rpm || -d /usr/lib/sysimage/rpm ]]; then
-        n=$(rpm -qa 2>/dev/null | wc -l); n=${n// /}
+        n=$(rpm -qa 2>/dev/null | wc -l) || n=0; n=${n// /}
         [[ "$n" =~ ^[1-9][0-9]*$ ]] && parts+=("$n rpm")
     fi
     # Gentoo: /var/db/pkg/<category>/<package>/
@@ -826,11 +930,16 @@ wfv_packages() {
         (( _WF_N )) && { parts+=("$_WF_N opkg"); break; }
     done
     if command -v nix-store >/dev/null 2>&1; then
-        for d in /run/current-system "${HOME:-/nonexistent}/.nix-profile"; do
-            [[ -e "$d" ]] || continue
-            n=$(nix-store -qR "$d" 2>/dev/null | wc -l); n=${n// /}
-            [[ "$n" =~ ^[1-9][0-9]*$ ]] && parts+=("$n nix")
+        # One query over all profiles: nix-store prints the union closure,
+        # so shared store paths are counted once and nix appears once.
+        local -a nixp=()
+        for d in /run/current-system "${HOME:-/nonexistent}/.nix-profile" /nix/var/nix/profiles/default; do
+            [[ -e "$d" ]] && nixp+=("$d")
         done
+        if (( ${#nixp[@]} )); then
+            n=$(nix-store -qR "${nixp[@]}" 2>/dev/null | wc -l) || n=0; n=${n// /}
+            [[ "$n" =~ ^[1-9][0-9]*$ ]] && parts+=("$n nix")
+        fi
     fi
     # flatpak: <root>/{app,runtime}/<id>/<arch>/<branch>/active (skip the
     # "current" alias), system + user installations.
@@ -839,7 +948,11 @@ wfv_packages() {
         [[ -d "$d" ]] || continue
         g=("$d"/app/*/*/*/active "$d"/runtime/*/*/*/active)
         for p in ${g[@]+"${g[@]}"}; do
-            [[ "$p" == */current/* ]] || n=$(( n + 1 ))
+            # skip the "current" alias and auto-installed extensions
+            case "$p" in
+                */current/*|*/*.Locale/*|*/*.Debug/*|*/*.Sources/*) continue ;;
+            esac
+            n=$(( n + 1 ))
         done
     done
     (( n )) && parts+=("$n flatpak")
@@ -860,9 +973,9 @@ wfv_date() {
     local v=""
     if command -v date >/dev/null 2>&1; then
         if [[ "${WELLUTILS_LANG:-EN}" == "EN" ]]; then
-            v=$(LC_ALL=C date '+%A %d %B %Y %H:%M' 2>/dev/null)
+            v=$(LC_ALL=C date '+%A %d %B %Y %H:%M' 2>/dev/null) || v=""
         else
-            v=$(date '+%A %d %B %Y %H:%M' 2>/dev/null)
+            v=$(date '+%A %d %B %Y %H:%M' 2>/dev/null) || v=""
         fi
     fi
     wf_pushl date wf_date "${v:--}"
@@ -936,12 +1049,54 @@ wf_distro_lines() {
     _wf_count_rows
 }
 
+# Terminal background via OSC 11, probed from the shell because the python
+# renderer runs inside $(...) where stdout is no tty. Runs once, only when
+# WF_BG is unset, both stdin/stdout are ttys and WF_BG_PROBE!=0; 0.15 s
+# timeout. The result lands in WF_BG ("R,G,B") and hence in the cache key.
+_WF_BG_PROBED=0
+wf_probe_bg() {
+    (( _WF_BG_PROBED )) && return 0
+    _WF_BG_PROBED=1
+    [[ -z "${WF_BG:-}" && "${WF_BG_PROBE:-1}" != 0 ]] || return 0
+    [[ -t 0 && -t 1 ]] || return 0
+    case "${TERM:-dumb}" in dumb|linux|vt*|cons*) return 0 ;; esac
+    command -v stty >/dev/null 2>&1 || return 0
+    local resp="" ch n=0 r g b a saved=""
+    saved=$(stty -g < /dev/tty 2>/dev/null) || return 0
+    [[ -n "$saved" ]] || return 0
+    # echo off *before* asking, else the reply is echoed onto the screen
+    stty -echo -icanon < /dev/tty 2>/dev/null || return 0
+    if { printf '\033]11;?\033\\' > /dev/tty; } 2>/dev/null; then
+        while (( n < 64 )); do
+            IFS= read -r -n1 -t 0.15 ch < /dev/tty 2>/dev/null || break
+            resp+=$ch; n=$(( n + 1 ))
+            [[ "$ch" == $'\a' || "$resp" == *$'\033\\' ]] && break
+        done
+    fi
+    stty "$saved" < /dev/tty 2>/dev/null || true
+    resp=${resp#*]11;}
+    resp=${resp#rgba:}; resp=${resp#rgb:}
+    resp=${resp%%[$'\a\033']*}
+    IFS=/ read -r r g b a <<< "$resp" || true
+    [[ "$r" =~ ^[0-9A-Fa-f]+$ && "$g" =~ ^[0-9A-Fa-f]+$ && "$b" =~ ^[0-9A-Fa-f]+$ ]] || return 0
+    # fully transparent background: keep the default blend colour
+    [[ -n "${a:-}" && "$a" =~ ^0+$ ]] && return 0
+    _wf_chan() { if (( ${#1} == 1 )); then _WF_CH=$(( 16#$1 * 17 )); else _WF_CH=$(( 16#${1:0:2} )); fi; }
+    local _WF_CH out=""
+    _wf_chan "$r"; out=$_WF_CH
+    _wf_chan "$g"; out+=",$_WF_CH"
+    _wf_chan "$b"; out+=",$_WF_CH"
+    WF_BG=$out
+    return 0
+}
+
 # PNG logo rendered as truecolour half-blocks (needs colour + python3).
 wf_logo_lines() {
     local art="$1" lw="$2"
     WF_LOGO_LINES="" WF_LOGO_ROWS=0
     [[ -f "$art" && -f "$WF_LOGO" ]] || return 0
     command -v python3 >/dev/null 2>&1 || return 0
+    wf_probe_bg
     local cache_dir="${WF_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/wellutils}"
     local key
     key=$(cat "$WF_LOGO" "$art" 2>/dev/null | cksum 2>/dev/null) || key=""
@@ -949,7 +1104,7 @@ wf_logo_lines() {
     local cached="$cache_dir/logo-${lw}-${WF_KEY:-40}-${WF_BG:-x}-${key:-0}"
     cached=${cached//,/_}
     if [[ -n "$key" && -f "$cached" ]]; then
-        WF_LOGO_LINES=$(<"$cached")
+        WF_LOGO_LINES=$(<"$cached") || WF_LOGO_LINES=""
     else
         local -a cmd=(python3 "$art" "$WF_LOGO" --width "$lw" --key "${WF_KEY:-40}")
         [[ -n "${WF_BG:-}" ]] && cmd+=(--bg "$WF_BG")
@@ -1072,8 +1227,8 @@ wf_print_framed() {
     _wu_cols
     inner=$(( WF_INFO_MAXW + 2 ))
     maxin=$(( _WU_COLS - 4 ))
-    (( inner > maxin )) && inner=$maxin
     (( inner < 28 )) && inner=28
+    (( inner > maxin )) && inner=$maxin
     box_top '◆' "wellfetch v${_WU_VERSION}" "$inner"
     for (( i = 0; i < ${#WF_INFO_LINES[@]}; i++ )); do
         box_row " ${WF_INFO_LINES[i]}" "$inner"
@@ -1084,7 +1239,14 @@ wf_print_framed() {
 wf_footer() {
     local d=""
     printf -v d '%(%Y-%m-%d %H:%M:%S)T' -1 2>/dev/null || d=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
-    printf '\n  %sWellFetch v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$d" "$RESET"
+    local f="WellFetch v${_WU_VERSION} | $d" _WU_COLS _WU_CAP
+    _wu_cols
+    # narrow terminals: drop the seconds, then the date, then cap
+    (( ${#f} + 2 > _WU_COLS )) && f="WellFetch v${_WU_VERSION} | ${d%:*}"
+    (( ${#f} + 2 > _WU_COLS )) && f="WellFetch v${_WU_VERSION} | ${d#* }"
+    (( ${#f} + 2 > _WU_COLS )) && f="WellFetch v${_WU_VERSION}"
+    if (( ${#f} + 2 > _WU_COLS )); then _wu_cap_v "$f" $(( _WU_COLS - 2 )); f=$_WU_CAP; fi
+    printf '\n  %s%s%s\n\n' "$DIM" "$f" "$RESET"
 }
 
 main() {

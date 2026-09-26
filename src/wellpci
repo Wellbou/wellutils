@@ -44,7 +44,12 @@ _rd() { _V=""; { IFS= read -r _V < "$1"; } 2>/dev/null || true; _V=${_V%$'\r'}; 
 _jev() {
     local LC_ALL=C
     _JE=$1
-    if [[ "$_JE" == *[$'\001'-$'\037'$'\177']* ]]; then _JE=$(json_esc "$1"); return; fi
+    # control chars or invalid UTF-8 (Latin-1 "Kingst\xf6n") -> full json_esc
+    if [[ "$_JE" == *[$'\001'-$'\037'$'\177'$'\200'-$'\377']* ]]; then
+        if [[ "$_JE" == *[$'\001'-$'\037'$'\177']* ]]; then _JE=$(json_esc "$1"); return; fi
+        _wu_utf8_fix "$_JE" _JE
+    fi
+
     _JE=${_JE//\\/\\\\}; _JE=${_JE//\"/\\\"}
 }
 
@@ -219,7 +224,9 @@ main() {
         _tk pci_shown; L_shown=$_TK; _tk pci_of; L_of=$_TK; _tk pci_hint_all; L_hint=$_TK
         printf '  %s%s%s:%s %d %s %d%s  |  %s%s:%s %s\n' "$ic" "$BOLD" "$L_shown" "$W" "$count" "$L_of" "$total" "$RESET" \
             "$BOLD" "$L_db" "$W" "$ids_status"
-        printf '  %s%s%s\n' "$DIM" "$L_hint" "$RESET"
+        local _WU_COLS; _wu_cols
+        _wu_wrap_print '  ' $(( _WU_COLS - 4 )) "$L_hint" "$DIM"
+
     fi
     printf '\n'
 
@@ -233,11 +240,18 @@ main() {
     local i j x n
     for (( i = 0; i < count; i++ )); do ord+=("${CLASSES[i]:0:2} ${ADDRS[i]} $i"); done
     n=${#ord[@]}
-    for (( i = 1; i < n; i++ )); do
-        x=${ord[i]}; j=$(( i - 1 ))
-        while (( j >= 0 )) && [[ "${ord[j]}" > "$x" ]]; do ord[j+1]=${ord[j]}; j=$(( j - 1 )); done
-        ord[j+1]=$x
-    done
+    # byte-order compare: [[ > ]] collates by locale (ru_RU/en_US skip ":" ".")
+    _pci_sort_ord() {
+        local LC_ALL=C
+        for (( i = 1; i < n; i++ )); do
+            x=${ord[i]}; j=$(( i - 1 ))
+            while (( j >= 0 )) && [[ "${ord[j]}" > "$x" ]]; do ord[j+1]=${ord[j]}; j=$(( j - 1 )); done
+            ord[j+1]=$x
+        done
+        return 0
+    }
+    _pci_sort_ord
+
 
     local _WU_COLS _WU_VL _WU_CAP maxw lbl
     _wu_cols; maxw=$(( _WU_COLS - 4 ))

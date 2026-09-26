@@ -89,15 +89,38 @@ ci_parse() {
 
 # ─── lscpu, parsed once ─────────────────────────────────────────
 declare -A LS=()
+# Heterogeneous CPUs (big.LITTLE, RK3399 4+2, Alder Lake P+E on some lscpu
+# builds) print one "Model name" section per core type, each with its own
+# "Core(s) per cluster|socket" and "Cluster(s)|Socket(s)". LS keeps the
+# first value (header fields); LS_CORES_SUM sums cores over ALL sections.
+LS_CORES_SUM=0
 ls_parse() {
-    local out k v
+    local out k v cpc="" ncl=""
     out=$(LC_ALL=C lscpu 2>/dev/null) || out=""
     [[ -n "$out" ]] || return 0
+    _ls_sect_flush() {
+        if [[ "$cpc" =~ ^[0-9]+$ ]]; then
+            [[ "$ncl" =~ ^[0-9]+$ && "$ncl" -gt 0 ]] || ncl=1
+            LS_CORES_SUM=$(( LS_CORES_SUM + cpc * ncl ))
+        fi
+        cpc="" ncl=""
+        return 0
+    }
     while IFS=: read -r k v; do
-        [[ -n "$k" && -z "${LS[$k]+x}" ]] || continue
+        [[ -n "$k" ]] || continue
+        k=${k#"${k%%[![:space:]]*}"}
         v=${v#"${v%%[![:space:]]*}"}; v=${v%"${v##*[![:space:]]}"}
+        case "$k" in
+            "Model name") _ls_sect_flush ;;
+            "Core(s) per socket"|"Core(s) per cluster") [[ "$v" =~ ^[0-9]+$ ]] && cpc=$v ;;
+            "Socket(s)"|"Cluster(s)") [[ "$v" =~ ^[0-9]+$ ]] && ncl=$v ;;
+        esac
+        [[ -z "${LS[$k]+x}" ]] || continue
         LS[$k]=$v
     done <<< "$out"
+    _ls_sect_flush
+    unset -f _ls_sect_flush
+    return 0
 }
 ls_get() { printf '%s' "${LS[$1]:-}"; }
 
@@ -162,37 +185,22 @@ cpu_topology() {
 # ─── Sections ───────────────────────────────────────────────────
 
 # Shared CPU-model detection so --plain and --json agree on non-x86 too.
-# x86/LoongArch "model name", IBM Z, RISC-V get special formatting; every
-# other arch (ARM incl. big.LITTLE, POWER, MIPS, SPARC, ...) goes through
-# parse.sh's wu_cpu_model_generic (which uses wu_arm_part for ARM MIDRs).
+# x86/LoongArch "model name" is used as-is; IBM Z gets special formatting;
+# everything else (ARM incl. big.LITTLE and ARM32 "ARMv7 Processor rev 4",
+# RISC-V uarch/isa, POWER, MIPS, SPARC, ...) goes through parse.sh's
+# wu_cpu_model_generic so every tool shows the same name.
 wu_cpu_model() {
-    local model="$CI_MODEL" _s390_type="" _v _p _chip
+    local model="$CI_MODEL" _s390_type=""
     if [[ -z "$model" && "$CI_VENDOR" == *S390* ]]; then
         model="IBM S/390"
         [[ -r /proc/sysinfo ]] && _s390_type=$(wu_kv /proc/sysinfo Type)
         [[ -n "$_s390_type" ]] && model="IBM Z (${_s390_type})"
-    elif [[ -z "$model" && -n "$CI_ISA" ]]; then
-        # RISC-V: `isa` is always present; `uarch` only on some kernels/SoCs.
-        if [[ -n "$CI_UARCH" ]]; then
-            # "sifive,u74-mc" -> "SiFive U74-MC" (best-effort, falls back to raw)
-            _p="${CI_UARCH%%,*}" _chip="${CI_UARCH##*,}"
-            _v="${_p%%:*}"
-            case "${_v,,}" in
-                sifive)    model="SiFive ${_chip^^}" ;;
-                starfive)  model="StarFive ${_chip^^}" ;;
-                bananapi|bpi) model="Banana Pi ${_chip^^}" ;;
-                spacemit)  model="SpacemiT ${_chip^^}" ;;
-                tenstorrent) model="Tenstorrent ${_chip^^}" ;;
-                thead|t-head) model="T-Head ${_chip^^}" ;;
-                *)         model="${CI_UARCH}" ;;
-            esac
-        else
-            model=$(wu_dt_model)
-            model="${model:+$model, }RISC-V ${CI_ISA%%_*}"
-        fi
-        (( CI_PROCS > 0 )) && model="$model ($CI_PROCS harts)"
-    elif [[ -z "$model" ]]; then
+    elif [[ -z "$model" || "$model" == ARMv*Processor* ]]; then
         model=$(wu_cpu_model_generic 2>/dev/null) || model=""
+        # RISC-V: append the hart count (wellcpu text only; JSON has "threads")
+        if [[ "$_WU_JSON" != 1 && -n "$CI_ISA" && -n "$model" ]] && (( CI_PROCS > 0 )); then
+            model="$model ($CI_PROCS $(t cpu_harts))"
+        fi
     fi
     [[ -z "$model" ]] && model=$(ls_get "Model name")
     wu_trim "$model" model
@@ -237,8 +245,22 @@ cpu_gather() {
         (( tpc > 0 )) || tpc=1
     fi
     WC_SOCKETS=$s
-    WC_CORES=$(( cps * s ))
-    WC_THREADS=$(( tpc * cps * s ))
+    # Threads = real logical CPU count (cpuinfo processors / lscpu CPU(s));
+    # tpc*cps*s is wrong on hybrid parts (Alder Lake 8P*2 + 8E = 24, not 32).
+    WC_THREADS=$n
+    # Cores: unique (physical id, core id) pairs when cpuinfo has them,
+    # else the sum over all lscpu sections, else cps*sockets.
+    local -A _pc=()
+    local _k
+    for _k in ${_CPU_SOCKET[@]+"${!_CPU_SOCKET[@]}"}; do _pc["${_CPU_SOCKET[$_k]}:${_CPU_CORE[$_k]}"]=1; done
+    if (( ${#_pc[@]} > 0 )); then
+        WC_CORES=${#_pc[@]}
+    elif (( LS_CORES_SUM > 0 )); then
+        WC_CORES=$LS_CORES_SUM
+    else
+        WC_CORES=$(( cps * s ))
+    fi
+    (( WC_CORES > WC_THREADS && WC_THREADS > 0 )) && WC_CORES=$WC_THREADS
 
     WC_TURBO=""; wu_read "$WC_SYS/cpu0/cpufreq/cpuinfo_max_freq" WC_TURBO || wu_read "$WC_SYS/cpu0/cpufreq/scaling_max_freq" WC_TURBO || true
     if [[ ! "$WC_TURBO" =~ ^[0-9]+$ ]]; then
@@ -278,7 +300,7 @@ print_cpu_info() {
     local unk; unk=$(t blk_smart_unknown)
     local vtx=${WC_VTX:-$unk} virt hv_label
     if [[ -n "$WC_VIRT" ]]; then virt="$WC_VIRT ($vtx)"; else virt=$vtx; fi
-    hv_label=${WC_HV:-yes}
+    hv_label=${WC_HV:-$(t cpu_hv_yes)}
 
     pline_hw "$(_emu '🧠')" "$(t cpu_model)" "${WC_MODEL:-$unk}"
     pline_hw "$(_emu '🏛')" "$(t cpu_arch)" "$WC_ARCH"

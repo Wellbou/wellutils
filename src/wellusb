@@ -36,7 +36,12 @@ _icv() {
 _jev() {
     local LC_ALL=C
     _JE=$1
-    if [[ "$_JE" == *[$'\001'-$'\037'$'\177']* ]]; then _JE=$(json_esc "$1"); return; fi
+    # control chars or invalid UTF-8 (Latin-1 "Kingst\xf6n") -> full json_esc
+    if [[ "$_JE" == *[$'\001'-$'\037'$'\177'$'\200'-$'\377']* ]]; then
+        if [[ "$_JE" == *[$'\001'-$'\037'$'\177']* ]]; then _JE=$(json_esc "$1"); return; fi
+        _wu_utf8_fix "$_JE" _JE
+    fi
+
     _JE=${_JE//\\/\\\\}; _JE=${_JE//\"/\\\"}
 }
 
@@ -87,53 +92,112 @@ speed_name_v() {
         5000)   _tk usb_speed_5000 ;;
         10000)  _tk usb_speed_10000 ;;
         20000)  _tk usb_speed_20000 ;;
-        *)      _TK=$(t usb_speed_unknown "${1:-?}") ;;
+        40000)  _tk usb_speed_40000 ;;   # USB4 Gen 3x2
+        80000)  _tk usb_speed_80000 ;;   # USB4 v2
+        *)      # "Unknown (%s Mbps)" format from the language table, no subshell
+                _tk usb_speed_unknown_fmt
+                if [[ "$_TK" == *%s* ]]; then printf -v _TK "${_TK//\\/\\\\}" "${1:-?}"
+                else _TK="? (${1:-?} Mbps)"; fi ;;
     esac
     _SN=$_TK
 }
 
 # ─── Device classification (sets $_UK = usb_type_* key) ─────────
+# Name regexes are only a fallback after the class/protocol bytes. Short
+# words are anchored (_B = non-alphanumeric or string edge) so "pen" does not
+# match "Openmoko" and "star" does not match "Startech".
+_B='(^|[^a-z0-9])'  _E='([^a-z0-9]|$)'
 _RX_GAMEPAD='gamepad|joystick|fightstick|arcade.*stick|x-box|xbox|360.*pad|dualshock|dualsense|switch.*pro|joy-con|joycon|8bitdo|steam.*controller|pro.*controller|wireless.*controller|wolverine|gamesir|gulikit|flydigi'
-_RX_KBD='keyboard|k63|k55|k70|gaming.*key'
-_RX_MOUSE='mouse|logitech.*g|razer'
-_RX_TABLET='tablet|pen|star|xp-pen|wacom|huion'
+_RX_KBD="keyboard|keypad|numpad|blackwidow|huntsman|ornata|cynosa|${_B}kbd${_E}|${_B}k(55|57|63|65|68|70|95|100)${_E}|gaming.*key"
+_RX_MOUSE="mouse|trackball|deathadder|basilisk|${_B}naga${_E}|mamba|orochi|lancehead|abyssus|${_B}viper${_E}|${_B}g(102|203|303|304|305|402|403|502|603|703|903)${_E}|${_B}mx (master|anywhere|vertical|ergo)"
+_RX_TABLET="tablet|xp-pen|wacom|huion|gaomon|veikk|${_B}pen${_E}|${_B}star ?(g?[0-9])"
 _RX_AUDIO='headset|headphone|audio'
-_RX_PHONE='phone|mao|huawei|android|samsung|pixel'
+_RX_RECV_STRONG='receiver|unifying|dongle|lightspeed'
+_RX_RECV_WEAK="wireless|${_B}2\\.4 ?g"
+_RX_PHONE="phone|${_B}mao${_E}|huawei|android|samsung|pixel|xiaomi|redmi|oneplus|motorola|${_B}mtp${_E}"
+# USB vendors whose PTP/MTP (06:01) devices are phones rather than cameras
+_USB_PHONE_VIDS=" 18d1 04e8 2717 12d1 22b8 2a70 05c6 0bb4 1004 0fce 05ac 2ae5 22d9 2d95 0e8d 1bbb 19d2 2916 "
 
-hid_type_v() {   # $1 = lowercased "product vendor"
-    local s=$1
-    if   [[ "$s" =~ $_RX_KBD ]];    then _UK=usb_type_keyboard
+hid_type_v() {   # $1 = lowercased "product vendor"  $2 = interface triples
+    local s=$1 ip=" ${2:-} " bk=0 bm=0
+    # HID boot protocol (class 03, subclass 01): 01 keyboard, 02 mouse
+    [[ "$ip" == *" 03:01:01 "* ]] && bk=1
+    [[ "$ip" == *" 03:01:02 "* ]] && bm=1
+    if (( bk && bm )); then          # combo: receiver, gaming mouse w/ macros, ...
+        if   [[ "$s" =~ $_RX_RECV_STRONG ]]; then _UK=usb_type_receiver
+        elif [[ "$s" =~ $_RX_MOUSE ]];  then _UK=usb_type_mouse
+        elif [[ "$s" =~ $_RX_KBD ]];    then _UK=usb_type_keyboard
+        elif [[ "$s" =~ $_RX_TABLET ]]; then _UK=usb_type_tablet
+        elif [[ "$s" =~ $_RX_RECV_WEAK ]]; then _UK=usb_type_receiver
+        else _UK=usb_type_hid; fi
+    elif (( bm )); then
+        if [[ "$s" =~ $_RX_TABLET ]]; then _UK=usb_type_tablet
+        elif [[ "$s" =~ $_RX_RECV_STRONG ]]; then _UK=usb_type_receiver
+        else _UK=usb_type_mouse; fi
+    elif (( bk )); then
+        if   [[ "$s" =~ $_RX_MOUSE ]];  then _UK=usb_type_mouse     # macro keys
+        elif [[ "$s" =~ $_RX_TABLET ]]; then _UK=usb_type_tablet    # express keys
+        elif [[ "$s" =~ $_RX_RECV_STRONG ]]; then _UK=usb_type_receiver
+        else _UK=usb_type_keyboard; fi
+    elif [[ "$s" =~ $_RX_KBD ]];    then _UK=usb_type_keyboard
     elif [[ "$s" =~ $_RX_MOUSE ]];  then _UK=usb_type_mouse
     elif [[ "$s" =~ $_RX_TABLET ]]; then _UK=usb_type_tablet
     elif [[ "$s" =~ $_RX_AUDIO ]];  then _UK=usb_type_audio
+    elif [[ "$s" =~ $_RX_RECV_STRONG ]]; then _UK=usb_type_receiver
     else _UK=usb_type_hid; fi
+    return 0
 }
 
+# classify_device_v BCLASS PRODUCT MFG VID IFACES TRIPLES DRIVERS
+#   TRIPLES = space-separated "class:subclass:protocol" per interface.
 classify_device_v() {
-    local bclass=$1 product=$2 mfg=$3 vid=$4 ifaces=$5 ipairs=$6
+    local bclass=$1 product=$2 mfg=$3 vid=$4 ifaces=$5 ip=" $6 " drvs=",${7:-},"
     local s="${product,,} ${mfg,,}"
 
-    # byte-based pre-classification: CDC ACM = serial, CDC ECM/NCM = network
-    if [[ " $ipairs " == *" 02:02 "* ]]; then _UK=usb_type_serial; return; fi
-    if [[ " $ipairs " == *" 02:06 "* || " $ipairs " == *" 02:0d "* || " $ipairs " == *" 02:0e "* ]]; then
-        _UK=usb_type_network; return
+    # 1. bound driver is the strongest hint
+    case "$drvs" in
+        *,rndis_host,*|*,rndis_wlan,*) _UK=usb_type_network; return 0 ;;
+        *,xpad,*|*,xone*|*,xpadneo*)   _UK=usb_type_gamepad; return 0 ;;
+        *,btusb,*)                     _UK=usb_type_bluetooth; return 0 ;;
+    esac
+    # 2. class:subclass:protocol bytes
+    # Xbox 360 (ff:5d:xx) / Xbox One GIP (ff:47:xx) pads are vendor-class
+    if [[ "$ip" == *" ff:5d:"* || "$ip" == *" ff:47:"* ]]; then _UK=usb_type_gamepad; return 0; fi
+    # Wireless controller e0:01: protocol 01 = Bluetooth, 03 = RNDIS
+    if [[ "$ip" == *" e0:01:01 "* ]]; then _UK=usb_type_bluetooth; return 0; fi
+    if [[ "$ip" == *" e0:01:03 "* || "$ip" == *" ef:04:"* ]]; then _UK=usb_type_network; return 0; fi
+    # CDC 02:02 with vendor protocol ff = Microsoft RNDIS (must beat ACM)
+    if [[ "$ip" == *" 02:02:ff "* ]]; then _UK=usb_type_network; return 0; fi
+    if [[ "$ip" == *" 02:02:"* ]]; then _UK=usb_type_serial; return 0; fi     # CDC ACM
+    if [[ "$ip" == *" 02:06:"* || "$ip" == *" 02:0d:"* || "$ip" == *" 02:0e:"* ]]; then
+        _UK=usb_type_network; return 0                                     # ECM/NCM/MBIM
     fi
-    # RNDIS (phone USB tethering): misc ef:04 or wireless-controller e0:01
-    if [[ " $ipairs " == *" ef:04 "* || " $ipairs " == *" e0:01 "* ]]; then _UK=usb_type_network; return; fi
-    if [[ " $ipairs " == *" 0e:02 "* ]]; then _UK=usb_type_webcam; return; fi
-    if [[ " $ipairs " == *" 0e:01 "* ]]; then _UK=usb_type_video;  return; fi
+    # Still image 06:01 = PTP/MTP: phone or digital camera
+    if [[ "$ip" == *" 06:01:"* ]]; then
+        if [[ "$s" =~ $_RX_PHONE || "$_USB_PHONE_VIDS" == *" $vid "* ]]; then _UK=usb_type_phone
+        else _UK=usb_type_camera; fi
+        return 0
+    fi
+    if [[ "$ip" == *" 0e:02:"* ]]; then _UK=usb_type_webcam; return 0; fi
+    if [[ "$ip" == *" 0e:01:"* ]]; then _UK=usb_type_video;  return 0; fi
     case "$vid" in
         1a86|0403|067b|10c4|12d1|1eab|0fe6|2341|2a03)
             if [[ "$bclass" == "ff" || " $ifaces " == *" 0a "* || " $ifaces " == *" 02 "* ]]; then
-                _UK=usb_type_serial; return
+                _UK=usb_type_serial; return 0
             fi ;;
     esac
-    if [[ "$s" =~ $_RX_GAMEPAD ]]; then _UK=usb_type_gamepad; return; fi
+    # HID boot keyboard/mouse beats name guessing
+    if [[ "$ip" == *" 03:01:0"[12]" "* ]]; then
+        if [[ "$s" =~ $_RX_GAMEPAD ]]; then _UK=usb_type_gamepad; else hid_type_v "$s" "$6"; fi
+        return 0
+    fi
+    if [[ "$s" =~ $_RX_GAMEPAD ]]; then _UK=usb_type_gamepad; return 0; fi
 
     case "$bclass" in
         09) _UK=usb_type_hub ;;
         0e) _UK=usb_type_video ;;
-        03) hid_type_v "$s" ;;
+        03) hid_type_v "$s" "$6" ;;
+        e0) _UK=usb_type_bluetooth ;;
         08) _UK=usb_type_storage ;;
         07) _UK=usb_type_printer ;;
         01|04) _UK=usb_type_audio ;;
@@ -151,13 +215,15 @@ classify_device_v() {
                 *" 0e "*) _UK=usb_type_webcam ;;
                 *" 02 "*) _UK=usb_type_network ;;
                 *" 01 "*) _UK=usb_type_audio ;;   # audio + HID buttons = audio
-                *" 03 "*) hid_type_v "$s" ;;
+                *" 03 "*) hid_type_v "$s" "$6" ;;
                 *" 04 "*) _UK=usb_type_audio ;;
-                *" 06 "*) _UK=usb_type_data ;;
+                *" 06 "*) _UK=usb_type_camera ;;
                 *" 09 "*) _UK=usb_type_hub ;;
+                *" e0 "*) _UK=usb_type_bluetooth ;;
                 *) _UK=usb_type_device ;;
             esac ;;
     esac
+    return 0
 }
 
 # icon from the type *key* (language independent)
@@ -176,6 +242,9 @@ device_icon_v() {
         usb_type_hid)      _icv "⚙" ;;
         usb_type_gamepad)  _icv "🎮" ;;
         usb_type_misc)     _icv "🔧" ;;
+        usb_type_bluetooth) _icv "📶" ;;
+        usb_type_receiver) _icv "📡" ;;
+        usb_type_camera)   _icv "📷" ;;
         *)                 _icv "🔌" ;;
     esac
 }
@@ -185,6 +254,26 @@ device_icon_v() {
 # it works on busybox, Termux and containers). Fills DEV_* arrays sorted
 # by bus + topology. Returns 1 when USB sysfs is not available.
 _rd() { _V=""; { IFS= read -r _V < "$1"; } 2>/dev/null || true; _V=${_V%$'\r'}; }
+# _rds FILE -> $_V: device-supplied string (manufacturer/product/serial):
+# trimmed, C0 controls + DEL removed so a malicious device cannot inject
+# terminal escape sequences.
+_rds() {
+    _rd "$1"
+    local LC_ALL=C
+    [[ "$_V" == *[$'\001'-$'\037'$'\177']* ]] && _V=${_V//[$'\001'-$'\037'$'\177']/}
+    wu_trim "$_V" _V
+}
+# Insertion sort of the caller's tmp[] by byte order: [[ a > b ]] uses the
+# locale's collation (ru_RU/en_US ignore "." and ":"), so force C here.
+_usb_sort_tmp() {
+    local LC_ALL=C n=${#tmp[@]} i j x
+    for (( i = 1; i < n; i++ )); do
+        x=${tmp[i]}; j=$(( i - 1 ))
+        while (( j >= 0 )) && [[ "${tmp[j]}" > "$x" ]]; do tmp[j+1]=${tmp[j]}; j=$(( j - 1 )); done
+        tmp[j+1]=$x
+    done
+    return 0
+}
 
 usb_scan() {
     DEV_BUS=() DEV_DEVNUM=() DEV_PATH=() DEV_VID=() DEV_PID=() DEV_MFG=() DEV_PROD=() DEV_SERIAL=()
@@ -194,7 +283,7 @@ usb_scan() {
     local root=${WELLUSB_SYSFS_ROOT:-/sys/bus/usb/devices}   # override: tests
     [[ -d "$root" ]] || return 1
 
-    local d name f ic isc line drv drvs ifs ips bus key k i
+    local d name f ic isc ipr line drv drvs ifs ips bus key k i
     local -a tmp=()
     for d in "$root"/*; do
         name=${d##*/}
@@ -211,12 +300,8 @@ usb_scan() {
     done
     (( ${#tmp[@]} )) || return 0
     # insertion sort (a handful of devices; avoids a sort(1) fork)
-    local n=${#tmp[@]} j x
-    for (( i = 1; i < n; i++ )); do
-        x=${tmp[i]}; j=$(( i - 1 ))
-        while (( j >= 0 )) && [[ "${tmp[j]}" > "$x" ]]; do tmp[j+1]=${tmp[j]}; j=$(( j - 1 )); done
-        tmp[j+1]=$x
-    done
+    local x
+    _usb_sort_tmp
 
     local -a qs=()
     for x in "${tmp[@]}"; do
@@ -227,21 +312,22 @@ usb_scan() {
         DEV_PATH+=("$name")
         _rd "$d/idVendor";     DEV_VID+=("${_V,,}")
         _rd "$d/idProduct";    DEV_PID+=("${_V,,}")
-        _rd "$d/manufacturer"; wu_trim "$_V" _V; DEV_MFG+=("$_V")
-        _rd "$d/product";      wu_trim "$_V" _V; DEV_PROD+=("$_V")
-        _rd "$d/serial";       wu_trim "$_V" _V; DEV_SERIAL+=("$_V")
-        _rd "$d/speed";        DEV_SPD+=("$_V")
-        _rd "$d/version";      wu_trim "$_V" _V; DEV_VER+=("$_V")
+        _rds "$d/manufacturer"; DEV_MFG+=("$_V")
+        _rds "$d/product";      DEV_PROD+=("$_V")
+        _rds "$d/serial";       DEV_SERIAL+=("$_V")
+        _rds "$d/speed";        DEV_SPD+=("$_V")
+        _rds "$d/version";      DEV_VER+=("$_V")
         _rd "$d/bDeviceClass"; DEV_CLASS+=("${_V:-00}")
         [[ "${_V:-00}" == "09" ]] && total_hubs=$(( total_hubs + 1 ))
-        # interfaces: class list, class:subclass pairs, bound drivers
+        # interfaces: class list, class:subclass:protocol triples, drivers
         ifs="" ips="" drvs=""
         for f in "$d"/*:*; do
             [[ -d "$f" ]] || continue
-            _rd "$f/bInterfaceClass";    ic=$_V
-            _rd "$f/bInterfaceSubClass"; isc=$_V
+            _rd "$f/bInterfaceClass";    ic=${_V,,}
+            _rd "$f/bInterfaceSubClass"; isc=${_V,,}
+            _rd "$f/bInterfaceProtocol"; ipr=${_V,,}
             [[ -n "$ic" && " $ifs " != *" $ic "* ]] && ifs+=" $ic"
-            [[ -n "$ic$isc" && " $ips " != *" ${ic:-00}:${isc:-00} "* ]] && ips+=" ${ic:-00}:${isc:-00}"
+            [[ -n "$ic$isc" && " $ips " != *" ${ic:-00}:${isc:-00}:${ipr:-00} "* ]] && ips+=" ${ic:-00}:${isc:-00}:${ipr:-00}"
             drv=""
             if [[ -r "$f/uevent" ]]; then
                 while IFS= read -r line; do
@@ -274,7 +360,7 @@ usb_scan() {
         [[ -z "$vn" ]] && { _tk hw_unknown; vn=$_TK; }
         [[ -z "$dn" ]] && dn=$unk
         DEV_VNAME+=("$vn"); DEV_DNAME+=("$dn")
-        classify_device_v "${DEV_CLASS[i]}" "$dn" "$vn" "${DEV_VID[i]}" "${DEV_IFACES[i]}" "${DEV_IPAIRS[i]}"
+        classify_device_v "${DEV_CLASS[i]}" "$dn" "$vn" "${DEV_VID[i]}" "${DEV_IFACES[i]}" "${DEV_IPAIRS[i]}" "${DEV_DRIVERS[i]}"
         DEV_TYPEKEY+=("$_UK")
     done
     return 0
@@ -298,7 +384,8 @@ json_out() {
         printf '    {'
         for f in bus:DEV_BUS devnum:DEV_DEVNUM path:DEV_PATH vid:DEV_VID pid:DEV_PID manufacturer:DEV_VNAME \
                  product:DEV_DNAME serial:DEV_SERIAL speed:DEV_SPD speed_name: usb_version:DEV_VER driver:DEV_DRIVER \
-                 drivers:DEV_DRIVERS class:DEV_CLASS type: type_key: interfaces:DEV_IFACES; do
+                 drivers:DEV_DRIVERS class:DEV_CLASS type: type_key: interfaces:DEV_IFACES interface_ids:DEV_IPAIRS; do
+
             case "${f%%:*}" in
                 speed_name) v=$sn ;;
                 type) v=$tn ;;

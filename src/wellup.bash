@@ -8,7 +8,7 @@ _wellup() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local opts="--help -h --version -V --lang -l --color --plain --box --no-emoji --emoji --json --html --debug --check --list --yes -y --pacnew --self-update --self"
+    local opts="--help -h --version -V --lang -l --color --plain --box --no-emoji --emoji --json --html --debug --check --list --yes -y --full --pacnew --self-update --self"
 
     case "$prev" in
         --lang|-l) COMPREPLY=( $(compgen -W "ru en auto" -- "$cur") ); return 0 ;;

@@ -115,8 +115,8 @@ usb_device_name() {
 # "USB", "Generic", "OEM" ... are placeholder strings some controllers
 # emit instead of a real manufacturer; treat them as absent.
 junk_manufacturer() {
-    local m
-    m=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ' -_')
+    local m=${1,,}
+    m=${m//[ _-]/}
     case "$m" in
         usb|generic|chip|chips|oem|unknown|none|usbdevice|usbhub)
             return 0 ;;
@@ -160,7 +160,7 @@ iface_classes() {
 classify() {
     local bclass="$1" prod="$2" mfg="$3" ifaces="$4"
     local hay t=""
-    hay=$(printf '%s %s' "$prod" "$mfg" | tr '[:upper:]' '[:lower:]')
+    hay="$prod $mfg"; hay=${hay,,}
 
     # 1) Interface classes (composite / bDeviceClass 0x00).
     if [[ -n "$ifaces" ]]; then
@@ -319,10 +319,10 @@ collect_usb() {
         local mfg prod
         mfg=$(clean_name "$(cat "$devdir/manufacturer" 2>/dev/null || true)")
         if junk_manufacturer "$mfg"; then
-            mfg=$(clean_name "$(usb_vendor_name "$vid")")
+            mfg=$(clean_name "$(usb_vendor_name "$vid" 2>/dev/null || true)")
         fi
         prod=$(clean_name "$(cat "$devdir/product" 2>/dev/null || true)")
-        [[ -z "$prod" ]] && prod=$(clean_name "$(usb_device_name "$vid" "$pid")")
+        [[ -z "$prod" ]] && prod=$(clean_name "$(usb_device_name "$vid" "$pid" 2>/dev/null || true)")
         local type icon grp drv gsize
         type=$(classify "$bclass" "$prod" "$mfg" "$ifaces")
         icon=$(icon_for "$type")
@@ -500,8 +500,8 @@ collect_displays_xrandr() {
     local line out geo
     while IFS= read -r line; do
         [[ "$line" == *" connected "* ]] || continue
-        out=$(awk '{print $1}' <<< "$line")
-        geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) print $i}' <<< "$line" | head -1)
+        out=${line%% *}
+        geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) { print $i; exit } }' <<< "$line") || geo=""
         [[ -n "$geo" ]] || continue
         geo=${geo%%+*}
         DISP_NAME+=("$out") DISP_VEND+=("") DISP_MODE+=("$geo") DISP_CONN+=("$(pretty_conn "$out")")
@@ -526,13 +526,13 @@ render_displays() {
         local _ew="${DISP_EDID_W[$i]:-}" _eh="${DISP_EDID_H[$i]:-}"
         if [[ -n "$_ew" && -n "$_eh" && -n "$mode" ]]; then
             local _pw _ph
-            _pw=$(awk -F'x' '{print $1}' <<< "$mode")
-            _ph=$(awk -F'x' '{print $2}' <<< "$mode")
+            _pw=${mode%%x*}; _ph=${mode#*x}; _ph=${_ph%%[!0-9]*}
+            [[ "$_pw" =~ ^[0-9]+$ ]] || _pw=""
             if [[ -n "$_pw" && -n "$_ph" && "$_ew" -gt 0 && "$_eh" -gt 0 ]]; then
                 local _ppi
                 # Diagonal PPI; EDID sizes are millimetres here.
                 _ppi=$(awk -v pw="$_pw" -v ph="$_ph" -v ew="$_ew" -v eh="$_eh" \
-                    'BEGIN{ s=sqrt(ew*ew+eh*eh)/25.4; if (s>0) printf "%.1f", sqrt(pw*pw+ph*ph)/s }')
+                    'BEGIN{ s=sqrt(ew*ew+eh*eh)/25.4; if (s>0) printf "%.1f", sqrt(pw*pw+ph*ph)/s }') || _ppi=""
                 [[ "$_ppi" =~ ^[0-9]+\.[0-9]$ ]] && subs+=( "PPI: ${_ppi}" )
             fi
         fi
@@ -550,16 +550,17 @@ render_displays() {
 AUDIO_NAME=() AUDIO_DESC=() AUDIO_IDX=()
 
 collect_audio() {
-    [[ -f /proc/asound/cards ]] || return 0
+    [[ -r /proc/asound/cards ]] || return 0
     local line
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+\[ ]] || continue
         local idx id desc dn
         idx=${BASH_REMATCH[1]}
-        id=$(sed -n 's/^ *[0-9]* *\[\([^]]*\)\].*/\1/p' <<< "$line")
+        id=""; [[ "$line" =~ \[([^]]*)\] ]] && id=${BASH_REMATCH[1]}
+        id=${id%"${id##*[! ]}"}
         desc=${line#*": "}
         if [[ "$line" =~ USB[[:space:]]Device[[:space:]]0x([0-9a-fA-F]+):0x([0-9a-fA-F]+) ]]; then
-            dn=$(usb_device_name "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}")
+            dn=$(usb_device_name "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" 2>/dev/null) || dn=""
             if [[ -n "$dn" ]]; then
                 desc="$dn"
             else
@@ -570,7 +571,7 @@ collect_audio() {
             desc=${desc#*"- "}
         fi
         AUDIO_NAME+=("$id") AUDIO_DESC+=("$(clean_name "$desc")") AUDIO_IDX+=("$idx")
-    done < /proc/asound/cards
+    done 2>/dev/null < /proc/asound/cards || true
     return 0
 }
 
@@ -603,7 +604,7 @@ collect_isa() {
             local name drv irq dma
             name=$(basename "$devdir")
             drv=""
-            [[ -d "$devdir/driver" ]] && drv=$(readlink "$devdir/driver" 2>/dev/null | xargs basename 2>/dev/null || true)
+            if [[ -d "$devdir/driver" ]]; then drv=$(readlink "$devdir/driver" 2>/dev/null) || drv=""; drv=${drv##*/}; fi
             irq=$(cat "$devdir/irq" 2>/dev/null || true)
             dma=$(cat "$devdir/dma" 2>/dev/null || true)
             ISA_NAME+=("$name") ISA_IRQ+=("$irq") ISA_DMA+=("$dma")
@@ -660,7 +661,7 @@ collect_pcmcia() {
         for stub in /proc/bus/pcmcia/*/; do
             [[ -d "$stub" ]] || continue
             local name=""
-            [[ -f "$stub/product" ]] && name=$(cat "$stub/product" 2>/dev/null)
+            [[ -f "$stub/product" ]] && { name=$(cat "$stub/product" 2>/dev/null) || name=""; }
             [[ -z "$name" ]] && name=$(basename "$stub")
             PCM_NAME+=("$name") PCM_FUNC+=("") PCM_IRQ+=("")
         done
@@ -704,15 +705,31 @@ render_pci() {
     done
 }
 
+# ─── Counts honouring --sections / --groups ──────────────────────
+# Sets N_USB N_DISP N_AUD N_ISA N_PCM N_PCI (0 for unselected sections).
+wp_counts() {
+    local i
+    N_USB=0 N_DISP=0 N_AUD=0 N_ISA=0 N_PCM=0 N_PCI=0
+    if _s_has usb; then
+        for (( i = 0; i < ${#USB_NAME[@]}; i++ )); do
+            _g_has "${USB_GRP[$i]:-}" && N_USB=$(( N_USB + 1 ))
+        done
+    fi
+    if _s_has displays; then N_DISP=${#DISP_NAME[@]}; fi
+    if _s_has audio; then
+        for (( i = 0; i < ${#AUDIO_DESC[@]}; i++ )); do
+            [[ -n "${AUDIO_DESC[$i]:-}" ]] && N_AUD=$(( N_AUD + 1 ))
+        done
+    fi
+    if _s_has isa;    then N_ISA=${#ISA_NAME[@]}; fi
+    if _s_has pcmcia; then N_PCM=${#PCM_NAME[@]}; fi
+    if _s_has pci;    then N_PCI=${#PCI_BUS[@]}; fi
+    return 0
+}
+
 # ─── JSON / terse output ─────────────────────────────────────────
 json_out() {
-    local i first=1 n_usb=0 n_disp=0 n_aud=0 n_isa=0 n_pcm=0 n_pci=0
-    _s_has usb      && n_usb=${#USB_NAME[@]}
-    _s_has displays && n_disp=${#DISP_NAME[@]}
-    _s_has audio    && n_aud=${#AUDIO_DESC[@]}
-    n_isa=${#ISA_NAME[@]}
-    n_pcm=${#PCM_NAME[@]}
-    n_pci=${#PCI_BUS[@]}
+    local i first=1 n_usb=$N_USB n_disp=$N_DISP n_aud=$N_AUD n_isa=$N_ISA n_pcm=$N_PCM n_pci=$N_PCI
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
     printf ',\n  "summary": {\n'
     printf '    "usb": %d,\n' "$n_usb"
@@ -758,7 +775,7 @@ json_out() {
         done
         printf '\n  ]'
     fi
-    if (( ${#ISA_NAME[@]} > 0 )); then
+    if (( n_isa > 0 )); then
         printf ',\n  "isa": [\n'
         first=1
         for (( i = 0; i < ${#ISA_NAME[@]}; i++ )); do
@@ -768,7 +785,7 @@ json_out() {
         done
         printf '\n  ]'
     fi
-    if (( ${#PCM_NAME[@]} > 0 )); then
+    if (( n_pcm > 0 )); then
         printf ',\n  "pcmcia": [\n'
         first=1
         for (( i = 0; i < ${#PCM_NAME[@]}; i++ )); do
@@ -778,7 +795,7 @@ json_out() {
         done
         printf '\n  ]'
     fi
-    if (( ${#PCI_BUS[@]} > 0 )); then
+    if (( n_pci > 0 )); then
         printf ',\n  "pci": [\n'
         first=1
         for (( i = 0; i < ${#PCI_BUS[@]}; i++ )); do
@@ -793,15 +810,39 @@ json_out() {
 
 terse_out() {
     local parts=() p
-    _s_has usb      && parts+=( "$(t usb_devices): ${#USB_NAME[@]}" )
-    _s_has displays && parts+=( "$(t per_displays): ${#DISP_NAME[@]}" )
-    _s_has audio    && parts+=( "$(t per_audio): ${#AUDIO_DESC[@]}" )
-    (( ${#ISA_NAME[@]} > 0 )) && parts+=( "$(t per_isa): ${#ISA_NAME[@]}" )
-    (( ${#PCM_NAME[@]} > 0 )) && parts+=( "$(t per_pcmcia): ${#PCM_NAME[@]}" )
-    (( ${#PCI_BUS[@]} > 0 )) && parts+=( "$(t per_pci): ${#PCI_BUS[@]}" )
+    if _s_has usb;      then parts+=( "$(t usb_devices): $N_USB" ); fi
+    if _s_has displays; then parts+=( "$(t per_displays): $N_DISP" ); fi
+    if _s_has audio;    then parts+=( "$(t per_audio): $N_AUD" ); fi
+    if (( N_ISA > 0 )); then parts+=( "$(t per_isa): $N_ISA" ); fi
+    if (( N_PCM > 0 )); then parts+=( "$(t per_pcmcia): $N_PCM" ); fi
+    if (( N_PCI > 0 )); then parts+=( "$(t per_pci): $N_PCI" ); fi
     local s="" _sep=""
-    for _p in ${parts[@]+"${parts[@]}"}; do s+="${_sep}${_p}"; _sep=" · "; done
+    for p in ${parts[@]+"${parts[@]}"}; do s+="${_sep}${p}"; _sep=" · "; done
     printf '%s%s%s\n' "$BOLD" "$s" "$RESET"
+    return 0
+}
+
+# Print summary chunks joined by " | ", wrapped to the terminal width.
+wp_summary() {
+    local _WU_COLS _WU_VL _WU_CAP maxw cur="" curw=0 p pw sep="  |  "
+    _wu_cols; maxw=$(( _WU_COLS - 4 ))
+    (( maxw < 10 )) && maxw=10
+    local -a out=()
+    for p in "$@"; do
+        _wu_vislen_v "$p"; pw=$_WU_VL
+        if (( pw > maxw )); then _wu_cap_v "$p" "$maxw"; p="$_WU_CAP${RESET}"; pw=$maxw; fi
+        if [[ -n "$cur" ]] && (( curw + 5 + pw > maxw )); then
+            out+=( "$cur" ); cur="" curw=0
+        fi
+        if [[ -n "$cur" ]]; then cur+="$sep$p"; curw=$(( curw + 5 + pw ))
+        else cur=$p; curw=$pw; fi
+    done
+    [[ -n "$cur" ]] && out+=( "$cur" )
+    (( ${#out[@]} )) || return 0
+    [[ "$_WU_PLAIN" == "1" ]] || printf '\n'
+    for p in "${out[@]}"; do printf '  %s\n' "$p"; done
+    printf '\n'
+    return 0
 }
 
 # ─── Main ────────────────────────────────────────────────────────
@@ -814,38 +855,32 @@ main() {
     collect_isa
     collect_pcmcia
     collect_pci
+    wp_counts
+    local rc=0
+    if (( _WU_STRICT )) && (( N_USB + N_DISP + N_AUD + N_ISA + N_PCM + N_PCI == 0 )); then rc=1; fi
 
     if [[ $_WU_JSON -eq 1 ]]; then
         json_out
-        return 0
+        return "$rc"
     fi
     if [[ $_WU_TERSE -eq 1 ]]; then
         terse_out
-        return 0
+        return "$rc"
     fi
 
     box_header "$(_emu '🎮')" "wellper" "$(t per_title)"
 
-    local total=${#USB_NAME[@]} dcount=${#DISP_NAME[@]} acount=${#AUDIO_DESC[@]}
-    local isacount=${#ISA_NAME[@]} pcmcount=${#PCM_NAME[@]} pcicount=${#PCI_BUS[@]}
-    local line="" grp ci
-    if _s_has usb; then
-        line+="${BOLD}$(t usb_devices): ${W}${total}${RESET}"
-    fi
-    if _s_has displays; then
-        [[ -n "$line" ]] && line+="  |  "
-        line+="${BOLD}$(t per_displays): ${W}${dcount}${RESET}"
-    fi
-    if _s_has audio; then
-        [[ -n "$line" ]] && line+="  |  "
-        line+="${BOLD}$(t per_audio): ${W}${acount}${RESET}"
-    fi
-    (( isacount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_isa): ${W}${isacount}${RESET}"; }
-    (( pcmcount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pcmcia): ${W}${pcmcount}${RESET}"; }
-    (( pcicount > 0 )) && { [[ -n "$line" ]] && line+="  |  "; line+="${BOLD}$(t per_pci): ${W}${pcicount}${RESET}"; }
-    if [[ -n "$line" ]]; then
-        if [[ "$_WU_PLAIN" == "1" ]]; then printf '  %s\n\n' "$line"; else printf '\n  %s\n\n' "$line"; fi
-    fi
+    local total=$N_USB dcount=$N_DISP acount=$N_AUD
+    local isacount=$N_ISA pcmcount=$N_PCM pcicount=$N_PCI
+    local grp ci
+    local -a sp=()
+    if _s_has usb;      then sp+=( "${BOLD}$(t usb_devices): ${W}${total}${RESET}" ); fi
+    if _s_has displays; then sp+=( "${BOLD}$(t per_displays): ${W}${dcount}${RESET}" ); fi
+    if _s_has audio;    then sp+=( "${BOLD}$(t per_audio): ${W}${acount}${RESET}" ); fi
+    if (( isacount > 0 )); then sp+=( "${BOLD}$(t per_isa): ${W}${isacount}${RESET}" ); fi
+    if (( pcmcount > 0 )); then sp+=( "${BOLD}$(t per_pcmcia): ${W}${pcmcount}${RESET}" ); fi
+    if (( pcicount > 0 )); then sp+=( "${BOLD}$(t per_pci): ${W}${pcicount}${RESET}" ); fi
+    wp_summary ${sp[@]+"${sp[@]}"}
 
     if _s_has usb; then
         if (( total == 0 )); then
@@ -890,9 +925,7 @@ main() {
 
     printf '\n  %sWellPer v%s | %s%s\n\n' "$DIM" "$VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 
-    if [[ $_WU_STRICT -eq 1 && total -eq 0 && dcount -eq 0 && acount -eq 0 && isacount -eq 0 && pcmcount -eq 0 && pcicount -eq 0 ]]; then
-        exit 1
-    fi
+    (( rc )) && exit 1
     return 0
 }
 

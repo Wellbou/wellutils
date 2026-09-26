@@ -27,16 +27,45 @@ function Get-WuSource {
     return $tmp
 }
 
+# Version compare like windows/install.sh ver_gt: split on . - _, numeric
+# parts compared as numbers, others as strings. $true if $A > $B.
+function Test-WuVerGt {
+    param([string]$A, [string]$B)
+    $x = @($A.TrimStart('v') -split '[.\-_]')
+    $y = @($B.TrimStart('v') -split '[.\-_]')
+    $n = [Math]::Max($x.Count, $y.Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        $p = if ($i -lt $x.Count -and $x[$i] -ne '') { $x[$i] } else { '0' }
+        $q = if ($i -lt $y.Count -and $y[$i] -ne '') { $y[$i] } else { '0' }
+        if ($p -match '^\d+$' -and $q -match '^\d+$') {
+            $pn = [decimal]$p; $qn = [decimal]$q
+            if ($pn -gt $qn) { return $true }
+            if ($pn -lt $qn) { return $false }
+        } else {
+            $c = [string]::CompareOrdinal($p, $q)
+            if ($c -gt 0) { return $true }
+            if ($c -lt 0) { return $false }
+        }
+    }
+    return $false
+}
+
+# Newest tag, not /releases/latest: a stale GitHub Release can lag far
+# behind the tags (same logic as install.sh and windows/install.sh).
 $tag = $null
 try {
-    $rel = Invoke-RestMethod -Uri "$Api/releases/latest" -Headers @{ 'User-Agent' = 'wellutils-installer' }
-    $tag = $rel.tag_name
-    if ($tag) { Write-Host "Found release: $tag" }
-} catch { }
+    $tags = Invoke-RestMethod -Uri "$Api/tags?per_page=100" -Headers @{ 'User-Agent' = 'wellutils-installer' }
+    foreach ($t in @($tags)) {
+        $name = [string]$t.name
+        if ($name -notmatch '^v\d') { continue }
+        if (-not $tag -or (Test-WuVerGt $name $tag)) { $tag = $name }
+    }
+    if ($tag) { Write-Host "Found tag: $tag" }
+} catch { $tag = $null }
 
 $src = $null
 if ($tag) {
-    try { $src = Get-WuSource $tag } catch { $src = $null; Write-Host "Release $tag not downloadable, falling back to main." }
+    try { $src = Get-WuSource $tag } catch { $src = $null; Write-Host "Tag $tag not downloadable, falling back to main." }
 }
 if (-not $src) {
     Write-Host 'Using main branch.'

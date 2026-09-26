@@ -217,7 +217,19 @@ ART
   / __|  |__ \
 ART
                     ;;
-                *" debian "*|*" ubuntu "*)
+                *" ubuntu "*)
+                    # Ubuntu derivatives (Pop!_OS, Zorin, elementary...) list
+                    # "ubuntu debian": the closer ancestor wins.
+                    cat <<'ART'
+          _
+     ---(_)
+ _/  ---  \
+(_) |   |
+  \  --- _/
+     ---(_)
+ART
+                    ;;
+                *" debian "*)
                     cat <<'ART'
       _,met$$$$$gg.
    ,g$$$$$$$$$$$$$$$P.

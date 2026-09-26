@@ -25,6 +25,8 @@ wmod_extra_parse() {
 }
 _WU_EXTRA_PARSE=wmod_extra_parse
 _WU_EXTRA_HELP="      --deps MODULE          show module dependencies
+                               (exit 1 if MODULE is unknown; JSON has found:false)
+
       --filter, -f PATTERN   filter modules by name"
 
 
@@ -196,6 +198,8 @@ deps_json() {
     done
     (( first )) && printf ']' || printf '\n  ]'
     wu_json_end
+    # same contract as the box view: unknown module (or no modules.dep) = 1
+    (( rc == 0 )) || return 1
     return 0
 }
 
@@ -262,7 +266,7 @@ json_out() {
 # ─── Main ────────────────────────────────────────────────────────
 main() {
     if [[ -n "$_MOD_DEPS" ]]; then
-        if [[ "$_WU_JSON" == "1" ]]; then deps_json; return 0; fi
+        if [[ "$_WU_JSON" == "1" ]]; then deps_json; return $?; fi
         deps_box; return $?
     fi
     if [[ "$_WU_JSON" == "1" ]]; then json_out; return 0; fi

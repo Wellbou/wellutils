@@ -27,25 +27,26 @@ wm_load_dmi() {
 }
 
 # ─── /proc/meminfo, parsed once ─────────────────────────────────
-MI_total=0 MI_free=0 MI_avail="" MI_buffers=0 MI_cached=0 MI_srecl=0 MI_shmem=0
+MI_OK=0 MI_total=0 MI_free=0 MI_avail=0 MI_buffers=0 MI_cached=0 MI_srecl=0 MI_shmem=0
 MI_swtotal=0 MI_swfree=0 MI_htotal=0 MI_hfree=0 MI_hsize=""
 wm_meminfo() {
-    local k v u
+    local k v u have_avail=0
     [[ -r /proc/meminfo ]] || return 0
     while IFS=': ' read -r k v u; do
         [[ "$v" =~ ^[0-9]+$ ]] || continue
         case "$k" in
             MemTotal) MI_total=$v ;;         MemFree) MI_free=$v ;;
-            MemAvailable) MI_avail=$v ;;     Buffers) MI_buffers=$v ;;
+            MemAvailable) MI_avail=$v; have_avail=1 ;;     Buffers) MI_buffers=$v ;;
             Cached) MI_cached=$v ;;          SReclaimable) MI_srecl=$v ;;
             Shmem) MI_shmem=$v ;;            SwapTotal) MI_swtotal=$v ;;
             SwapFree) MI_swfree=$v ;;        HugePages_Total) MI_htotal=$v ;;
             HugePages_Free) MI_hfree=$v ;;   Hugepagesize) MI_hsize="$v${u:+ $u}" ;;
         esac
-    done < /proc/meminfo 2>/dev/null || true
+    done 2>/dev/null < /proc/meminfo || true
     # Kernels < 3.14 have no MemAvailable: estimate it like free(1) did.
-    [[ -n "$MI_avail" ]] || MI_avail=$(( MI_free + MI_buffers + MI_cached ))
+    (( have_avail )) || MI_avail=$(( MI_free + MI_buffers + MI_cached ))
     (( MI_avail > MI_total && MI_total > 0 )) && MI_avail=$MI_total
+    (( MI_total > 0 )) && MI_OK=1
     return 0
 }
 
@@ -217,6 +218,13 @@ ml() {
 }
 
 print_all() {
+    if (( ! MI_OK )); then
+        # /proc/meminfo unreadable or empty: say so instead of "1 KiB / 100%".
+        _LINES+=( "" )
+        _LINES+=( "  ${DIM}$(t hw_unknown)${RESET}" )
+        wm_edac
+        return 0
+    fi
     local total=$MI_total available=$MI_avail used
     local cached=$(( MI_cached + MI_srecl ))
     (( total > 0 )) || total=1
@@ -306,19 +314,28 @@ json_out() {
     local numa_nodes; numa_nodes=$(wm_numa)
 
     wu_json_head "$_WU_TOOLNAME" "$_WU_VERSION"
+    # Unknown (unreadable /proc/meminfo) -> null, never a bogus 0/used=total.
+    local n_total n_used n_free n_avail n_buf n_cached n_shm n_swt n_swu n_swf
+    if (( MI_OK )); then
+        n_total=$total n_used=$used n_free=$free n_avail=$available n_buf=$MI_buffers
+        n_cached=$cached n_shm=$MI_shmem n_swt=$swap_total n_swu=$swap_used n_swf=$swap_free
+    else
+        n_total=null n_used=null n_free=null n_avail=null n_buf=null
+        n_cached=null n_shm=null n_swt=null n_swu=null n_swf=null
+    fi
     printf ',\n  "memory": {\n'
-    printf '    "total_kb": %d,\n' "$total"
-    printf '    "used_kb": %d,\n' "$used"
-    printf '    "free_kb": %d,\n' "$free"
-    printf '    "available_kb": %d,\n' "$available"
-    printf '    "buffers_kb": %d,\n' "$MI_buffers"
-    printf '    "cached_kb": %d,\n' "$cached"
-    printf '    "shared_kb": %d\n' "$MI_shmem"
+    printf '    "total_kb": %s,\n' "$(wu_json_num "$n_total")"
+    printf '    "used_kb": %s,\n' "$(wu_json_num "$n_used")"
+    printf '    "free_kb": %s,\n' "$(wu_json_num "$n_free")"
+    printf '    "available_kb": %s,\n' "$(wu_json_num "$n_avail")"
+    printf '    "buffers_kb": %s,\n' "$(wu_json_num "$n_buf")"
+    printf '    "cached_kb": %s,\n' "$(wu_json_num "$n_cached")"
+    printf '    "shared_kb": %s\n' "$(wu_json_num "$n_shm")"
     printf '  },\n'
     printf '  "swap": {\n'
-    printf '    "total_kb": %d,\n' "$swap_total"
-    printf '    "used_kb": %d,\n' "$swap_used"
-    printf '    "free_kb": %d\n' "$swap_free"
+    printf '    "total_kb": %s,\n' "$(wu_json_num "$n_swt")"
+    printf '    "used_kb": %s,\n' "$(wu_json_num "$n_swu")"
+    printf '    "free_kb": %s\n' "$(wu_json_num "$n_swf")"
     printf '  },\n'
     printf '  "zram": [\n'
     local first=1 zram_dev zram_size zram_algorithm zorig zcompr zused

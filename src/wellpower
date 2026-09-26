@@ -215,7 +215,7 @@ short_out() {
         [[ -n "$cap" ]] || continue
         status=$(wp_read "$d/status")
         out="${cap}%"
-        [[ "$status" == "Discharging" ]] || out+="+"
+        [[ "$status" == "Charging" ]] && out+="+"
         _wp_wear "$d"
         [[ -n "$_WP_WEAR" ]] && out+=" ($(t pwr_wear) ${_WP_WEAR}%)"
         printf '%s\n' "$out"

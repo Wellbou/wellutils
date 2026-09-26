@@ -30,7 +30,7 @@ ws_extra_parse() {
             _WS_WATCH=1
             _WU_EXTRA_CONSUMED=1
             if [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]]; then
-                _WS_INTERVAL="$2"
+                _WS_INTERVAL=$(( 10#$2 )); (( _WS_INTERVAL >= 1 )) || _WS_INTERVAL=1
                 _WU_EXTRA_CONSUMED=2
             fi
             return 0 ;;
@@ -38,7 +38,7 @@ ws_extra_parse() {
             _WS_WATCH=1
             _WU_EXTRA_CONSUMED=1
             if [[ "${1#*=}" =~ ^[0-9]+$ ]]; then
-                _WS_INTERVAL="${1#*=}"
+                _WS_INTERVAL=$(( 10#${1#*=} )); (( _WS_INTERVAL >= 1 )) || _WS_INTERVAL=1
             fi
             return 0 ;;
     esac
@@ -54,7 +54,14 @@ _WS_E=() _WS_BARS=() _WS_IC_FAN="" _WS_IC_MIN="" _WS_IC_AVG="" _WS_IC_MAX=""
 _ws_init_glyphs() {
     _WS_E=( "$(_emu '❄')" "$(_emu '🌊')" "$(_emu '🔥')" "$(_emu '🌋')" "$(_emu '💀')" )
     _WS_IC_FAN=$(_ic '💨') _WS_IC_MIN=$(_ic '📈') _WS_IC_AVG=$(_ic '📉') _WS_IC_MAX=$(_ic '🔺')
-    local i s="" g
+    local i s="" g _WU_VL
+    # Text-presentation glyphs (❄ without VS16) are 1 column: pad every
+    # non-empty temperature emoji to 2 columns so tline rows stay aligned.
+    for (( i = 0; i < ${#_WS_E[@]}; i++ )); do
+        [[ -n "${_WS_E[i]}" ]] || continue
+        _wu_vislen_v "${_WS_E[i]}"
+        (( _WU_VL < 2 )) && _WS_E[i]+=" "
+    done
     _WS_BARS=()
     for (( i = 0; i < 8; i++ )); do
         g=$(wu_scale "$i"); s+=$g; _WS_BARS+=("$s")
@@ -183,13 +190,13 @@ _ws_scan() {
                 [[ -z "$hi" ]] && hi=$(( c / 1000 ))
             done
             v=$(( v / 1000 ))
-            # fault/alarm set -> wire cut / unpopulated thermistor
+            # fault set / out-of-range -> wire cut / unpopulated thermistor.
+            # (alarm / crit_alarm mean "too hot": the reading is real and
+            # must stay visible.)
             ok=1
             (( v <= 0 || v >= 150 )) && ok=0
-            for a in fault alarm crit_alarm; do
-                c=""; wu_read "${b}_$a" c || continue
-                [[ "$c" == 1 ]] && ok=0
-            done
+            c=""
+            if wu_read "${b}_fault" c && [[ "$c" == 1 ]]; then ok=0; fi
             _WS_T_H+=("$hidx") _WS_T_IDX+=("$idx") _WS_T_LBL+=("$lbl") _WS_T_C+=("$v")
             _WS_T_HI+=("$hi") _WS_T_CR+=("$cr") _WS_T_OK+=("$ok") _WS_T_IN+=("$fn")
             (( ok )) && nt=$(( nt + 1 ))
@@ -203,9 +210,10 @@ _ws_scan() {
         done
         _WS_H_DIR+=("$h") _WS_H_NAME+=("$hn") _WS_H_CLS+=("$_WS_CLS") _WS_H_VIRT+=("$virt") _WS_H_NT+=("$nt")
     done
-    _WS_SHOWN=()
+    _WS_SHOWN=() _WS_CPU_SHOWN=0
 }
 declare -A _WS_SHOWN=()
+_WS_CPU_SHOWN=0
 
 # NVIDIA: one nvidia-smi call per report, shared by GPU box, summary, JSON.
 _WS_NV_Q=name,temperature.gpu,fan.speed,power.draw,clocks.current.graphics,clocks.current.memory,memory.total,memory.used,utilization.gpu,pci.bus_id
@@ -310,17 +318,27 @@ _ws_label_v() {
     fi
 }
 
+# CPU row label: sysfs label, else "chip idx" (multi-input) or chip name.
+# Shared by text and JSON so both agree. -> _WS_CLBL
+_ws_cpu_label_v() {
+    local i=$1 h=${_WS_T_H[$1]}
+    _WS_CLBL=${_WS_T_LBL[i]}
+    [[ -n "$_WS_CLBL" ]] && return 0
+    if (( ${_WS_H_NT[h]} > 1 )); then _WS_CLBL="${_WS_H_NAME[h]} ${_WS_T_IDX[i]}"
+    else _WS_CLBL=${_WS_H_NAME[h]}; fi
+    return 0
+}
+
 # ─── Sections ───────────────────────────────────────────────────
 print_cpu() {
-    local i h found=0 temp hi cr suffix lbl
+    local i h found=0 temp hi cr suffix lbl _WS_CLBL
     for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
         h=${_WS_T_H[i]}
         [[ "${_WS_H_CLS[h]}" == cpu ]] || continue
         temp=${_WS_T_C[i]}
         (( temp > -50 && temp < 200 )) || continue
         hi=${_WS_T_HI[i]} cr=${_WS_T_CR[i]}
-        lbl=${_WS_T_LBL[i]}
-        [[ -n "$lbl" ]] || { (( ${_WS_H_NT[h]} > 1 )) && lbl="${_WS_H_NAME[h]} ${_WS_T_IDX[i]}" || lbl=${_WS_H_NAME[h]}; }
+        _ws_cpu_label_v "$i"; lbl=$_WS_CLBL
         suffix=""
         [[ -n "$hi" && "$hi" != "$cr" ]] && suffix+="  hi:${hi}°"
         if [[ -n "$cr" ]]; then [[ -n "$suffix" ]] && suffix+=" " || suffix="  "; suffix+="crit:${cr}°"; fi
@@ -331,6 +349,7 @@ print_cpu() {
         fi
         tline "$lbl" "$temp" 100 "$suffix"
         _WS_SHOWN[${_WS_H_NAME[h]}]=1
+        _WS_CPU_SHOWN=1
         found=1
     done
     (( found )) || pline "${DIM}$(t sens_no_cpu)${RESET}"
@@ -338,15 +357,23 @@ print_cpu() {
 
 print_gpu() {
     local found_gpu=0 line h nv_name nv_temp nv_fan nv_pow nv_clk nv_mclk nv_vtot nv_vused nv_util nv_bus nv_aib nv_aibhex
-    local _WS_GN _WS_GAIB _WS_GAIBHEX _WS_GBUS _WS_GMHZ _WS_GT pw
+    local _WS_GN _WS_GAIB _WS_GAIBHEX _WS_GBUS _WS_GMHZ _WS_GT pw fan clk mclk util vram unk
+    unk=$(t hw_unknown)
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         _ws_nv_parse "$line"
         [[ "$nv_temp" =~ ^[0-9]+$ ]] || continue
-        pw="N/A"; [[ "$nv_pow" != "N/A" ]] && pw="${nv_pow}W"
+        # legacy/datacenter boards answer "[N/A]" / "[Not Supported]":
+        # show "unknown" without a unit instead of "[N/A]%".
+        pw=$unk; [[ "$nv_pow" =~ ^[0-9]+(\.[0-9]+)?$ ]] && pw="${nv_pow}W"
+        fan=$unk; [[ "$nv_fan" =~ ^[0-9]+$ ]] && fan="${nv_fan}%"
+        clk=$unk; [[ "$nv_clk" =~ ^[0-9]+$ ]] && clk="${nv_clk} MHz"
+        mclk=$unk; [[ "$nv_mclk" =~ ^[0-9]+$ ]] && mclk="${nv_mclk} MHz"
+        util=$unk; [[ "$nv_util" =~ ^[0-9]+$ ]] && util="${nv_util}%"
+        vram=$unk; [[ "$nv_vused" =~ ^[0-9]+$ && "$nv_vtot" =~ ^[0-9]+$ ]] && vram="${nv_vused} / ${nv_vtot} MiB"
         tline "$nv_name" "$nv_temp" 100 "" nocap
-        _LINES+=( "  ${DIM}  ├── $(t gpu_fan): ${nv_fan}%  |  $(t gpu_power): ${pw}  |  GPU: ${nv_clk} MHz${RESET}" )
-        _LINES+=( "  ${DIM}  └── $(t gpu_vram): ${nv_vused} / ${nv_vtot} MiB  |  $(t gpu_util): ${nv_util}%  |  Mem: ${nv_mclk} MHz${RESET}" )
+        _LINES+=( "  ${DIM}  ├── $(t gpu_fan): ${fan}  |  $(t gpu_power): ${pw}  |  GPU: ${clk}${RESET}" )
+        _LINES+=( "  ${DIM}  └── $(t gpu_vram): ${vram}  |  $(t gpu_util): ${util}  |  Mem: ${mclk}${RESET}" )
         found_gpu=1
     done <<< "${_WS_NV-}"
 
@@ -395,6 +422,9 @@ _ws_zones() {
         v=$(( v / 1000 ))
         _ws_class "$ty"
         [[ "$_WS_CLS" == acpi || "$ty" == coretemp ]] && continue
+        # x86_pkg_temp / cpu-thermal duplicate the CPU hwmon (coretemp
+        # Package, k10temp Tctl) once the CPU section showed one.
+        [[ "$_WS_CLS" == cpu ]] && (( _WS_CPU_SHOWN )) && continue
         [[ -n "${_WS_SHOWN[$ty]+x}" || -n "${_WS_SHOWN[${ty//-/_}]+x}" ]] && continue
         (( v <= 0 || v > 200 )) && continue
         _WS_Z_TYPE+=("$ty") _WS_Z_C+=("$v")
@@ -547,12 +577,13 @@ _ws_cooling_devs() {
         esac
     done
 }
-# Fans shown: skip thermal-zone hwmons and CPU/ACPI chips (same helper).
+# Fans shown: skip thermal-zone hwmons and ACPI chips. CPU-class chips stay:
+# macsmc_hwmon (Apple Silicon) and ibmpowernv (POWER) carry the real fans.
 _ws_fan_ok() {
     local h=${_WS_F_H[$1]}
     (( ${_WS_F_RPM[$1]} > 0 )) || return 1
     [[ "${_WS_H_VIRT[h]}" == 0 ]] || return 1
-    case "${_WS_H_CLS[h]}" in cpu|acpi) return 1 ;; esac
+    [[ "${_WS_H_CLS[h]}" == acpi ]] && return 1
     return 0
 }
 
@@ -606,7 +637,7 @@ _ws_sysinfo() {
                 Cached)       cach=$v ;;
                 SReclaimable) rec=$v ;;
             esac
-        done < /proc/meminfo 2>/dev/null || true
+        done 2>/dev/null < /proc/meminfo || true
     fi
     [[ "$tot" =~ ^[0-9]+$ ]] || tot=0
     if (( tot > 0 )); then
@@ -633,12 +664,12 @@ print_system() {
     fi
     pline_hw "$(_emu '🖥')" "$(t sens_cpu)" "${_WS_CPU:-$unk}  ${DIM}(${_WS_CORES} $(t hw_threads))${RESET}"
     if [[ -n "$_WS_LOAD" ]]; then
-        pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${_WS_LOAD}${RESET}  ${DIM}(1/5/15 min)${RESET}"
+        pline_hw "$(_emu '📊')" "$(t sens_load)" "${load_color}${_WS_LOAD}${RESET}  ${DIM}($(t sens_load_periods))${RESET}"
     else
         pline_hw "$(_emu '📊')" "$(t sens_load)" "${DIM}${unk}${RESET}"
     fi
     if [[ -n "$_WS_MT" ]]; then
-        pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${_WS_MU} MB / ${_WS_MT} MB  ${DIM}(${_WS_MP}%)${RESET}"
+        pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${_WS_MU} $(t sens_mb) / ${_WS_MT} $(t sens_mb)  ${DIM}(${_WS_MP}%)${RESET}"
     else
         pline_hw "$(_emu '🧠')" "$(t sens_ram)" "${DIM}${unk}${RESET}"
     fi
@@ -713,14 +744,14 @@ json_out() {
 
     printf '  "cpu_cores": [\n'
     first=1
-    local lbl
+    local lbl _WS_CLBL
     for (( i = 0; i < ${#_WS_T_C[@]}; i++ )); do
         h=${_WS_T_H[i]}
         [[ "${_WS_H_CLS[h]}" == cpu ]] || continue
         (( _WS_T_C[i] > -50 && _WS_T_C[i] < 200 )) || continue
-        lbl=${_WS_T_LBL[i]}
-        [[ -n "$lbl" ]] || { (( ${_WS_H_NT[h]} > 1 )) && lbl="Sensor ${_WS_T_IDX[i]}" || lbl=${_WS_H_NAME[h]}; }
+        _ws_cpu_label_v "$i"; lbl=$_WS_CLBL
         _WS_SHOWN[${_WS_H_NAME[h]}]=1
+        _WS_CPU_SHOWN=1
         (( first )) && first=0 || printf ',\n'
         printf '    { "label": "%s", "chip": "%s", "temp_c": %d, "high_c": %s, "crit_c": %s }' \
             "$(json_esc "$lbl")" "$(json_esc "${_WS_H_NAME[h]}")" "${_WS_T_C[i]}" \

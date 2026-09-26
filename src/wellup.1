@@ -1,4 +1,4 @@
-.TH WELLUP 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
+.TH WELLUP 1 "September 2026" "wellutils 1.4.0-55" "wellutils"
 .SH NAME
 WellUp \- checks for available system updates and applies them automatically
 .SH SYNOPSIS
@@ -13,7 +13,11 @@ and lists the available package updates, then applies them automatically.
 By default the update is started after a short countdown so it can be
 interrupted with Ctrl+C.  Supported package managers: pacman (Arch),
 dnf (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi), zypper (openSUSE),
-apk (Alpine), xbps (Void) and emerge (Gentoo).
+apk (Alpine), xbps (Void), emerge (Gentoo), eopkg (Solus), opkg (OpenWrt),
+swupd (Clear Linux) and pkg (Termux).  On Arch the check uses
+.BR checkupdates (8)
+from pacman-contrib when it is installed (fresh list without syncing the
+real database), otherwise \fBpacman \-Qu\fR.
 .PP
 When stdout is a terminal the output is drawn as a box; when piped a plain layout is used.
 .SH OPTIONS
@@ -50,6 +54,10 @@ Only list the available updates; do not install them.
 Apply updates without the interactive confirmation prompt.  Without
 a terminal, wellup refuses to apply updates unless this flag is given.
 .TP
+.B \-\-full
+apt only: run \fBapt\-get full\-upgrade\fR (may remove packages to resolve
+dependencies) instead of the default \fBapt\-get upgrade\fR.
+.TP
 .BR \-\-self-update ", " \-\-self
 Update wellutils itself from GitHub instead of the system.  Compares
 the installed version with the latest on GitHub and reinstalls the
@@ -67,7 +75,9 @@ Success (including \fB\-\-check\fR and \fB\-\-json\fR).
 Invalid command-line usage.
 .TP
 .B 3
-Unexpected runtime error (no supported package manager, or the update failed).
+Unexpected runtime error (no supported package manager, the update failed,
+or \fB\-\-self\-update\fR could not fetch the version info; with \fB\-\-json\fR
+a \fB"status": "no-remote"\fR object is still printed first).
 .TP
 .B 130
 Interrupted during the update countdown.

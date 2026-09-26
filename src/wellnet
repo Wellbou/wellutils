@@ -44,7 +44,8 @@ wn_kind() {
     esac
     local type drv
     type=$(cat "/sys/class/net/$1/type" 2>/dev/null || true)
-    [[ -d "/sys/class/net/$1/wireless" ]] && { printf 'wifi'; return; }
+    # USB Wi-Fi dongles may lack wireless/ but always link phy80211.
+    [[ -d "/sys/class/net/$1/wireless" || -e "/sys/class/net/$1/phy80211" || -L "/sys/class/net/$1/phy80211" ]] && { printf 'wifi'; return; }
     drv=$(basename "$(readlink "/sys/class/net/$1/device/driver" 2>/dev/null)" 2>/dev/null || true)
 
     # Legacy link layers by ARPHRD type (FDDI=774, Token Ring=800).
@@ -66,9 +67,15 @@ wn_kind() {
     esac
     [[ -e "/sys/class/wwan/$1" ]] && { printf 'wwan'; return; }
 
+    # PPP (ARPHRD_PPP=512): modem/PPPoE link unless a PPP-based VPN client
+    # (PPTP/L2TP/SSTP/Fortinet) is running.
+    if [[ "$1" == ppp* || "$type" == "512" ]]; then
+        if wn_ppp_vpn_running; then printf 'vpn'; else printf 'dialup'; fi
+        return
+    fi
     # VPN tunnels by name and driver.
     case "$1" in
-        tun*|tap*|wg*|ppp*|tailscale*|zt*|nordlynx*|proton*|mullvad*|wgnt*) printf 'vpn'; return ;;
+        tun*|tap*|wg*|tailscale*|zt*|nordlynx*|proton*|mullvad*|wgnt*) printf 'vpn'; return ;;
     esac
     [[ "$drv" == "wireguard" || "$drv" == "tun" ]] && { printf 'vpn'; return; }
 
@@ -95,7 +102,6 @@ wn_kind() {
         esac
     fi
     [[ "$type" == "32" ]] && { printf 'infiniband'; return; }
-    [[ -e "/sys/class/net/$1/phy80211" ]] && { printf 'wifi'; return; }
     # Virtual bridges / containers
     case "$1" in
         br-*|docker*|virbr*|veth*|vmnet*|vboxnet*|libvirt*|podman*|lxdbr*|dummy*) printf 'virtual'; return ;;
@@ -105,6 +111,18 @@ wn_kind() {
         *DRIVER=virtio_net*) printf 'virtio' ;;
         *) printf 'ethernet' ;;
     esac
+}
+
+# Any PPP-carried VPN client alive? Reads /proc/*/comm, no forks.
+wn_ppp_vpn_running() {
+    local c n
+    for c in /proc/[0-9]*/comm; do
+        n=""; read -r n 2>/dev/null < "$c" || continue
+        case "$n" in
+            pptp|pptpd|xl2tpd|openl2tp*|l2tpd|sstpc|openfortivpn|accel-pppd|strongswan|charon) return 0 ;;
+        esac
+    done
+    return 1
 }
 
 wn_kind_label() {
@@ -189,6 +207,23 @@ wn_gateway() {
     return 0
 }
 
+# iw prints non-ASCII SSID bytes as \xNN: decode only those; any other
+# backslash is doubled so printf %b keeps it literal (no \n, \c, ...).
+wn_unescape_ssid() {
+    local s=$1 out=""
+    while [[ "$s" == *\\* ]]; do
+        out+=${s%%\\*}; s=${s#*\\}
+        if [[ "$s" =~ ^x[0-9A-Fa-f][0-9A-Fa-f] ]]; then
+            out+="\\${s:0:3}"; s=${s:3}
+        else
+            out+='\\'
+        fi
+    done
+    out+=$s
+    printf -v _WS_SSID '%b' "$out"
+    return 0
+}
+
 # Wi-Fi link state of $1 -> _WS_SSID _WS_SIG (dBm) _WS_RATE ("72.2 MBit/s")
 # _WS_BSSID. `iw` indents with tabs; fallbacks: /proc/net/wireless, iwgetid.
 wn_wifi_link() {
@@ -199,7 +234,7 @@ wn_wifi_link() {
             wu_trim "$line" line
             case "$line" in
                 "Connected to "*) v=${line#Connected to }; v=${v%% *}; _WS_BSSID=${v,,} ;;
-                SSID:*) v=${line#SSID:}; _WS_SSID=${v# } ;;
+                SSID:*) v=${line#SSID:}; wn_unescape_ssid "${v# }" ;;
                 signal:*) v=${line#signal:}; wu_trim "$v" v; _WS_SIG=${v%% *} ;;
                 "tx bitrate:"*)
                     v=${line#tx bitrate:}; wu_trim "$v" v
@@ -253,19 +288,31 @@ wn_vpn_endpoint() {
             fi ;;
         tailscale*)
             if command -v tailscale &>/dev/null; then
-                ep=$(tailscale status 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -1) || ep=""
+                local tl tk
+                local -a tks
+                while IFS= read -r tl; do
+                    read -r -a tks <<< "$tl" || true
+                    for tk in ${tks[@]+"${tks[@]}"}; do
+                        tk=${tk%,}
+                        [[ "$tk" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]] && { ep=$tk; break 2; }
+                    done
+                done < <(tailscale status 2>/dev/null || true)
                 [[ -n "$ep" ]] && { printf '%s|tailscaled' "$ep"; return 0; }
             fi ;;
     esac
 
     command -v ss &>/dev/null || return 0
-    local line proc peer key best_k="" best_n=0
-    local -A cnt=() info=()
+    local line proc peer
+    local -a cols
+    # With a state filter ss drops the State column: RecvQ SendQ Local Peer Proc.
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        proc=$(printf '%s' "$line" | grep -o '"[^"]*"' | head -1 | tr -d '"') || proc=""
+        [[ "$line" == *'"'* ]] || continue
+        proc=${line#*\"}; proc=${proc%%\"*}
         [[ -z "$proc" ]] && continue
-        peer=$(awk '{print $4}' <<< "$line")
+        read -r -a cols <<< "$line" || true
+        (( ${#cols[@]} >= 4 )) || continue
+        peer=${cols[3]}
         peer="${peer%%%*}"
         [[ "$peer" =~ ^\[?[0-9a-fA-F:.]+\]:?[0-9]+$|^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+$ ]] || continue
         # Known tunnel clients win immediately.
@@ -280,7 +327,9 @@ wn_vpn_endpoint() {
     local -A pcnt=()
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        pub_ip=$(awk '{print $4}' <<< "$line")
+        read -r -a cols <<< "$line" || true
+        (( ${#cols[@]} >= 4 )) || continue
+        pub_ip=${cols[3]}
         pub_ip="${pub_ip%%%*}"
         [[ "$pub_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+$ ]] || continue
         pub_port="${pub_ip##*:}"
@@ -305,6 +354,7 @@ wn_vpn_endpoint() {
     if [[ -n "$best_ip" && "$best_cnt" -ge 2 ]]; then
         printf '%s|%s' "$best_ip" "vpn"
     fi
+    return 0
 }
 
 
@@ -342,7 +392,7 @@ print_connection() {
         if [[ -n "$ugw_ip" ]]; then
             local ukind umac=""
             ukind=$(wn_kind_label "$(wn_kind "$ugw_dev")")
-            (( _WN_HAVE_IP )) && umac=$(ip neigh show "$ugw_ip" dev "$ugw_dev" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
+            (( _WN_HAVE_IP )) && { umac=$(ip neigh show "$ugw_ip" dev "$ugw_dev" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}') || umac=""; }
             local uline="$(t gateway) ($ukind): ${DIM}${ugw_ip}${RESET}"
             [[ -n "$umac" ]] && uline+="${DIM} ($umac)${RESET}"
             pline_sub "$(_nic '🚪')$uline"
@@ -356,8 +406,9 @@ print_connection() {
     [[ -z "$gip" ]] && gip=$(wn_gateway)
     if [[ -n "$gip" ]]; then
         if (( _WN_HAVE_IP )); then
-            gmac=$(ip neigh show "$gip" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
-        elif [[ -r /proc/net/arp ]]; then
+            gmac=$(ip neigh show "$gip" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}') || gmac=""
+        fi
+        if [[ -z "$gmac" && -r /proc/net/arp ]]; then
             gmac=$(awk -v g="$gip" '$1==g && $4!="00:00:00:00:00:00"{print $4; exit}' /proc/net/arp 2>/dev/null) || gmac=""
         fi
         line_out="$(t gateway): ${BOLD}${gip}${RESET}"
@@ -423,8 +474,9 @@ wn_hex_ip6() {
 wn_addresses() {
     if (( _WN_HAVE_IP )); then
         # -o works on iproute2 and busybox; -brief is iproute2-only.
-        ip -o addr show 2>/dev/null | awk '{ifn=$2; sub(/@.*/,"",ifn); sub(/:$/,"",ifn); if ($3=="inet"||$3=="inet6") print ifn, $4}' || true
-        return 0
+        local ipo=""
+        ipo=$(ip -o addr show 2>/dev/null | awk '{ifn=$2; sub(/@.*/,"",ifn); sub(/:$/,"",ifn); if ($3=="inet"||$3=="inet6") print ifn, $4}') || ipo=""
+        [[ -n "$ipo" ]] && { printf '%s\n' "$ipo"; return 0; }
     fi
     if command -v ifconfig >/dev/null 2>&1; then
         ifconfig -a 2>/dev/null | awk '
@@ -493,7 +545,7 @@ print_addr() {
 print_wifi() {
     local found=0 d name
     for d in /sys/class/net/*; do
-        [[ -d "$d/wireless" || -e "$d/phy80211" ]] || continue
+        [[ -d "$d/wireless" || -e "$d/phy80211" || -L "$d/phy80211" ]] || continue
         name=${d##*/}
         found=1
         wn_wifi_link "$name"
@@ -522,8 +574,13 @@ print_wifi() {
 # Non-default routes: iproute2 text, or decoded /proc/net/route.
 wn_other_routes() {
     if (( _WN_HAVE_IP )); then
-        ip route show 2>/dev/null | awk '$1!="default"' || true
-        return 0
+        local ro=""
+        ro=$(ip route show 2>/dev/null) || ro=""
+        # Non-empty table (even if only default) = ip works; else /proc.
+        if [[ -n "$ro" ]]; then
+            printf '%s\n' "$ro" | awk '$1!="default"' || true
+            return 0
+        fi
     fi
     [[ -r /proc/net/route ]] || return 0
     local ifn dst gw fl rc us met mask rest bits m
@@ -569,8 +626,10 @@ print_routes() {
 # Without ss: /proc/net/{tcp,tcp6} state 0A (LISTEN), {udp,udp6} state 07.
 wn_listeners() {
     if command -v ss >/dev/null 2>&1; then
-        local line proc ep
+        local line proc ep sso="" got=0
         local -a cols
+        sso=$(ss -H -tulpn 2>/dev/null) || sso=""
+        [[ -n "$sso" ]] || { sso=$(ss -tulpn 2>/dev/null | awk 'NR>1') || sso=""; }
         while IFS= read -r line; do
             [[ -n "$line" ]] || continue
             read -r -a cols <<< "$line"
@@ -588,8 +647,9 @@ wn_listeners() {
             # "127.0.0.53%lo:53" -> drop the scope, keep the port
             [[ "$ep" == *%* ]] && ep="${ep%%\%*}:${ep##*:}"
             printf '%s %s %s\n' "${cols[0]}" "$ep" "$proc"
-        done < <(ss -H -tulpn 2>/dev/null || ss -tulpn 2>/dev/null | awk 'NR>1' || true)
-        return 0
+            got=1
+        done <<< "$sso"
+        (( got )) && return 0
     fi
     local f proto want sl la ra st rest ip port
     for f in tcp tcp6 udp udp6; do
@@ -687,13 +747,13 @@ json_out() {
     printf '  "wifi": [\n'
     first=1
     for d in /sys/class/net/*; do
-        [[ -d "$d/wireless" || -e "$d/phy80211" ]] || continue
+        [[ -d "$d/wireless" || -e "$d/phy80211" || -L "$d/phy80211" ]] || continue
         name=${d##*/}
         wn_wifi_link "$name"
         (( first )) && first=0 || printf ',\n'
-        printf '    { "iface": "%s", "ssid": "%s", "signal_dbm": "%s", "tx_mbit": "%s", "bssid": "%s" }' \
-            "$(json_esc "$name")" "$(json_esc "$_WS_SSID")" "$(json_esc "$_WS_SIG")" \
-            "$(json_esc "${_WS_RATE%% *}")" "$(json_esc "$_WS_BSSID")"
+        printf '    { "iface": "%s", "ssid": "%s", "signal_dbm": %s, "tx_mbit": %s, "bssid": "%s" }' \
+            "$(json_esc "$name")" "$(json_esc "$_WS_SSID")" "$(wu_json_num "$_WS_SIG")" \
+            "$(wu_json_num "${_WS_RATE%% *}")" "$(json_esc "$_WS_BSSID")"
     done
     printf '\n  ],\n'
 

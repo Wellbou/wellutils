@@ -34,7 +34,9 @@ hw_extra_parse() {
 _WU_EXTRA_PARSE=hw_extra_parse
 _WU_EXTRA_HELP="      --snapshot [FILE]       save stable hardware identity to FILE
       --diff [FILE]           compare current hardware against a snapshot
-                                (FILE defaults to $_HW_DEFAULT_SNAP)"
+                                (FILE defaults to $_HW_DEFAULT_SNAP);
+                                exit 1 = differences found, 0 = identical"
+
 
 # Stable-identity projection of --json (volatile fields dropped).
 _hw_filter_py() {
@@ -44,6 +46,8 @@ d=json.load(sys.stdin)
 out={}
 if "cpu" in d: out["cpu"]={k:d["cpu"].get(k) for k in ("model","cores","threads")}
 if "gpu" in d and isinstance(d["gpu"],dict): out["gpu"]={"name":d["gpu"].get("name")}
+g=d.get("gpus")
+if isinstance(g,list) and len(g)>1: out["gpus"]=sorted(str(x.get("name")) for x in g if isinstance(x,dict))
 b=d.get("board",{})
 nb={}
 for k in ("vendor","name","version"):
@@ -61,26 +65,48 @@ st=d.get("storage",[])
 out["storage"]=sorted([{"name":x.get("name"),"model":x.get("model"),"size":x.get("size")} for x in st],
                       key=lambda x:str(x.get("name")))
 nt=d.get("network",[])
-out["network"]=sorted([{"name":x.get("name"),"mac":x.get("mac")} for x in nt],
+# Only real NICs (device/ link, not a plugged-in phone tether); the MAC only
+# when it is burned-in (addr_assign_type 0), so randomized Wi-Fi addresses,
+# docker/tun/veth do not show up as hardware changes.
+out["network"]=sorted([{"name":x.get("name"),
+                        "mac":x.get("mac") if x.get("permanent_mac",True) else None}
+                       for x in nt if x.get("physical",True) and not x.get("usb_tether",False)],
+
                       key=lambda x:str(x.get("name")))
 print(json.dumps(out,ensure_ascii=False,sort_keys=True))
 '
 }
 
 _hw_diff_py() {
-    WELLUTILS_LANG="${WELLUTILS_LANG:-EN}" PYTHONIOENCODING=utf-8 python3 -c '
+    WELLUTILS_LANG="${WELLUTILS_LANG:-EN}" PYTHONIOENCODING=utf-8 python3 - "$@" <<'PYEOF'
 import json,sys,os
 ru=os.environ.get("WELLUTILS_LANG")=="RU"
 def L(ru_s,en_s): return ru_s if ru else en_s
-lines=[l for l in sys.stdin.read().splitlines() if l.strip()]
-if len(lines)<2: sys.exit(3)
-old,new=json.loads(lines[0]),json.loads(lines[1])
+import re
+# Files are read by path, so pretty-printed / hand-edited snapshots work.
+try:
+    old=json.load(open(sys.argv[1],encoding="utf-8"))
+    new=json.load(open(sys.argv[2],encoding="utf-8"))
+except Exception:
+    sys.exit(3)
+def _gn(o):  # snapshots taken before 1.3.1 kept lspci "[10de]" id suffixes
+    g=o.get("gpu") if isinstance(o,dict) else None
+    if isinstance(g,dict) and isinstance(g.get("name"),str):
+        g["name"]=re.sub(r"( \[[0-9A-Fa-f]{4}\])+$","",g["name"])
+_gn(old); _gn(new)
 def flat(o,p=""):
     r={}
     if isinstance(o,dict):
         for k,v in o.items(): r.update(flat(v,"%s.%s" % (p,k) if p else k))
     elif isinstance(o,list):
-        for i,v in enumerate(o): r.update(flat(v,"%s[%d]" % (p,i)))
+        names=[v.get("name") for v in o if isinstance(v,dict)]
+        if len(names)==len(o) and all(isinstance(n,str) and n for n in names) and len(set(names))==len(names):
+            # storage/network: key by device name so one removed NIC does
+            # not show up as every following entry changing
+            for v in o: r.update(flat({k:x for k,x in v.items() if k!="name"} or {"present":True},"%s[%s]" % (p,v["name"])))
+        else:
+            for i,v in enumerate(o): r.update(flat(v,"%s[%d]" % (p,i)))
+
     else: r[p]=o
     return r
 fo,fn_=flat(old),flat(new)
@@ -95,7 +121,7 @@ else:
     print(L("\u0418\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439: %d" % len(changes),"Changes: %d" % len(changes)))
     for c in changes: print(" "+c)
     sys.exit(2)
-'
+PYEOF
 }
 
 do_snapshot() {
@@ -124,7 +150,7 @@ do_diff() {
     fi
     # The semantic differ decides: exit 2 = changes found, 0 = identical.
     local drc=0
-    { cat "$tmp_old"; echo; cat "$tmp_new"; } | _hw_diff_py || drc=$?
+    _hw_diff_py "$tmp_old" "$tmp_new" || drc=$?
     if (( drc == 2 )); then changed=1
     elif (( drc == 0 )); then changed=0
     else rc=3; fi
@@ -145,7 +171,9 @@ _WU_JEDEC="$_WU_BOOT_DIR/jedec.sh"
 # _hw_clean STR VAR -- trim + blank SMBIOS placeholders (never "PN: Unknown").
 _hw_clean() {
     local __v
-    wu_trim "${1//$'\r'/}" __v
+    # Drop C0 controls/DEL (terminal escape injection via firmware strings).
+    wu_strip_ctl "$1" __v
+    wu_trim "$__v" __v
     if wu_junk "$__v"; then __v=""
     else
         case "${__v,,}" in
@@ -162,7 +190,21 @@ _hw_clean() {
 _hw_norm_manuf() {
     local __m __h="" __d
     _hw_clean "$1" __m
-    if [[ "$__m" =~ ^[Bb]ank[[:space:]]*([0-9]+),?[[:space:]]*[Hh]ex[[:space:]]*(0[xX])?([0-9A-Fa-f]{2})$ ]]; then
+    # JEP106 byte string: N continuation bytes 0x7F, the ID byte, zero padding
+    # ("CE00000000000000" Samsung, "7F98000000000000" Kingston,
+    # "7F7F7F7F7F0B0000" bank 6). bank = count of 7F, code = next byte.
+    local __r=${__m#0[xX]}
+    if (( ${#__r} >= 4 && ${#__r} % 2 == 0 )) && [[ "$__r" != *[!0-9A-Fa-f]* ]]; then
+        local __n=0 __rest
+        while [[ "${__r:0:2}" == 7[Ff] ]]; do __r=${__r:2}; __n=$(( __n + 1 )); done
+        __rest=${__r:2}
+        if [[ ${#__r} -ge 2 && "${__r:0:2}" != 00 && "$__rest" != *[!0]* ]] &&
+           { [[ -n "$__rest" ]] || (( __n > 0 )); }; then
+            printf -v __h '%02X%s' "$__n" "${__r:0:2}"; __h=${__h^^}
+        fi
+    fi
+    if [[ -n "$__h" ]]; then :
+    elif [[ "$__m" =~ ^[Bb]ank[[:space:]]*([0-9]+),?[[:space:]]*[Hh]ex[[:space:]]*(0[xX])?([0-9A-Fa-f]{2})$ ]]; then
         local __b=$(( 10#${BASH_REMATCH[1]} ))
         (( __b >= 1 )) || __b=1
         printf -v __h '%02X%s' $(( __b - 1 )) "${BASH_REMATCH[3]^^}"
@@ -246,7 +288,29 @@ hw_collect_cpu() {
     HW_CPU_CORES=$c HW_CPU_THREADS=$t
 }
 
-_HW_GPU_DONE=0 HW_GPU="" HW_GPU_VENDOR=""
+_HW_GPU_DONE=0 HW_GPU="" HW_GPU_VENDOR="" HW_GPUS=() HW_GPUS_VENDOR=()
+# _hw_strip_ids STR VAR -- drop trailing lspci -nn " [10de]" / " [0300]" ids
+# (keeps marketing brackets like "GP107 [GeForce GTX 1050 Ti]").
+_hw_strip_ids() {
+    local __s=$1
+    while [[ "$__s" =~ ^(.*[^ ])\ +\[[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\]$ ]]; do __s=${BASH_REMATCH[1]}; done
+    printf -v "$2" '%s' "$__s"
+}
+# _hw_gpu_add AIB DEVICE VENDOR -- AIB prefix only when it adds information
+# (not "NVIDIA" in front of an NVIDIA chip or a name that already has it).
+_hw_gpu_add() {
+    local aib=$1 dev=$2 ven=$3 nm
+    if [[ -n "$aib" ]]; then
+        local al=${aib,,} vl=${ven,,} dl=${dev,,}
+        vl=" ${vl//[^a-z0-9]/ } "
+        # "NVIDIA" + "NVIDIA Corporation", "AMD" + "... [AMD/ATI]", or a
+        # device name that already starts with the board vendor.
+        if [[ "$dl" == "$al "* || "$dl" == "$al" || "$vl" == *" $al "* ]]; then aib=""; fi
+    fi
+    nm="${aib:+$aib }${dev}"
+    HW_GPUS+=("$nm") HW_GPUS_VENDOR+=("$ven")
+    return 0
+}
 hw_collect_gpu() {
     (( _HW_GPU_DONE )) && return 0; _HW_GPU_DONE=1
     local line bus vendor device aib
@@ -256,22 +320,27 @@ hw_collect_gpu() {
             bus=${line%% *}
             IFS='"' read -r _ _ _ vendor _ device _ <<< "$line"
             [[ -z "$device" ]] && { device=$vendor; vendor=""; }
+            _hw_strip_ids "$vendor" vendor; _hw_strip_ids "$device" device
             aib=$(gpu_aib_vendor "$bus")
-            HW_GPU="${aib:+$aib }${device}" HW_GPU_VENDOR=$vendor
-            return 0
+            _hw_gpu_add "$aib" "$device" "$vendor"
         done < <(lspci -mmnn 2>/dev/null)
     fi
     # No lspci: PCI class 03xx straight from sysfs + pci.ids.
     local d cls vid did nm
-    for d in /sys/bus/pci/devices/*; do
-        wu_read "$d/class" cls || continue
-        [[ "$cls" == 0x03* ]] || continue
-        wu_read "$d/vendor" vid; wu_read "$d/device" did
-        nm=$(wu_pci_name "$vid" "$did")
-        aib=$(gpu_aib_vendor "${d##*/}")
-        HW_GPU="${aib:+$aib }${nm:-[${vid#0x}:${did#0x}]}"
+    if (( ${#HW_GPUS[@]} == 0 )); then
+        for d in /sys/bus/pci/devices/*; do
+            wu_read "$d/class" cls || continue
+            [[ "$cls" == 0x03* ]] || continue
+            wu_read "$d/vendor" vid; wu_read "$d/device" did
+            nm=$(wu_pci_name "$vid" "$did")
+            aib=$(gpu_aib_vendor "${d##*/}")
+            _hw_gpu_add "$aib" "${nm:-[${vid#0x}:${did#0x}]}" ""
+        done
+    fi
+    if (( ${#HW_GPUS[@]} )); then
+        HW_GPU=${HW_GPUS[0]} HW_GPU_VENDOR=${HW_GPUS_VENDOR[0]}
         return 0
-    done
+    fi
     # SoC GPUs (vc4/v3d, panfrost, lima, msm, etnaviv, apple, ...): DRM
     # driver name, plus the DT compatible string when there is one.
     local c drv comp out="" seen=" "
@@ -287,6 +356,8 @@ hw_collect_gpu() {
         out+="${out:+, }${drv}${comp:+ ($comp)}"
     done
     HW_GPU=$out
+    [[ -n "$out" ]] && { HW_GPUS=("$out"); HW_GPUS_VENDOR=(""); }
+    return 0
 }
 
 _HW_BOARD_DONE=0 HW_B_VENDOR="" HW_B_NAME="" HW_B_VERSION="" HW_BIOS_VENDOR="" HW_BIOS_VER="" HW_BIOS_DATE=""
@@ -428,7 +499,11 @@ hw_collect_storage() {
             name=${BASH_REMATCH[1]} size=${BASH_REMATCH[2]} model=${BASH_REMATCH[3]}
             _hw_st_skip "$name" && continue
             [[ -n "$size" && "$size" != 0 ]] || continue
-            model=${model//\\x20/ }; model=${model//\\x22/\"}; model=${model//\\x5c/\\}
+            # udev ID_MODEL first: lsblk may truncate to 16 chars / use "_".
+            local um=""
+            if [[ -e "/sys/block/$name" ]] && _hw_udev_model "/sys/block/$name" um; then model=$um
+            else model=${model//\\x20/ }; model=${model//\\x22/\"}; model=${model//\\x5c/\\}; fi
+            wu_strip_ctl "$model" model
             wu_trim "$model" model
             _hw_human "$size" hs
             HW_S_NAME+=("$name") HW_S_MODEL+=("$model") HW_S_SIZE+=("$hs")
@@ -440,17 +515,22 @@ hw_collect_storage() {
         name=${d##*/}
         _hw_st_skip "$name" && continue
         [[ "$name" == mmcblk*boot* || "$name" == mmcblk*rpmb ]] && continue
+        # hidden multipath paths (nvme0c0n1) duplicate the real namespace
+        local hid=0; wu_read "$d/hidden" hid || hid=0
+        [[ "$hid" == 1 ]] && continue
         size=0; wu_read "$d/size" size || continue
         [[ "$size" =~ ^[0-9]+$ ]] && (( size > 0 )) || continue
         _hw_udev_model "$d" model || { wu_read "$d/device/model" model || wu_read "$d/device/name" model || model=""; }
+        wu_strip_ctl "$model" model
         wu_trim "$model" model
+
         _hw_human $(( size * 512 )) hs
         HW_S_NAME+=("$name") HW_S_MODEL+=("$model") HW_S_SIZE+=("$hs")
     done
     return 0
 }
 
-HW_N_NAME=() HW_N_OP=() HW_N_MAC=() _HW_NET_DONE=0
+HW_N_NAME=() HW_N_OP=() HW_N_MAC=() HW_N_PHYS=() HW_N_PERM=() HW_N_TETH=() _HW_NET_DONE=0
 hw_collect_net() {
     (( _HW_NET_DONE )) && return 0; _HW_NET_DONE=1
     local d n op mac
@@ -460,7 +540,21 @@ hw_collect_net() {
         case "$n" in lo|virbr*|docker*|br-*|veth*) continue ;; esac
         op=down; wu_read "$d/operstate" op || op=down
         mac=""; wu_read "$d/address" mac || mac=""
-        HW_N_NAME+=("$n") HW_N_OP+=("$op") HW_N_MAC+=("$mac")
+        # physical = backed by a bus device; perm = burned-in MAC
+        # (addr_assign_type 0), not randomized/stolen/set by userspace.
+        local phys=false perm=false aat="" teth=false
+        [[ -e "$d/device" ]] && phys=true
+        wu_read "$d/addr_assign_type" aat || aat=""
+        [[ "$aat" == 0 ]] && perm=true
+        # USB tethering (phone RNDIS/NCM, iPhone) hands out a new MAC per plug.
+        if [[ "$perm" == true && -r "$d/device/uevent" ]]; then
+            local ul
+            while IFS= read -r ul; do
+                case "$ul" in DRIVER=rndis_host|DRIVER=ipheth|DRIVER=cdc_ncm|DRIVER=cdc_ether|DRIVER=rndis_wlan) perm=false; teth=true; break ;; esac
+            done < "$d/device/uevent"
+        fi
+
+        HW_N_NAME+=("$n") HW_N_OP+=("$op") HW_N_MAC+=("$mac") HW_N_PHYS+=("$phys") HW_N_PERM+=("$perm") HW_N_TETH+=("$teth")
     done
 }
 
@@ -517,7 +611,12 @@ print_cpu() {
 print_gpu() {
     hw_collect_gpu
     if [[ -n "$HW_GPU" ]]; then
+        local i v
         pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${HW_GPU}${HW_GPU_VENDOR:+  ${DIM}(${HW_GPU_VENDOR})${RESET}}"
+        for (( i=1; i<${#HW_GPUS[@]}; i++ )); do
+            v=${HW_GPUS_VENDOR[i]}
+            pline_sub "${HW_GPUS[i]}${v:+  (${v})}"
+        done
     else
         pline_hw "$(_emu '🎮')" "$(t hw_gpu)" "${DIM}$(t hw_unknown)${RESET}"
     fi
@@ -542,11 +641,20 @@ print_ram() {
         return 0
     fi
     local first_t="${HW_R_TYPE[0]}" first_s="${HW_R_SPEED[0]}" first_sz="${HW_R_SIZE[0]}" first_form="${HW_R_FORM[0]}"
-    local same_speed=1 same_type=1 uniform=1
-    for (( i=1; i<modules; i++ )); do
-        [[ "${HW_R_TYPE[i]}" == "$first_t" ]] || same_type=0
-        [[ "${HW_R_SPEED[i]}" == "$first_s" ]] || same_speed=0
-        [[ "${HW_R_SIZE[i]}" == "$first_sz" && "${HW_R_FORM[i]}" == "$first_form" ]] || uniform=0
+    local same_speed=1 same_type=1 uniform=1 kt="" ks=""
+    # Warnings only compare KNOWN values: an empty/"Other" field on one stick
+    # is missing data, not a mixed-type or downclocked kit.
+    for (( i=0; i<modules; i++ )); do
+        if [[ -n "${HW_R_TYPE[i]}" ]]; then
+            if [[ -z "$kt" ]]; then kt=${HW_R_TYPE[i]}; elif [[ "${HW_R_TYPE[i]}" != "$kt" ]]; then same_type=0; fi
+        fi
+        if [[ "${HW_R_SPEED[i]}" =~ ^[0-9]+$ ]]; then
+            if [[ -z "$ks" ]]; then ks=${HW_R_SPEED[i]}; elif [[ "${HW_R_SPEED[i]}" != "$ks" ]]; then same_speed=0; fi
+        fi
+        # the one-line summary needs every visible field identical
+        [[ "${HW_R_SIZE[i]}" == "$first_sz" && "${HW_R_FORM[i]}" == "$first_form" && \
+           "${HW_R_TYPE[i]}" == "$first_t" && "${HW_R_SPEED[i]}" == "$first_s" && \
+           "${HW_R_MANUF[i]}" == "${HW_R_MANUF[0]}" && "${HW_R_PN[i]}" == "${HW_R_PN[0]}" ]] || uniform=0
     done
     (( same_type && same_speed )) || uniform=0
 
@@ -594,8 +702,10 @@ print_ram() {
     if (( ! same_type )); then
         local types="" ty
         for (( i=0; i<modules; i++ )); do
-            ty=${HW_R_TYPE[i]:-?}
+            ty=${HW_R_TYPE[i]}
+            [[ -n "$ty" ]] || continue
             [[ " / $types / " == *" / $ty / "* ]] || types+="${types:+ / }$ty"
+
         done
         warn+="${warn:+ · }${Y}⚠ $(t hw_ram_mixed): ${types}${RESET}"
     fi
@@ -691,6 +801,12 @@ json_out() {
     printf '  "gpu": { "name": "%s"' "$(json_esc "$HW_GPU")"
     [[ -n "$HW_GPU_VENDOR" ]] && printf ', "vendor": "%s"' "$(json_esc "$HW_GPU_VENDOR")"
     printf ' },\n'
+    printf '  "gpus": ['
+    for (( i=0; i<${#HW_GPUS[@]}; i++ )); do
+        (( i )) && printf ', '
+        printf '{ "name": "%s", "vendor": "%s" }' "$(json_esc "${HW_GPUS[i]}")" "$(json_esc "${HW_GPUS_VENDOR[i]}")"
+    done
+    printf '],\n'
     printf '  "board": {\n'
     printf '    "vendor": "%s",\n' "$(json_esc "$HW_B_VENDOR")"
     printf '    "name": "%s",\n' "$(json_esc "$HW_B_NAME")"
@@ -727,8 +843,9 @@ json_out() {
     first=1
     for (( i=0; i<${#HW_N_NAME[@]}; i++ )); do
         (( first )) && { first=0; printf '\n'; } || printf ',\n'
-        printf '    { "name": "%s", "operstate": "%s", "mac": "%s" }' \
-            "$(json_esc "${HW_N_NAME[i]}")" "$(json_esc "${HW_N_OP[i]}")" "$(json_esc "${HW_N_MAC[i]}")"
+        printf '    { "name": "%s", "operstate": "%s", "mac": "%s", "physical": %s, "permanent_mac": %s, "usb_tether": %s }' \
+            "$(json_esc "${HW_N_NAME[i]}")" "$(json_esc "${HW_N_OP[i]}")" "$(json_esc "${HW_N_MAC[i]}")" \
+            "${HW_N_PHYS[i]}" "${HW_N_PERM[i]}" "${HW_N_TETH[i]}"
     done
     (( first )) || printf '\n  '
     printf '],\n'

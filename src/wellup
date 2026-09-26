@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # WellUp -- Check for system updates and apply them automatically
 # Supports: pacman (Arch), dnf/yum (Fedora/RHEL), apt (Debian/Ubuntu/Bodhi),
-#           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo)
+#           zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo),
+#           eopkg (Solus), opkg (OpenWrt), swupd (Clear Linux), pkg (Termux)
 # by wellbou_
 set -euo pipefail
 
@@ -19,6 +20,7 @@ _UP_CHECK=0
 _UP_SELF=0
 _UP_YES=0
 _UP_PACNEW=0
+_UP_FULL=0
 
 up_extra_parse() {
     case "$1" in
@@ -34,6 +36,10 @@ up_extra_parse() {
             _UP_YES=1
             _WU_EXTRA_CONSUMED=1
             return 0 ;;
+        --full)
+            _UP_FULL=1
+            _WU_EXTRA_CONSUMED=1
+            return 0 ;;
         --pacnew)
             _UP_PACNEW=1
             _WU_EXTRA_CONSUMED=1
@@ -44,6 +50,7 @@ up_extra_parse() {
 _WU_EXTRA_PARSE=up_extra_parse
 _WU_EXTRA_HELP="      --check, --list         only list available updates, do not install
       --yes, -y               apply updates without confirmation
+      --full                  apt: full-upgrade (may remove packages) instead of upgrade
       --pacnew                list leftover .pacnew/.pacsave files in /etc
       --self-update           update wellutils itself from GitHub
       --self                  alias of --self-update"
@@ -108,7 +115,17 @@ pm_check() {
     local line row
     case "$_UP_PM" in
         pacman)
-            local row rest
+            # checkupdates (pacman-contrib) syncs into a temp db, so the
+            # list is fresh without touching the real one; rc 2 = none.
+            local row rest pout="" prc=0
+            if command -v checkupdates >/dev/null 2>&1; then
+                pout=$(checkupdates 2>/dev/null) || prc=$?
+                if (( prc != 0 && prc != 2 )); then
+                    pout=$(pacman -Qu 2>/dev/null) || pout=""
+                fi
+            else
+                pout=$(pacman -Qu 2>/dev/null) || pout=""
+            fi
             while IFS= read -r line; do
                 [[ -z "$line" ]] && continue
                 row="${line%% *}"
@@ -118,7 +135,7 @@ pm_check() {
                 else
                     UP_LINES+=("$row||")
                 fi
-            done < <(pacman -Qu 2>/dev/null) ;;
+            done <<< "$pout" ;;
         dnf|yum)
             local arr
             while IFS= read -r line; do
@@ -186,22 +203,29 @@ pm_check() {
                 UP_LINES+=("$line||")
             done < <(apk info -u 2>/dev/null) ;;
         xbps-install)
-            local cols p nm nw i
+            # -Mun: "pkgname-newver action arch repo [size]"; col 0 carries
+            # the NEW version; only "update" rows are upgrades.
+            local cols p
             while IFS= read -r line; do
                 [[ -z "$line" ]] && continue
                 read -r -a cols <<< "$line"
-                p="${cols[0]//[\[\]*]/}"
-                nm="${p%-*}"
-                nw=""
-                for i in "${!cols[@]}"; do
-                    if [[ "${cols[$i]}" == "update:" && -n "${cols[$((i+1))]:-}" ]]; then
-                        nw="${cols[$((i+1))]}"
-                        nw="${nw#${cols[0]%-*}-}"
-                        break
-                    fi
-                done
-                UP_LINES+=("$nm||$nw")
-            done < <(xbps-install -un 2>/dev/null || true) ;;
+                [[ "${cols[1]:-update}" == update ]] || continue
+                p="${cols[0]}"
+                [[ "$p" == *-* ]] || continue
+                UP_LINES+=("${p%-*}||${p##*-}")
+            done < <(xbps-install -Mun 2>/dev/null || true) ;;
+        swupd)
+            # "Current OS version: N" / "Latest server version: M"
+            local cur="" lat=""
+            while IFS= read -r line; do
+                case "$line" in
+                    *"Current OS version:"*)    cur="${line##*:}"; cur="${cur//[!0-9]/}" ;;
+                    *"Latest server version:"*) lat="${line##*:}"; lat="${lat//[!0-9]/}" ;;
+                esac
+            done < <(LC_ALL=C swupd check-update 2>/dev/null || true)
+            if [[ -n "$lat" && -n "$cur" && "$lat" != "$cur" ]] && (( 10#$lat > 10#$cur )); then
+                UP_LINES+=("clear-linux-os|$cur|$lat")
+            fi ;;
         emerge)
             local t nm ver
             while IFS= read -r line; do
@@ -213,6 +237,7 @@ pm_check() {
                 UP_LINES+=("$nm||$ver")
             done < <(emerge -puDN --color=n @world 2>/dev/null || true) ;;
     esac
+    return 0
 }
 
 # ─── Root helper ───────────────────────────────────────────────
@@ -234,7 +259,11 @@ pm_update() {
         pacman)        run_priv pacman -Syu --noconfirm ;;
         dnf)           run_priv dnf upgrade -y ;;
         yum)           run_priv yum update -y ;;
-        apt-get|apt)   run_priv apt-get update -y && run_priv apt-get full-upgrade -y ;;
+        apt-get|apt)   if (( _UP_FULL )); then
+                           run_priv apt-get update -y && run_priv apt-get full-upgrade -y
+                       else
+                           run_priv apt-get update -y && run_priv apt-get upgrade -y
+                       fi ;;
         pkg)           run_priv pkg upgrade -y ;;
         zypper)        run_priv zypper --non-interactive update ;;
         apk)           run_priv apk update && run_priv apk upgrade ;;
@@ -533,6 +562,7 @@ self_main() {
     fi
 
     if ! self_fetch; then
+        [[ "$_WU_JSON" == "1" ]] && json_self_out "no-remote"
         printf '%s\n' "$(t updu_fetch_fail)" >&2
         exit 3
     fi

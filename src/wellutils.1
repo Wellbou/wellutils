@@ -1,4 +1,4 @@
-.TH WELLUTILS 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
+.TH WELLUTILS 1 "September 2026" "wellutils 1.4.0-55" "wellutils"
 .SH NAME
 wellutils \- launcher and suite of system/peripheral reporting tools
 .SH SYNOPSIS
@@ -83,12 +83,22 @@ Print version and exit.
 .B \-\-json
 Forwarded to the sub-tool: machine-readable JSON on stdout. Works for
 every tool in the suite.
+.TP
+.BR \-\-plain ", " \-\-box ", " \-\-color ", " \-\-short ", " \-\-html ", " \-\-no\-emoji
+Common output flags, forwarded to the sub-tool (dropped for
+\fBwhtml\fR, which only writes HTML).
+.TP
+.I other \-\-options
+Any other option given before the command (e.g.
+\fBwellutils \-\-all fetch\fR) is passed to the tool unchanged, after
+the command; the tool decides whether it is valid.
 .SH ENVIRONMENT
 .TP
 .B XDG_CONFIG_HOME
 Base directory for the persistent language file; defaults to
 .I ~/.config
-.
+. When neither \fBXDG_CONFIG_HOME\fR nor \fBHOME\fR is set, \fB\-\-lang\fR
+refuses to save (nothing is written to /tmp); use \fBWELLUTILS_LANG\fR.
 .SH FILES
 .TP
 .I ~/.config/wellutils/lang.conf

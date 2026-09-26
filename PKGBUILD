@@ -12,7 +12,7 @@ if [[ -z "${BUILDDIR:-}" || "${BUILDDIR:-}" -ef "${startdir:-$PWD}" ]]; then
 fi
 
 pkgname=wellutils
-_tag=1.4.0-54
+_tag=1.4.0-55
 pkgver=${_tag//-/.}
 pkgrel=1
 pkgdesc="Colourful system and peripheral reporting tools (wellper, wellhw, wellmem, wellusb, wellpci, wellblock, wellcpu, wellgpu, wellmod, wellsensors, wellfetch, wellup, wellnet, wellpower, welldoctor, whtml)"

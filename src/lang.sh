@@ -4,7 +4,7 @@
 # Set language via: ${XDG_CONFIG_HOME:-$HOME/.config}/wellutils/lang.conf
 #                    or the WELLUTILS_LANG environment variable
 
-_WELLUTILS_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/wellutils/lang.conf"
+_WELLUTILS_LANG_FILE="${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}"; _WELLUTILS_LANG_FILE="${_WELLUTILS_LANG_FILE:+$_WELLUTILS_LANG_FILE/wellutils/lang.conf}"  # no HOME: none (never /tmp)
 
 # Read saved language preference (pure bash: no sed, so tools also start
 # with a minimal PATH, e.g. busybox rescue shells or the restricted-PATH
@@ -19,7 +19,8 @@ fi
 
 # Detect language from session/system locale
 _wu_detect_lang() {
-    case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    local _loc="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+    case "${_loc,,}" in
         ru*) WELLUTILS_LANG="RU"; return 0 ;;
     esac
     local _sys_lang="" _f _line
@@ -32,7 +33,7 @@ _wu_detect_lang() {
             esac
         done < "$_f" 2>/dev/null || true
     done
-    case "$(printf '%s' "$_sys_lang" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    case "${_sys_lang,,}" in
         ru*) WELLUTILS_LANG="RU" ;;
     esac
 }
@@ -43,8 +44,10 @@ if [[ -z "${WELLUTILS_LANG:-}" && -z "${_WELLUTILS_LANG:-}" ]]; then
 fi
 WELLUTILS_LANG="${WELLUTILS_LANG:-${_WELLUTILS_LANG:-EN}}"
 
-# Validate (uppercase via tr -- bash 3.2-compatible, no ${^^})
-WELLUTILS_LANG=$(printf '%s' "${WELLUTILS_LANG:-EN}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
+# Validate. Case conversion via ${v^^}/${v,,} (bash >= 4.0, which the suite
+# requires anyway for associative arrays) -- no `tr` forks at startup.
+WELLUTILS_LANG=${WELLUTILS_LANG:-EN}
+WELLUTILS_LANG=${WELLUTILS_LANG^^}
 case "$WELLUTILS_LANG" in
     RU) WELLUTILS_LANG="RU" ;;
     *)  WELLUTILS_LANG="EN" ;;
@@ -420,7 +423,7 @@ _T_EN[net_routes]="Routes"
 _T_EN[net_ports]="Listening Ports"
 _T_EN[net_traffic]="Traffic (since boot)"
 _T_EN[net_none]="no interfaces found"
-_T_EN[pkg_not_installed]="not installed)"
+_T_EN[pkg_not_installed]="not installed"
 _T_EN[wifi_disconnected]="disconnected"
 _T_EN[wifi_no_iface]="no Wi-Fi interfaces"
 _T_EN[net_no_gw]="no default route"
@@ -562,6 +565,25 @@ _T_EN[updu_sum_fail]="SHA256 checksum mismatch: the downloaded archive was rejec
 _T_EN[updu_pkg_owned]="wellutils is installed by the system package manager"
 _T_EN[updu_pkg_hint]="Update it with your package manager (e.g. wellup), not with --self-update."
 _T_EN[done]="Report saved:"
+
+_T_EN[cpu_hv_yes]="yes"
+_T_EN[cpu_harts]="harts"
+_T_EN[sens_load_periods]="1/5/15 min"
+_T_EN[sens_mb]="MB"
+_T_EN[usb_speed_40000]="USB4 (40 Gbps)"
+_T_EN[usb_speed_80000]="USB4 v2 (80 Gbps)"
+_T_EN[usb_speed_unknown_fmt]="Unknown (%s Mbps)"
+_T_EN[usb_type_bluetooth]="Bluetooth"
+_T_EN[usb_type_receiver]="Wireless Receiver"
+_T_EN[usb_type_camera]="Camera (PTP/MTP)"
+_T_EN[blk_disk_one]="disk"
+_T_EN[blk_disk_many]="disks"
+_T_EN[blk_part_one]="partition"
+_T_EN[blk_part_many]="partitions"
+_T_EN[launcher_no_home]="HOME is not set: nowhere to save the language (set HOME or XDG_CONFIG_HOME, or use WELLUTILS_LANG=RU|EN)"
+_T_EN[launcher_lang_write_fail]="cannot write the language file"
+_T_EN[launcher_opt_needs_cmd]="this option needs a command (e.g. wellutils fetch --all)"
+_T_EN[opt_passthru]="any other option is passed to the command"
 
 # --- RU translations ---
 _T_RU[loaded]="загружена"
@@ -836,7 +858,7 @@ _T_RU[sens_active]="активно"
 _T_RU[sens_min]="МИН"
 _T_RU[sens_avg]="СРД"
 _T_RU[sens_max]="МАКС"
-_T_RU[sens_acpi_fans]="ACPI-интерфейсы управления вентиляторами"
+_T_RU[sens_acpi_fans]="Вентиляторы ACPI"
 _T_RU[sens_intel_gpu]="Intel GPU"
 _T_RU[sens_clock]="Тактовая частота"
 _T_RU[hw_title]="Отчёт о железе"
@@ -955,7 +977,7 @@ _T_RU[net_routes]="Маршруты"
 _T_RU[net_ports]="Прослушиваемые порты"
 _T_RU[net_traffic]="Трафик (с загрузки)"
 _T_RU[net_none]="интерфейсы не найдены"
-_T_RU[pkg_not_installed]="не установлен)"
+_T_RU[pkg_not_installed]="не установлен"
 _T_RU[wifi_disconnected]="нет подключения"
 _T_RU[wifi_no_iface]="Wi-Fi интерфейсов нет"
 _T_RU[net_no_gw]="шлюз по умолчанию не найден"
@@ -1069,6 +1091,26 @@ _T_RU[p_hub]="Хаб"
 _T_RU[p_hid]="HID"
 _T_RU[p_vend]="Прочее"
 _T_RU[p_dev]="Устройство"
+_T_RU[cpu_hv_yes]="да"
+_T_RU[cpu_harts]="потоков"
+_T_RU[sens_load_periods]="1/5/15 мин"
+_T_RU[sens_mb]="МБ"
+_T_RU[usb_speed_40000]="USB4 (40 Гбит/с)"
+_T_RU[usb_speed_80000]="USB4 v2 (80 Гбит/с)"
+_T_RU[usb_speed_unknown_fmt]="Неизвестно (%s Мбит/с)"
+_T_RU[usb_type_bluetooth]="Bluetooth"
+_T_RU[usb_type_receiver]="Беспроводной приёмник"
+_T_RU[usb_type_camera]="Камера (PTP/MTP)"
+_T_RU[blk_disk_one]="диск"
+_T_RU[blk_disk_few]="диска"
+_T_RU[blk_disk_many]="дисков"
+_T_RU[blk_part_one]="раздел"
+_T_RU[blk_part_few]="раздела"
+_T_RU[blk_part_many]="разделов"
+_T_RU[launcher_no_home]="HOME не задан: язык некуда сохранить (задайте HOME или XDG_CONFIG_HOME, либо используйте WELLUTILS_LANG=RU|EN)"
+_T_RU[launcher_lang_write_fail]="не удалось записать файл языка"
+_T_RU[launcher_opt_needs_cmd]="этой опции нужна команда (например, wellutils fetch --all)"
+_T_RU[opt_passthru]="любая другая опция передаётся команде"
 
 _t_param_EN() {
     case "$1" in

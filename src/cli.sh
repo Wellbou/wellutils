@@ -16,8 +16,8 @@
 # Language/color/emoji flags are honoured; WELLUTILS_LANG is exported for t().
 # shellcheck shell=bash
 
-# Portable lowercase via tr (kept for callers; bash>=4 ${var,,} also works).
-_wlc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+# Lowercase without forking tr (bash >= 4 ${var,,}); kept for callers.
+_wlc() { printf '%s' "${1,,}"; }
 
 _WU_MODE="" _WU_COLOR="auto" _WU_EMOJI="auto" _WU_DEBUG="" _WU_LANG_ARG=""
 _WU_JSON=0
@@ -91,11 +91,13 @@ wu_parse() {
         esac
     done
 
-    case "$(_wlc "$_WU_COLOR")" in
-        always|auto|never) _WU_COLOR="$(_wlc "$_WU_COLOR")" ;;
+    _WU_COLOR=${_WU_COLOR,,}
+    case "$_WU_COLOR" in
+        always|auto|never) : ;;
         *) printf '%s: --color must be always|auto|never\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
-    case "$(_wlc "$_WU_LANG_ARG")" in
+    _WU_LANG_ARG=${_WU_LANG_ARG,,}
+    case "$_WU_LANG_ARG" in
         ""|ru|en|auto) : ;;
         *) printf '%s: --lang must be ru|en|auto\n' "$_WU_TOOLNAME" >&2; exit 2 ;;
     esac
@@ -111,7 +113,7 @@ wu_parse() {
         exit 2
     fi
 
-    case "$(_wlc "$_WU_LANG_ARG")" in
+    case "$_WU_LANG_ARG" in
         ru) WELLUTILS_LANG=RU ;;
         en) WELLUTILS_LANG=EN ;;
         auto) _wu_detect_lang ;;
@@ -143,7 +145,7 @@ _wu_detect_cols() {
 # Does the locale speak UTF-8? (C.UTF-8 / en_US.utf8 do; C / POSIX don't.)
 _wu_locale_utf8() {
     local l="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
-    case "$(printf '%s' "$l" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    case "${l,,}" in
         *utf-8*|*utf8*) return 0 ;;
         ""|c|posix|c.*|posix.*) return 1 ;;
         *) return 0 ;;   # e.g. "ru_RU" on systems where UTF-8 is implied
@@ -305,8 +307,49 @@ wu_html_page() {
 }
 
 # ─── JSON output helpers ──────────────────────────────────────────
+# _wu_utf8_fix STR VAR -- replace every byte that is not part of a valid
+# UTF-8 sequence with '?' (Latin-1 firmware strings like "Kingst\xf6n" would
+# otherwise make the whole JSON document invalid). Pure bash, byte-wise under
+# LC_ALL=C; callers only use it when a non-ASCII byte is present.
+_wu_utf8_fix() {
+    local LC_ALL=C __s="$1" __o="" __c __n __i __j __k __len=${#1}
+    # Long texts (reports, logs): one iconv fork beats a per-byte bash loop.
+    # iconv -c drops invalid bytes instead of '?'; still valid JSON.
+    if (( __len > 2048 )) && command -v iconv >/dev/null 2>&1; then
+        # (-c returns 1 when it dropped bytes; an iconv without -c, e.g. some
+        # musl builds, prints nothing -> fall back to the loop below)
+        __o=$(printf '%s' "$__s" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null; printf x) || __o=x
+        __o=${__o%x}
+        if [[ -n "$__o" ]]; then printf -v "$2" '%s' "$__o"; return 0; fi
+
+    fi
+
+    for (( __i=0; __i<__len; )); do
+        __c=${__s:__i:1}
+        case "$__c" in
+            [$'\x01'-$'\x7f']) __o+=$__c; __i=$(( __i + 1 )); continue ;;
+            [$'\xc2'-$'\xdf']) __n=1 ;;
+            [$'\xe0'-$'\xef']) __n=2 ;;
+            [$'\xf0'-$'\xf4']) __n=3 ;;
+            *) __o+="?"; __i=$(( __i + 1 )); continue ;;
+        esac
+        __k=1
+        for (( __j=1; __j<=__n; __j++ )); do
+            case "${__s:__i+__j:1}" in
+                [$'\x80'-$'\xbf']) : ;;
+                *) __k=0; break ;;
+            esac
+        done
+        if (( __k )); then __o+=${__s:__i:__n+1}; __i=$(( __i + __n + 1 ))
+        else __o+="?"; __i=$(( __i + 1 )); fi
+    done
+    printf -v "$2" '%s' "$__o"
+}
+
 json_esc() {
-    local s="$1"
+    local s="$1" LC_ALL=C
+    # Fast path for ASCII: only walk bytes when a high byte is present.
+    [[ "$s" == *[$'\x80'-$'\xff']* ]] && _wu_utf8_fix "$s" s
     s=${s//\\/\\\\}
     s=${s//\"/\\\"}
     s=${s//$'\n'/\\n}
@@ -316,7 +359,6 @@ json_esc() {
     s=${s//$'\f'/\\f}
     # Fast path: no remaining control chars (the usual case) -> no per-char loop
     # (the loop costs one printf per character: 12 s on a 27 KB string).
-    local LC_ALL=C
     if [[ "$s" != *[$'\001'-$'\037'$'\177']* ]]; then printf '%s' "$s"; return; fi
     local out="" i c ord
     for (( i=0; i<${#s}; i++ )); do
@@ -334,7 +376,7 @@ json_esc() {
 # Print the JSON envelope head (no trailing comma on the date field).
 wu_json_head() {  # $1=tool  $2=version
     local sv=""
-    [[ -r "${_WU_BOOT_DIR:-}/VERSION" ]] && read -r sv < "$_WU_BOOT_DIR/VERSION"
+    [[ -r "${_WU_BOOT_DIR:-}/VERSION" ]] && { read -r sv < "$_WU_BOOT_DIR/VERSION" || [[ -n "$sv" ]]; }
     printf '{\n'
     printf '  "tool": "%s",\n' "$1"
     printf '  "version": "%s",\n' "$2"
@@ -356,7 +398,8 @@ wu_json_num() {
 # Emoji emitters: strip VS16 (U+FE0F) so terminals that render the bare
 # codepoint narrow agree with our column math (no half-wide surprises).
 # Built as raw UTF-8 bytes (EF B8 8F) -- avoids bash's $'\uFE0F' multibyte
-# expansion which can crash older bash (bash 5.1 / macOS 3.2) in substitutions.
+# expansion, which bash < 4.2 does not support (and which depends on the
+# current locale at parse time) -- raw bytes work everywhere.
 _WU_VS16=$(printf '\357\270\217')
 _emoji_clean() { local e="$1"; printf '%s' "${e//$_WU_VS16/}"; }
 _emu() { [[ "$_WU_EMOJI" == "yes" ]] && _emoji_clean "$1"; return 0; }

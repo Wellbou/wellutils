@@ -1,4 +1,4 @@
-.TH WELLHW 1 "September 2026" "wellutils 1.4.0-54" "wellutils"
+.TH WELLHW 1 "September 2026" "wellutils 1.4.0-55" "wellutils"
 .SH NAME
 wellhw \- hardware report (CPU, GPU, board, RAM, storage, network)
 .SH SYNOPSIS
@@ -47,14 +47,29 @@ Disable emoji icons.
 .B \-\-json
 Machine-readable JSON on stdout; errors still go to stderr.
 .TP
+.BI \-\-snapshot " [FILE]"
+Save the stable hardware identity (CPU, GPUs, board/BIOS, memory slots,
+storage, physical NICs with burned-in MACs) as JSON to \fIFILE\fR
+(default \fI~/.cache/wellutils/hardware-snapshot.json\fR). Requires
+.BR python3 .
+.TP
+.BI \-\-diff " [FILE]"
+Compare the current hardware against a snapshot and list changed fields.
+The snapshot may be pretty-printed or hand-edited JSON. Exits \fB1\fR when
+differences were found (see EXIT STATUS).
+.TP
 .B \-\-debug
 Enable verbose tracing.
 .SH EXIT STATUS
 .TP
 .B 0
-Success.
+Success (with \fB\-\-diff\fR: no hardware changes).
+.TP
+.B 1
+\fB\-\-diff\fR only: differences found.
 .TP
 .B 2
+
 Invalid command-line usage.
 .TP
 .B 3

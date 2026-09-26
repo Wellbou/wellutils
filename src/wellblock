@@ -25,7 +25,7 @@ _wblock_arg() {
     # /dev/disk/by-id/..., /dev/mapper/... -> kernel name
     if [[ "$a" == /dev/*/* && -L "$a" ]]; then b=$(readlink -f -- "$a" 2>/dev/null) || b=$a; a=$b; fi
     b=${a#/dev/}
-    if [[ -n "$b" && "$b" != */* && "$b" != -* && -d "/sys/block/$b" ]]; then
+    if [[ -n "$b" && "$b" != */* && "$b" != -* && "$b" != . && "$b" != .. && -d "/sys/block/$b" ]]; then
         _WU_DISK_ARG="$b"; _WU_EXTRA_CONSUMED=1; return 0
     fi
     case "$a" in
@@ -55,10 +55,11 @@ fmt_size() {
     if [[ -n "${2:-}" ]]; then printf -v "$2" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
-# _wb_rd FILE VAR [DEFAULT] -- trimmed first line of a sysfs file.
+# _wb_rd FILE VAR [DEFAULT] -- trimmed first line of a sysfs file, C0
+# controls/DEL stripped (model/serial strings come from the device).
 _wb_rd() {
     local __x=""
-    if wu_read "$1" __x; then wu_trim "$__x" __x; else __x="${3:-}"; fi
+    if wu_read "$1" __x; then wu_strip_ctl "$__x" __x; wu_trim "$__x" __x; else __x="${3:-}"; fi
     printf -v "$2" '%s' "$__x"
 }
 
@@ -94,12 +95,30 @@ wblock_scan() {
     return 0
 }
 
-# /proc/self/mounts parsed once: device -> "fstype<TAB>mountpoint".
-declare -A _WB_MNT=()
+# Mounts parsed once: device -> "fstype<TAB>mountpoint".
+# /proc/self/mountinfo is keyed by maj:min (_WB_MNT_MM), so "/dev/root" and
+# other aliases still match the partition via its sysfs "dev" file.
+declare -A _WB_MNT=() _WB_MNT_MM=()
 _WB_MNT_DONE=0
 _wb_mounts() {
     (( _WB_MNT_DONE )) && return 0; _WB_MNT_DONE=1
-    local src mp fs rest real
+    local src mp fs rest real mid pid mm root
+    local -A rootseen=()
+
+    if [[ -r /proc/self/mountinfo ]]; then
+        while read -r mid pid mm root mp rest; do
+            [[ "$rest" == *" - "* ]] || continue
+            rest=${rest#* - }; fs=${rest%% *}
+            [[ "$mm" == [1-9]*:* ]] || continue       # 0:NN = virtual fs
+            [[ "$mp" == *\\* ]] && printf -v mp '%b' "$mp"
+            # prefer the mount of the filesystem root over later bind mounts
+            if [[ "$root" == / && -z "${rootseen[$mm]+x}" ]]; then
+                rootseen[$mm]=1; _WB_MNT_MM[$mm]="$fs"$'\t'"$mp"
+            elif [[ -z "${_WB_MNT_MM[$mm]+x}" ]]; then
+                _WB_MNT_MM[$mm]="$fs"$'\t'"$mp"
+            fi
+        done < /proc/self/mountinfo
+    fi
     if [[ -r /proc/self/mounts ]]; then
         while read -r src mp fs rest; do
             [[ "$src" == /dev/* ]] || continue
@@ -138,12 +157,18 @@ _wb_udev() {
             E:ID_TYPE=*)         _U_TYPE=${l#E:ID_TYPE=} ;;
         esac
     done < "/run/udev/data/b$mm"
+    wu_strip_ctl "$_U_MODEL" _U_MODEL; wu_strip_ctl "$_U_SERIAL" _U_SERIAL
+    return 0
 }
 
 # _wb_part_info PARTNAME SYSDIR -- sets _P_FS / _P_MP (no lsblk needed).
 _wb_part_info() {
     _wb_mounts
-    local e="${_WB_MNT[$1]:-}"
+    local e="${_WB_MNT[$1]:-}" mm=""
+    if wu_read "$2/dev" mm && [[ -n "${_WB_MNT_MM[$mm]:-}" ]]; then
+        # swap is not in mountinfo: keep the name-based [SWAP] entry
+        [[ "$e" == swap$'\t'* ]] || e=${_WB_MNT_MM[$mm]}
+    fi
     _P_FS="" _P_MP=""
     if [[ -n "$e" ]]; then _P_FS=${e%%$'\t'*}; _P_MP=${e#*$'\t'}; fi
     if [[ -z "$_P_FS" ]]; then _wb_udev "$2"; _P_FS=$_U_FSTYPE; fi
@@ -237,6 +262,8 @@ _wb_smartinfo() {
             "Serial Number:"*|"Serial number:"*) wu_trim "${l#*:}" _S_SERIAL ;;
         esac
     done <<< "$out"
+    wu_strip_ctl "$_S_MODEL" _S_MODEL; wu_strip_ctl "$_S_SERIAL" _S_SERIAL
+
 }
 
 _wb_type_label() {   # sets _TL / _TC / _TI from _D_TYPE
@@ -530,7 +557,7 @@ json_out() {
         local dev="$_WB_TARGET"
         wblock_info "$dev"
         _wb_model_fix
-        local smart_avail=0 smart_health="" attrs="" afirst=1 srisk=0
+        local smart_avail=false smart_health="" attrs="" afirst=1 srisk=0
         if _wb_smart_ok; then
             _wb_smart_fetch "$_D_NAME"
             _wb_smart_parse
@@ -541,7 +568,7 @@ json_out() {
                 done <<< "$_WB_SMART_OUT"
             fi
             if (( _SM_AVAIL )); then
-                smart_avail=1
+                smart_avail=true
                 [[ "$_SM_OVERALL" == FAILED* ]] && srisk=2
                 local sid sname sval sworst sthr sraw rv sdec
                 while IFS='|' read -r sid sname sval sworst sthr sraw; do
@@ -558,9 +585,9 @@ json_out() {
                 case "$srisk" in 2) smart_health=FAILED ;; 1) smart_health=WARN ;; *) smart_health=PASSED ;; esac
             fi
         fi
+        # Same "type" vocabulary as the list view (removable, ssd, hdd, ...).
         local jtype=$_D_TYPE
-        # Detail view historically said "usb" for removable media.
-        [[ "$jtype" == removable ]] && jtype=usb
+
         printf ',\n  "disk": {\n'
         printf '    "name": "%s",\n' "$(json_esc "$_D_NAME")"
         printf '    "path": "/dev/%s",\n' "$(json_esc "$_D_NAME")"
@@ -668,19 +695,39 @@ main() {
     printf '\n  %s┌───%s %s%s%s%s\n' "$C" "$RESET" "$(_ic '📊')" "$BOLD" "$(t blk_summary)" "$RESET"
     printf '  %s│%s\n' "$C" "$RESET"
     local i p pname v psize health_badge smart_h icon
+    # smartctl -H for every eligible disk in parallel (a spinning disk can
+    # take seconds to answer); results land in one temp dir, read after wait.
+    local smdir=""
+    local -a sm_do=()
+    for (( i=0; i<total_disks; i++ )); do
+        sm_do[i]=0
+        (( smart_ok )) || continue
+        case "${r_rem[i]}" in removable|sd|raid|dm|network|zvol|flash|virtual) continue ;; esac
+        sm_do[i]=1
+    done
+    if (( smart_ok && total_disks )) && [[ " ${sm_do[*]} " == *" 1 "* ]]; then
+        smdir=$(mktemp -d 2>/dev/null) || smdir=""
+    fi
+    if [[ -n "$smdir" ]]; then
+        for (( i=0; i<total_disks; i++ )); do
+            (( sm_do[i] )) || continue
+            { wu_root_run smartctl -H "${r_name[i]}" > "$smdir/$i" 2>/dev/null || true; } &
+        done
+        wait || true
+    fi
     for (( i=0; i<total_disks; i++ )); do
         dev=${r_dev[i]}
         health_badge=""
-        if (( smart_ok )) && [[ "${r_rem[i]}" != removable && "${r_rem[i]}" != sd ]]; then
-            case "${r_rem[i]}" in raid|dm|network|zvol|flash) ;; *)
-                smart_h=$(wu_root_run smartctl -H "${r_name[i]}" 2>/dev/null) || true
-                case "$smart_h" in
-                    *PASSED*|*"Health Status: OK"*) health_badge=" ${G}✓${RESET}" ;;
-                    *FAILED*)                       health_badge=" ${R}✗${RESET}" ;;
-                esac ;;
+        if [[ -n "$smdir" ]] && (( sm_do[i] )); then
+            smart_h=""; [[ -r "$smdir/$i" ]] && smart_h=$(<"$smdir/$i")
+            case "$smart_h" in
+                *PASSED*|*"Health Status: OK"*) health_badge=" ${G}✓${RESET}" ;;
+                *FAILED*)                       health_badge=" ${R}✗${RESET}" ;;
             esac
         fi
-        icon=${r_icon[i]}; [[ -n "$icon" ]] && icon+=" "
+        # pad the icon to 2 columns: ⏏/🗄 render 1 column wide without VS16
+        icon=${r_icon[i]}
+        if [[ -n "$icon" ]]; then _wu_vislen_v "$icon"; (( _WU_VL < 2 )) && icon+=" "; icon+=" "; fi
         printf '  %s│%s  %s%s%s%s  %s%s%s  %s%s%s  %s%s%s%s\n' \
             "$C" "$RESET" "$icon" "$BOLD$W" "$(_wu_pad_r "${r_name[i]}" "$wm")" "$RESET" \
             "${r_col[i]}" "$(_wu_pad_r "${r_lbl[i]}" "$wl")" "$RESET" \
@@ -702,6 +749,7 @@ main() {
         done
         printf '  %s│%s\n' "$C" "$RESET"
     done
+    [[ -n "$smdir" ]] && rm -rf -- "$smdir"
     (( total_disks )) || printf '  %s│%s  %s%s%s\n' "$C" "$RESET" "$DIM" "$(t blk_none)" "$RESET"
     printf '  %s└┘%s\n' "$C" "$RESET"
 
@@ -732,9 +780,15 @@ main() {
     fmt_size "$total_bytes" total_human
     printf '\n  %s%s%s:%s %d %s  |  %d %s  |  %s\n' \
         "$(_ic '📊')" "$BOLD" "$(t blk_total)" "$RESET" \
-        "$total_disks" "$(t blk_disks)" "$total_parts" "$(t blk_partitions)" "$total_human"
+        "$total_disks" "$(t_plural "$total_disks" blk_disk)" "$total_parts" "$(t_plural "$total_parts" blk_part)" "$total_human"
 
-    printf '\n  %s%s %s%s\n\n' "$DIM" "$(_emu '💡')" "$(t blk_hint)" "$RESET"
+    # unframed hint: wrap to the terminal instead of overflowing it
+    local _WU_COLS hint_ic; _wu_cols
+    hint_ic=$(_emu '💡'); hint_ic=${hint_ic:+$hint_ic }
+    printf '\n'
+    _wu_wrap_print '  ' $(( _WU_COLS - 4 )) "${hint_ic}$(t blk_hint)" "$DIM"
+    printf '\n'
+
     printf '  %sWellBlock v%s | %s%s\n\n' "$DIM" "$_WU_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')" "$RESET"
 }
 
