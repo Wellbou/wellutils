@@ -716,8 +716,6 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
     # overlays: help, F9, F10, boot
     out.append('<div class="overlay" id="bootOverlay"><div class="boot-screen" id="bootText"></div></div>')
     out.append('<div class="overlay logo" id="logoOverlay"><div class="logo-screen" id="logoBox"></div></div>')
-    out.append('<div class="popup" id="bootMenu"><div class="bootmenu-box"><div class="bootmenu-title">Boot Menu</div><div class="bootmenu-list" id="bootMenuList"></div><div class="bootmenu-foot">Enter: boot &ensp;|&ensp; Esc: cancel</div></div></div>')
-    out.append('<div class="overlay" id="dosOverlay"><div class="dos-screen" id="dosText"></div></div>')
     out.append('<div class="popup" id="f9Popup"><div class="popup-box" id="f9PopupInner">'
       '<div class="msg">Load optimized defaults?<br>All current settings will be lost.</div>'
       '<div class="opts"><button class="active" id="f9Yes">[ Yes ]</button>'
@@ -736,7 +734,6 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
       '<div class="row"><span class="key">F9</span><span>Load optimal defaults</span></div>'
       '<div class="row"><span class="key">F10</span><span>Save and exit</span></div>'
       '<div class="row"><span class="key">Esc</span><span>Exit / close popup</span></div>'
-'<div class="row"><span class="key">Del / F12</span><span>F12: boot menu, Del/Esc: back to setup</span></div>'
       '<div style="margin-top:14px;text-align:center;color:#0ff">Press any key to close</div>'
       '</div></div>')
     # Values end up in innerHTML (so HTML-escape) inside a JS string literal
@@ -1036,17 +1033,6 @@ body.ami button{font-family:inherit;background:none;border:none;color:inherit;fo
 .logo-hint{position:absolute;bottom:8%;left:0;right:0;font-size:19px;color:#ccc;letter-spacing:1px}
 .logo-hint .blink{animation:blinker 1.2s steps(1) infinite}
 .logo-hint b{color:#fff}
-.bootmenu-box{background:#0000b0;border:2px solid #fff;color:#fff;padding:0;
- font:21px/1.5 "BIOS","Perfect DOS VGA 437","Courier New",monospace;min-width:520px;max-width:90vw}
-.bootmenu-title{background:#fff;color:#0000b0;text-align:center;font-weight:700;padding:4px 28px}
-.bootmenu-list{padding:12px 10px}
-.bootmenu-item{padding:4px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bootmenu-item.active{background:#fff;color:#0000b0}
-.bootmenu-item.none{color:#888}
-.bootmenu-foot{padding:8px 14px;color:#0ff;font-size:17px;text-align:center;border-top:1px solid #fff}
-.dos-screen{background:#000;color:#aaa;height:100%;width:100%;padding:26px 30px;overflow-y:auto;
- font:21px/1.5 "BIOS","Perfect DOS VGA 437","Courier New",monospace;white-space:pre-wrap;cursor:default}
-.dos-screen .cur{display:inline-block;width:12px;height:22px;background:#aaa;vertical-align:-4px;animation:blinker 1s steps(1) infinite}
 .popup{display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.55);
  align-items:center;justify-content:center}
 .popup.show{display:flex}
@@ -1077,7 +1063,6 @@ LEGEND_AMI = '''<div class="legend">
 <span><b>F1</b> Help</span>
 <span><b>F9</b> Setup Defaults</span>
 <span><b>F10</b> Save &amp; Exit</span>
-<span><b>F12</b> Boot Menu</span>
 <span><b>Esc</b> Exit</span>
 </div>
 '''
@@ -1093,10 +1078,6 @@ var bootOv=document.getElementById('bootOverlay');
 var bootEl=document.getElementById('bootText');
 var logoOv=document.getElementById('logoOverlay');
 var logoBox=document.getElementById('logoBox');
-var bootMenu=document.getElementById('bootMenu');
-var bootMenuList=document.getElementById('bootMenuList');
-var dosOv=document.getElementById('dosOverlay');
-var dosText=document.getElementById('dosText');
 var D_CPU=__BOOT_CPU__, D_MEM=__BOOT_MEM__, D_MEMMB=__BOOT_MEMMB__, D_DISKS=__BOOT_DISKS__;
 
 function show(p){
@@ -1125,8 +1106,8 @@ function showSub(p,s){
   contents.forEach(function(c,k){c.classList.toggle('active',k===s)});
 }
 function openPopup(el){el.classList.add('show')}
-function closeAll(){helpOv.classList.remove('show');f9Popup.classList.remove('show');f10Popup.classList.remove('show');bootOv.classList.remove('show');logoOv.classList.remove('show');bootMenu.classList.remove('show');dosOv.classList.remove('show')}
-function anyOpen(){return helpOv.classList.contains('show')||f9Popup.classList.contains('show')||f10Popup.classList.contains('show')||bootOv.classList.contains('show')||logoOv.classList.contains('show')||bootMenu.classList.contains('show')||dosOv.classList.contains('show')}
+function closeAll(){helpOv.classList.remove('show');f9Popup.classList.remove('show');f10Popup.classList.remove('show');bootOv.classList.remove('show');logoOv.classList.remove('show')}
+function anyOpen(){return helpOv.classList.contains('show')||f9Popup.classList.contains('show')||f10Popup.classList.contains('show')||bootOv.classList.contains('show')||logoOv.classList.contains('show')}
 
 tabs.forEach(function(t){t.onclick=function(){show(+t.dataset.p)}});
 document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){showSub(+b.dataset.p,+b.dataset.s)}});
@@ -1197,88 +1178,8 @@ function showLogo(){
     '<div class="logo-model">'+board+'</div>'+
     (logoTag?'<div class="logo-tag">'+logoTag+'</div>':'')+
     '<div class="logo-bios">AMIBIOS Version '+biosV+' ('+biosD+')<br>'+cpu_m+'</div>'+
-    '<div class="logo-hint">Press <b class="blink">DEL</b> to enter Setup&ensp;&ensp;|&ensp;&ensp;Press <b>F12</b> for Boot Menu</div>';
+    '<div class="logo-hint">Press <b class="blink">DEL</b> to enter Setup</div>';
   logoOv.classList.add('show');
-}
-
-var bootSel=0;
-function bootEntries(){
-  var e=[],i;
-  for(i=0;i<D_DISKS.length;i++){
-    if(D_DISKS[i]&&D_DISKS[i]!=='None')e.push({t:'SATA Port '+i+' : '+D_DISKS[i],d:i});
-  }
-  return e;
-}
-function openBootMenu(){
-  closeAll();
-  var e=bootEntries(),h='',i;
-  if(!e.length)h='<div class="bootmenu-item none">No bootable devices</div>';
-  for(i=0;i<e.length;i++)h+='<div class="bootmenu-item'+(i===0?' active':'')+'">'+e[i].t+'</div>';
-  bootMenuList.innerHTML=h;bootSel=0;bootMenu.classList.add('show');
-}
-function bootNav(dir){
-  var items=bootMenuList.querySelectorAll('.bootmenu-item:not(.none)');
-  if(!items.length)return;
-  bootSel=(bootSel+dir+items.length)%items.length;
-  for(var i=0;i<items.length;i++)items[i].classList.toggle('active',i===bootSel);
-}
-function bootEnter(){
-  var e=bootEntries();
-  if(e.length&&e[bootSel])runDos(e[bootSel]);
-}
-
-/* WellDOS: a couple-of-KB fake DOS. Real data where free (drive label,
-   memory size, CPU model); everything else is theatre. */
-var dosBuf='',dosScreen='',dosVol='DISK';
-function dosRender(){
-  dosText.innerHTML=dosScreen.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'<span class="cur"></span>';
-  dosText.scrollTop=dosText.scrollHeight;
-}
-function dosOut(s){dosScreen+=s;dosRender();}
-function runDos(entry){
-  closeAll();
-  dosVol=(D_DISKS[entry.d]||'disk').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11)||'DISK';
-  dosScreen='';dosBuf='';
-  dosOut('Starting MS-DOS...\\n\\n');
-  dosOut('C:\\>');
-  dosOv.classList.add('show');
-}
-function dosDir(){
-  var kb = D_MEMMB>0 ? (D_MEMMB*1024) : 8192;
-  dosOut(' Volume in drive C is '+dosVol+'\\n');
-  dosOut(' Directory of C:\\\\n\\\\n');
-  dosOut('COMMAND  COM        92,870 01-10-13   6:00a\\n');
-  dosOut('CONFIG   SYS           312 01-10-13   6:00a\\n');
-  dosOut('AUTOEXEC BAT           256 01-10-13   6:00a\\n');
-  dosOut('WELL     COM        65,536 09-26-26   6:00p\\n');
-  dosOut('        4 file(s)         93,438 bytes\\n');
-  dosOut('                      '+kb+' bytes free\\n');
-}
-function dosMem(){
-  var ext = D_MEMMB>0 ? Math.max(0,D_MEMMB*1048576-1083808) : 7340032;
-  function f(n){return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-  dosOut('Memory Type        Total       Used       Free\\n');
-  dosOut('----------------  ----------  ----------  ----------\\n');
-  dosOut('Conventional         640K        12K       628K\\n');
-  dosOut('Extended (XMS)  '+f(ext)+'   1,081,344 '+f(ext-1081344)+'\\n');
-}
-function dosExec(){
-  var raw=dosBuf, sp=raw.search(/\s/), c, arg;
-  if(sp<0){c=raw;arg='';}else{c=raw.slice(0,sp);arg=raw.slice(sp+1).trim();}
-  c=c.toUpperCase(); dosOut('\\n');
-  switch(c){
-    case '':break;
-    case 'HELP':dosOut('Supported commands:\\n  CLS  DIR  ECHO  MEM  CPU  VER  EXIT\\n');break;
-    case 'VER':dosOut('\\nMS-DOS Version 6.22 (WellDOS)\\n');break;
-    case 'CLS':dosScreen='';break;
-    case 'DIR':dosDir();break;
-    case 'MEM':dosMem();break;
-    case 'CPU':dosOut(' '+D_CPU+'\\n');break;
-    case 'ECHO':dosOut((arg==='.'?'':' '+arg)+'\\n');break;
-    case 'EXIT':closeAll();return;
-    default:dosOut('Bad command or file name\\n');
-  }
-  dosOut('C:\\>');dosBuf='';
 }
 
 function openHelp(){closeAll();openPopup(helpOv)}
@@ -1313,7 +1214,6 @@ document.addEventListener('keydown',function(ev){
   if(ev.key==='F1'){ev.preventDefault();openHelp();return}
   if(ev.key==='F9'){ev.preventDefault();openF9();return}
   if(ev.key==='F10'){ev.preventDefault();openF10();return}
-  if(ev.key==='F12'){ev.preventDefault();openBootMenu();return}
   if(ev.key==='Escape'){
     ev.preventDefault();
     if(logoOv.classList.contains('show')){logoOv.classList.remove('show');return}
@@ -1324,21 +1224,6 @@ document.addEventListener('keydown',function(ev){
     return;
   }
   if(anyOpen()){
-    if(dosOv.classList.contains('show')){
-      if(ev.key==='Escape'){ev.preventDefault();dosOv.classList.remove('show');return}
-      if(ev.key==='Enter'){ev.preventDefault();dosExec();return}
-      if(ev.key==='Backspace'){ev.preventDefault();if(dosBuf){dosBuf=dosBuf.slice(0,-1);dosScreen=dosScreen.slice(0,-1);dosRender();}return}
-      if(ev.key.length===1&&!ev.ctrlKey&&!ev.metaKey){dosBuf+=ev.key;dosOut(ev.key);return}
-      ev.preventDefault();return;
-    }
-    if(bootMenu.classList.contains('show')){
-      if(ev.key==='ArrowUp'){ev.preventDefault();bootNav(-1);return}
-      if(ev.key==='ArrowDown'){ev.preventDefault();bootNav(1);return}
-      if(ev.key==='Enter'){ev.preventDefault();bootEnter();return}
-      if(ev.key==='Escape'){ev.preventDefault();bootMenu.classList.remove('show');return}
-      return;
-    }
-    if(logoOv.classList.contains('show')&&ev.key==='F12'){ev.preventDefault();openBootMenu();return}
     if(logoOv.classList.contains('show')&&(ev.key==='Delete'||ev.key==='Enter')){ev.preventDefault();logoOv.classList.remove('show');return}
     if(f9Popup.classList.contains('show')&&(ev.key==='ArrowLeft'||ev.key==='ArrowRight')){
       ev.preventDefault();popupNav('f9Popup',ev.key==='ArrowRight'?1:-1);
