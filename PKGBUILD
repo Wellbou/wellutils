@@ -57,6 +57,8 @@ package() {
 
     # shared libraries and data
     install -m644 ./*.sh wfetch_art.py logo.png VERSION "$pkgdir/usr/share/wellutils/"
+    install -d "$pkgdir/usr/share/wellutils/whtml-logos"
+    install -m644 ./whtml-logos/*.svg "$pkgdir/usr/share/wellutils/whtml-logos/"
 
     install -m644 ./*.1 "$pkgdir/usr/share/man/man1/"
 

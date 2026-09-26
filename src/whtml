@@ -230,12 +230,13 @@ PYEOF
 _whtml_generate() {
     WHTML_FONT_B64="$_WHTML_FONT_B64" PYTHONIOENCODING=utf-8 python3 - "$_WHTML_TMP" "$(date +%Y-%m-%d\ %H:%M)" "$_WU_VERSION" "$WELLUTILS_LANG" "$_WHTML_AMI" << 'PYEOF'
 # whtml generator (self-contained)
-import json, os, html as h, sys, re, io
+import json, os, html as h, sys, re, io, base64
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 tmpdir, ts, wu_ver, lang, ami = sys.argv[1:6]
 ami = str(ami) == '1'
 FONT_B64 = os.environ.get('WHTML_FONT_B64','')
+LOGO_DIR = os.environ.get('WHTML_LOGODIR','')
 
 def load(name):
     try:
@@ -273,6 +274,79 @@ def gv(d, *ks):
         if isinstance(cur, dict) and k in cur: cur = cur[k]
         else: return None
     return cur
+
+# Boot-splash vendor logos (src/whtml-logos, vendored from the simple-icons
+# GitHub database (CC0) and Wikimedia Commons PD-textlogo files; see
+# whtml-logos/SOURCES.txt). (match keys, ymin, ymax, file, mono, tagline);
+# mono glyphs are shown white-on-black via CSS. Only the picked logo is
+# embedded into the report as a base64 data URI, so the HTML stays small
+# and sendable.
+LOGO_ASSETS = [
+    (('msi','micro-star'), None, 2014, 'msi-old.svg', False, ''),
+    (('msi','micro-star'), 2015, None, 'msi.svg', True, ''),
+    (('asus','asustek'), None, None, 'asus.svg', True, 'IN SEARCH OF INCREDIBLE'),
+    (('gigabyte','aorus'), None, 2012, 'gigabyte-old.svg', False, ''),
+    (('gigabyte','aorus'), 2013, None, 'gigabyte-new.svg', False, 'UPGRADE YOUR LIFE'),
+    (('asrock',), None, None, 'asrock.svg', False, ''),
+    (('intel',), None, 2019, 'intel-old.svg', False, ''),
+    (('intel',), 2020, None, 'intel.svg', True, ''),
+    (('dell','alienware'), None, None, 'dell.svg', True, ''),
+    (('hewlett','compaq','hp '), None, None, 'hp.svg', False, ''),
+    (('lenovo','thinkpad','thinkcentre','thinkstation','ideapad'), None, None, 'lenovo.svg', True, 'FOR THOSE WHO DO'),
+    (('acer','gateway','packard bell','emachines'), None, None, 'acer.svg', True, ''),
+    (('samsung',), None, None, 'samsung.svg', True, ''),
+    (('apple','macintosh'), None, None, 'apple.svg', True, ''),
+    (('supermicro','super micro'), None, None, 'supermicro.svg', True, ''),
+    (('toshiba','dynabook'), None, None, 'toshiba.svg', True, ''),
+    (('fujitsu','fujitsu-siemens','siemens'), None, None, 'fujitsu.svg', True, ''),
+    (('sony','vaio'), None, None, 'sony.svg', True, ''),
+    (('panasonic','letsnote','toughbook'), None, None, 'panasonic.svg', True, ''),
+    (('nec',), None, None, 'nec.svg', True, ''),
+    (('sharp',), None, None, 'sharp.svg', True, ''),
+    (('lg',), None, None, 'lg.svg', True, ''),
+    (('huawei','honor'), None, None, 'huawei.svg', True, ''),
+    (('xiaomi','redmi','poco'), None, None, 'xiaomi.svg', True, ''),
+    (('motorola','moto '), None, None, 'motorola.svg', True, ''),
+    (('nokia',), None, None, 'nokia.svg', True, ''),
+    (('corsair',), None, None, 'corsair.svg', True, ''),
+    (('nzxt',), None, None, 'nzxt.svg', True, ''),
+    (('cooler master','coolermaster'), None, None, 'coolermaster.svg', True, ''),
+    (('framework',), None, None, 'framework.svg', True, ''),
+    (('system76','system 76'), None, None, 'system76.svg', True, ''),
+]
+
+def pick_logo(board_s, year):
+    s = (' ' + str(board_s or '') + ' ').lower()
+    if not LOGO_DIR:
+        return ('', False, '')
+    ranged, plain = None, None
+    for keys, ymin, ymax, fn, mono, tag in LOGO_ASSETS:
+        if not any(k in s for k in keys):
+            continue
+        p = os.path.join(LOGO_DIR, fn)
+        try:
+            if not (os.path.isfile(p) and os.path.getsize(p) < 102400):
+                continue
+        except Exception:
+            continue
+        if year and ((ymin and year < ymin) or (ymax and year > ymax)):
+            continue
+        if ymin or ymax:
+            ranged = (p, mono, tag)
+        elif plain is None:
+            plain = (p, mono, tag)
+    best = ranged or plain
+    if not best:
+        return ('', False, '')
+    try:
+        with open(best[0], 'rb') as f:
+            raw = f.read()
+        if b'<svg' not in raw[:400]:
+            return ('', False, '')
+        uri = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
+        return (uri, best[1], best[2])
+    except Exception:
+        return ('', False, '')
 
 def run():
     host = load('host.json'); cpu = load('cpu.json'); gpu = load('gpu.json')
@@ -455,7 +529,7 @@ def run():
     # Peripherals
     per_subs = []
     if usb:
-        subt = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(u.get("name","")), esc(u.get("vendor","")), esc(u.get("class",""))) for u in usb) + '</tbody></table>'
+        subt = '<table class="mini"><tbody>' + ''.join('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(u.get("name","")), esc(u.get("vendor","")), esc(u.get("type","") or u.get("class",""))) for u in usb) + '</tbody></table>'
         per_subs.append(('USB (%d)' % len(usb), '', subt))
     if disp:
         dtrs = ''
@@ -520,7 +594,7 @@ def run():
 
     user = os.environ.get('USER') or os.environ.get('LOGNAME') or 'user'
     if ami:
-        out = render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=cpu, mem_t=mem_t, disks=disks)
+        out = render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=cpu, mem_t=mem_t, disks=disks, board=board, per=per)
     else:
         out = render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64)
     sys.stdout.write(out)
@@ -581,7 +655,19 @@ def render_cli(panels, L, R, user, host, ts, wu_ver, FONT_B64):
     return ''.join(out)
 
 # ===================================================================
-def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=None, disks=None):
+AMI_TAB_SHORT = {'Disks & S.M.A.R.T.': 'S.M.A.R.T.'}
+AMI_HELP = [
+    'System summary. Values are detected by POST, not configurable.',
+    'Processor type and speed, as detected at power-on.',
+    'Graphics adapter, driver and video memory.',
+    'System memory size, type and installed modules.',
+    'Storage devices, partitions and S.M.A.R.T. health.',
+    'USB, display, audio and PCI devices.',
+    'Network interfaces, addresses and link state.',
+    'Temperatures, fans and cooling devices.',
+    'Health checks and the overall system score.',
+]
+def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=None, disks=None, board=None, per=None):
     font_decl = ''
     if FONT_B64:
         font_decl = "@font-face{font-family:'BIOS';src:url(data:font/woff;base64," + FONT_B64 + ") format('woff')}"
@@ -597,7 +683,7 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
     # main tabs (one per panel) - horizontal nav like real BIOS
     tabs = ['<div class="tabs">']
     for i, p in enumerate(panels):
-        tabs.append('<button class="tab%s" data-p="%d">%s</button>' % (' active' if i==0 else '', i, esc(p[0])))
+        tabs.append('<button class="tab%s" data-p="%d">%s</button>' % (' active' if i==0 else '', i, esc(AMI_TAB_SHORT.get(p[0], p[0]))))
     tabs.append('</div>')
     out.append(''.join(tabs))
     # body
@@ -621,13 +707,17 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
                 out.append('<div class="miniwrap">%s</div>' % s[2])
             out.append('</div>')
         # item specific help
+        helptext = AMI_HELP[i] if i < len(AMI_HELP) else maintitle
         out.append('<div class="helpcol"><div class="helptitle">Item Specific Help</div>'
-                   '<div class="helpbody">' + esc(maintitle) + '</div></div>')
+                   '<div class="helpbody">' + esc(helptext) + '</div></div>')
         out.append('</div>')
     out.append('</div>')  # ami-body
     out.append(LEGEND_AMI)
     # overlays: help, F9, F10, boot
     out.append('<div class="overlay" id="bootOverlay"><div class="boot-screen" id="bootText"></div></div>')
+    out.append('<div class="overlay logo" id="logoOverlay"><div class="logo-screen" id="logoBox"></div></div>')
+    out.append('<div class="popup" id="bootMenu"><div class="bootmenu-box"><div class="bootmenu-title">Boot Menu</div><div class="bootmenu-list" id="bootMenuList"></div><div class="bootmenu-foot">Enter: boot &ensp;|&ensp; Esc: cancel</div></div></div>')
+    out.append('<div class="overlay" id="dosOverlay"><div class="dos-screen" id="dosText"></div></div>')
     out.append('<div class="popup" id="f9Popup"><div class="popup-box" id="f9PopupInner">'
       '<div class="msg">Load optimized defaults?<br>All current settings will be lost.</div>'
       '<div class="opts"><button class="active" id="f9Yes">[ Yes ]</button>'
@@ -646,16 +736,50 @@ def render_ami(panels, L, R, user, host, ts, wu_ver, FONT_B64, cpu=None, mem_t=N
       '<div class="row"><span class="key">F9</span><span>Load optimal defaults</span></div>'
       '<div class="row"><span class="key">F10</span><span>Save and exit</span></div>'
       '<div class="row"><span class="key">Esc</span><span>Exit / close popup</span></div>'
+'<div class="row"><span class="key">Del / F12</span><span>F12: boot menu, Del/Esc: back to setup</span></div>'
       '<div style="margin-top:14px;text-align:center;color:#0ff">Press any key to close</div>'
       '</div></div>')
     # Values end up in innerHTML (so HTML-escape) inside a JS string literal
     # (so JSON-encode): a CPU/disk name can never inject markup or script.
-    boot_cpu = js(esc(str((gv(cpu,'model') if cpu else None) or 'N/A')))
+    cpu = cpu if isinstance(cpu, dict) else {}
+    board = board if isinstance(board, dict) else {}
+    bt = board.get('bios') if isinstance(board.get('bios'), dict) else {}
+    cpu_model = str(gv(cpu,'model') or gv(cpu,'name') or 'N/A')
+    cpuhz = ''
+    khz = num(gv(cpu,'max_freq_khz'))
+    if khz: cpuhz = '%d MHz' % int(round(khz/1000.0))
+    else:
+        m = re.search(r'@\s*([\d.]+)\s*GHz', cpu_model)
+        if m: cpuhz = '%d MHz' % int(round(float(m.group(1))*1000.0))
+    mem_mb = int(round(mem_t*1024)) if num(mem_t) else 0
+    bios_v = str(bt.get('version','') or '').strip()
+    bios_d = str(bt.get('date','') or '').strip()
+    bios_vdr = str(bt.get('vendor','') or board.get('vendor','') or '').strip()
+    year = ''
+    my = re.search(r'(19|20)\d{2}', bios_d)
+    if my: year = my.group(0)
+    usbtypes = ' '.join(str(u.get('type','')) for u in dl((per or {}).get('usb'))).lower()
+    board_s = ((str(board.get('vendor','')) + ' ' + str(board.get('name',''))).strip())
+    year_int = None
+    try: year_int = int(year) if year else None
+    except Exception: year_int = None
+    logo_uri, logo_mono, logo_tag = pick_logo(board_s, year_int)
+    bvendor = (str(board.get('vendor','')).strip().split() or ['AMIBIOS'])[0]
+    boot_cpu = js(esc(cpu_model))
     boot_mem = js(esc(str(mem_t)+' GB' if mem_t else 'N/A'))
     bd = [esc(str(d.get('model','') or d.get('name','') or 'None')) for d in (disks[:4] if disks else [])]
     while len(bd) < 4: bd.append('None')
     boot_disks_js = '[' + ','.join(js(x) for x in bd) + ']'
-    js_boot = fill(JS_AMI, {'__BOOT_CPU__': boot_cpu, '__BOOT_MEM__': boot_mem, '__BOOT_DISKS__': boot_disks_js})
+    js_boot = fill(JS_AMI, {'__BOOT_CPU__': boot_cpu, '__BOOT_MEM__': boot_mem, '__BOOT_DISKS__': boot_disks_js,
+        '__BOOT_BIOSV__': js(esc(bios_v or 'N/A')), '__BOOT_BIOSD__': js(esc(bios_d or 'N/A')),
+        '__BOOT_BIOSVDR__': js(esc(bios_vdr or 'American Megatrends Inc.')),
+        '__BOOT_YEAR__': js(esc(year or '2013')), '__BOOT_CPUHZ__': js(esc(cpuhz or 'N/A')),
+        '__BOOT_MEMMB__': str(mem_mb),
+        '__BOOT_BOARD__': js(esc(board_s or 'N/A')),
+        '__BOOT_USBKB__': '1' if 'keyboard' in usbtypes else '0',
+        '__BOOT_USBMOUSE__': '1' if ('mouse' in usbtypes or 'receiver' in usbtypes) else '0',
+        '__BOOT_LOGOIMG__': js(logo_uri), '__BOOT_LOGOMONO__': '1' if logo_mono else '0',
+        '__BOOT_LOGOTAG__': js(esc(logo_tag)), '__BOOT_BVENDOR__': js(esc(bvendor))})
     out.append(js_boot)
     out.append('</body></html>')
     return ''.join(out)
@@ -691,7 +815,7 @@ header .prompt .cmd{color:var(--fg)}
 header .prompt .cursor{display:inline-block;width:8px;background:var(--grn);animation:blink 1.1s steps(1) infinite;vertical-align:-1px}
 @keyframes blink{50%{opacity:0}}
 header .ctrl{display:flex;gap:8px;align-items:center}
-.key{color:var(--muted);font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:2px 7px;background:var(--panel2)}
+.key{color:var(--muted);font-size:12px;border:1px solid var(--bd);border-radius:4px;padding:2px 7px;background:var(--panel2)}
 .btn{background:var(--panel2);color:var(--grn);border:1px solid var(--bd);border-radius:6px;padding:7px 12px;
  font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;font-family:inherit}
 .btn:hover{border-color:var(--grn);color:var(--grn)}
@@ -706,7 +830,7 @@ nav button.active .idx{color:var(--grn)}
  width:100%;padding:6px 14px;background:var(--panel);border:1px solid var(--grn);border-radius:6px;color:var(--fg);font-size:13px}
 #search .p{color:var(--grn)}
 #search input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-family:inherit;font-size:13px}
-#search .count{color:var(--muted);font-size:11px}
+#search .count{color:var(--muted);font-size:12px}
 main{flex:1;padding:18px;max-width:980px;width:100%;margin:0 auto}
 .panel{display:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:6px 14px;overflow-x:auto}
 .panel.active{display:block}
@@ -716,24 +840,24 @@ td.lbl{color:var(--muted);width:210px;font-weight:600;white-space:nowrap}
 td.lbl::before{content:"$ ";color:var(--dim)}
 td.ai{background:var(--hlbg);color:var(--fg)}
 td.ai::before{content:"ai ";color:var(--cyn);font-weight:700}
-.mini{margin:2px 0;font-size:12.5px;width:100%}
+.mini{margin:2px 0;font-size:13px;width:100%}
 .mini td{border-bottom:1px solid var(--panel2);padding:3px 8px}
 .mini td.lbl{width:auto}
 .mini td::before{content:none}
 .muted{color:var(--muted)}
-.badge{border-radius:4px;padding:1px 7px;font-size:10.5px;font-weight:700}
+.badge{border-radius:4px;padding:1px 7px;font-size:12px;font-weight:700}
 .badge.ok{color:#1e2b1a;background:var(--grn)}
 .badge.warn{color:#1e2b1a;background:var(--ylw)}
 .badge.crit{color:#fff;background:var(--red)}
 .badge.info{color:var(--fg);background:var(--dim)}
 .subnav{display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 10px}
 .subnav button{background:transparent;color:var(--muted);border:1px solid transparent;border-radius:5px;padding:3px 8px;
- font-size:11.5px;cursor:pointer;font-family:inherit}
+ font-size:12.5px;cursor:pointer;font-family:inherit}
 .subnav button:hover{color:var(--fg)}
 .subnav button.active{color:var(--grn);border-color:var(--grn);background:var(--hlbg)}
 .subpanel{display:none}
 .subpanel.active{display:block}
-footer{padding:14px 20px;text-align:center;color:var(--muted);font-size:11px;border-top:1px solid var(--bd)}
+footer{padding:14px 20px;text-align:center;color:var(--muted);font-size:12px;border-top:1px solid var(--bd)}
 footer .hint{color:var(--dim)}
 #help{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
 #help.open{display:flex}
@@ -742,7 +866,7 @@ footer .hint{color:var(--dim)}
 #help h2{color:var(--grn);font-size:14px;margin:0 0 12px;letter-spacing:.5px;text-transform:uppercase}
 #help .row{display:flex;justify-content:space-between;gap:20px;padding:5px 0;border-bottom:1px solid var(--panel2);font-size:13px}
 #help .row .k{color:var(--cyn);font-weight:700}
-#help .close{margin-top:14px;text-align:right;color:var(--muted);font-size:11px}
+#help .close{margin-top:14px;text-align:right;color:var(--muted);font-size:12px}
 @media (max-width:760px){td.lbl{width:130px}}
 @media print{body{background:#fff;color:#000}header,nav,footer,#help,#search{position:static}.panel{display:block!important;border:none}nav{display:none}}
 '''
@@ -856,7 +980,7 @@ body.ami button{font-family:inherit;background:none;border:none;color:inherit;fo
 .banner .bversion{font-size:0.7em;color:#e0f2ff}
 .tabs{display:flex;background:var(--blueDark);color:var(--grey)}
 .tabs .tab{flex:1;color:var(--grey);padding:7px 4px;text-align:center;border-right:1px solid #1f2f9f;
- text-transform:capitalize;cursor:default}
+ text-transform:capitalize;cursor:default;white-space:nowrap;font-size:0.86em}
 .tabs .tab:last-child{border-right:none}
 .tabs .tab.active{background:var(--grey);color:var(--blueDark)}
 .tabs .tab:hover{color:#fff}
@@ -900,6 +1024,29 @@ body.ami button{font-family:inherit;background:none;border:none;color:inherit;fo
 .boot-screen .fail{color:#a00}
 .boot-screen .blink{animation:blinker 1s steps(1) infinite}
 @keyframes blinker{50%{opacity:0}}
+.overlay.logo{background:#000}
+.logo-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;
+ font-family:"BIOS","Perfect DOS VGA 437","Courier New",monospace;text-align:center;cursor:default}
+.logo-img{max-width:min(560px,78vw);max-height:230px;margin:0}
+.logo-mono{filter:brightness(0) invert(1)}
+.logo-brand{font-size:96px;font-weight:700;letter-spacing:14px;line-height:1;margin:0}
+.logo-model{font-size:30px;letter-spacing:6px;margin:26px 0 0;color:#fff}
+.logo-tag{font-size:20px;letter-spacing:4px;margin:12px 0 0;opacity:.85}
+.logo-bios{font-size:18px;margin:40px 0 0;color:#888;letter-spacing:2px}
+.logo-hint{position:absolute;bottom:8%;left:0;right:0;font-size:19px;color:#ccc;letter-spacing:1px}
+.logo-hint .blink{animation:blinker 1.2s steps(1) infinite}
+.logo-hint b{color:#fff}
+.bootmenu-box{background:#0000b0;border:2px solid #fff;color:#fff;padding:0;
+ font:21px/1.5 "BIOS","Perfect DOS VGA 437","Courier New",monospace;min-width:520px;max-width:90vw}
+.bootmenu-title{background:#fff;color:#0000b0;text-align:center;font-weight:700;padding:4px 28px}
+.bootmenu-list{padding:12px 10px}
+.bootmenu-item{padding:4px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bootmenu-item.active{background:#fff;color:#0000b0}
+.bootmenu-item.none{color:#888}
+.bootmenu-foot{padding:8px 14px;color:#0ff;font-size:17px;text-align:center;border-top:1px solid #fff}
+.dos-screen{background:#000;color:#aaa;height:100%;width:100%;padding:26px 30px;overflow-y:auto;
+ font:21px/1.5 "BIOS","Perfect DOS VGA 437","Courier New",monospace;white-space:pre-wrap;cursor:default}
+.dos-screen .cur{display:inline-block;width:12px;height:22px;background:#aaa;vertical-align:-4px;animation:blinker 1s steps(1) infinite}
 .popup{display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.55);
  align-items:center;justify-content:center}
 .popup.show{display:flex}
@@ -930,6 +1077,7 @@ LEGEND_AMI = '''<div class="legend">
 <span><b>F1</b> Help</span>
 <span><b>F9</b> Setup Defaults</span>
 <span><b>F10</b> Save &amp; Exit</span>
+<span><b>F12</b> Boot Menu</span>
 <span><b>Esc</b> Exit</span>
 </div>
 '''
@@ -943,6 +1091,13 @@ var f9Popup=document.getElementById('f9Popup');
 var f10Popup=document.getElementById('f10Popup');
 var bootOv=document.getElementById('bootOverlay');
 var bootEl=document.getElementById('bootText');
+var logoOv=document.getElementById('logoOverlay');
+var logoBox=document.getElementById('logoBox');
+var bootMenu=document.getElementById('bootMenu');
+var bootMenuList=document.getElementById('bootMenuList');
+var dosOv=document.getElementById('dosOverlay');
+var dosText=document.getElementById('dosText');
+var D_CPU=__BOOT_CPU__, D_MEM=__BOOT_MEM__, D_MEMMB=__BOOT_MEMMB__, D_DISKS=__BOOT_DISKS__;
 
 function show(p){
   p=(p%panes.length+panes.length)%panes.length;
@@ -970,46 +1125,160 @@ function showSub(p,s){
   contents.forEach(function(c,k){c.classList.toggle('active',k===s)});
 }
 function openPopup(el){el.classList.add('show')}
-function closeAll(){helpOv.classList.remove('show');f9Popup.classList.remove('show');f10Popup.classList.remove('show');bootOv.classList.remove('show')}
-function anyOpen(){return helpOv.classList.contains('show')||f9Popup.classList.contains('show')||f10Popup.classList.contains('show')||bootOv.classList.contains('show')}
+function closeAll(){helpOv.classList.remove('show');f9Popup.classList.remove('show');f10Popup.classList.remove('show');bootOv.classList.remove('show');logoOv.classList.remove('show');bootMenu.classList.remove('show');dosOv.classList.remove('show')}
+function anyOpen(){return helpOv.classList.contains('show')||f9Popup.classList.contains('show')||f10Popup.classList.contains('show')||bootOv.classList.contains('show')||logoOv.classList.contains('show')||bootMenu.classList.contains('show')||dosOv.classList.contains('show')}
 
 tabs.forEach(function(t){t.onclick=function(){show(+t.dataset.p)}});
 document.querySelectorAll('.subit').forEach(function(b){b.onclick=function(){showSub(+b.dataset.p,+b.dataset.s)}});
 
 function runBoot(){
   closeAll();bootEl.innerHTML='';bootOv.classList.add('show');
-  var cpu_m=__BOOT_CPU__;
-  var mem_s=__BOOT_MEM__;
-  var disks=__BOOT_DISKS__;
-  var lines=[
-    '<span class="hi">AMIBIOS (C)2024 American Megatrends Inc.,</span>','','',
-    'BIOS Version : 08.00.15   Build Date : Jan 15 2024','','',
+  var cpu_m=D_CPU;
+  var mem_s=D_MEM;
+  var memMB=D_MEMMB;
+  var disks=D_DISKS;
+  var biosV=__BOOT_BIOSV__, biosD=__BOOT_BIOSD__, biosVdr=__BOOT_BIOSVDR__, year=__BOOT_YEAR__;
+  var cpuhz=__BOOT_CPUHZ__;
+  var board=__BOOT_BOARD__;
+  var hasKB=__BOOT_USBKB__==1, hasMouse=__BOOT_USBMOUSE__==1;
+  var pre=[
+    '<span class="hi">AMIBIOS (C)'+year+' '+biosVdr+',</span>','','',
+    'BIOS Version : '+biosV+'   Build Date : '+biosD,'','',
     'Main Processor : <span class="hi">'+cpu_m+'</span>',
-    'Processor Speed : '+mem_s.split(' ')[0]+'x100 MHz','','',
-    'Memory Test :   <span class="ok">'+mem_s+'</span>',
-    'Performing memory test...  <span class="ok">OK</span>','','',
-    'ATA Channel 0 Master : <span class="hi">'+(disks[0]||'None')+'</span>',
-    'ATA Channel 0 Slave  : <span class="hi">'+(disks[1]||'None')+'</span>',
-    'ATA Channel 1 Master : <span class="hi">'+(disks[2]||'None')+'</span>',
-    'ATA Channel 1 Slave  : <span class="hi">'+(disks[3]||'None')+'</span>','','',
-    'SATA Port 0 : <span class="hi">'+(disks[0]||'None')+'</span>',
-    'SATA Port 1 : <span class="hi">'+(disks[1]||'None')+'</span>','','',
-    'USB Device : Mouse              ... <span class="ok">OK</span>',
-    'USB Device : Keyboard           ... <span class="ok">OK</span>',
-    'USB Mass Storage               ... <span class="ok">OK</span>','','',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>',
-    '<span class="warn">No bootable device -- please restart system</span>'
+    'Processor Speed : '+cpuhz,'',''
   ];
-  var i=0;(function next(){if(i>=lines.length||!bootOv.classList.contains('show'))return;
-    bootEl.innerHTML+=lines[i]+'\\n';i++;setTimeout(next,i<=8?50:800)})();
+  var post=[
+    'Initializing USB Controllers .. <span class="ok">Done</span>',
+    hasKB?'USB Device : Keyboard            ... <span class="ok">OK</span>':'',
+    hasMouse?'USB Device : Mouse               ... <span class="ok">OK</span>':'',
+    'Auto-Detecting SATA Drives .. <span class="ok">Done</span>',
+    'SATA Port 0 : <span class="hi">'+(disks[0]||'None')+'</span>',
+    'SATA Port 1 : <span class="hi">'+(disks[1]||'None')+'</span>',
+    'SATA Port 2 : <span class="hi">'+(disks[2]||'None')+'</span>',
+    'SATA Port 3 : <span class="hi">'+(disks[3]||'None')+'</span>','','',
+    'Press <span class="hi">DEL</span> to run Setup'
+  ];
+  var i=0,preHtml='';
+  function alive(){return bootOv.classList.contains('show')}
+  (function nextPre(){
+    if(!alive())return;
+    if(i<pre.length){preHtml+=pre[i]+'\\n';bootEl.innerHTML=preHtml;i++;setTimeout(nextPre,45);return}
+    memAnim();
+  })();
+  function memAnim(){
+    if(!(memMB>0)){preHtml+='Memory Test :   <span class="ok">'+mem_s+'</span>\\n';bootEl.innerHTML=preHtml;typePost();return}
+    var v=0,step=Math.max(128,Math.ceil(memMB/36));
+    var t=setInterval(function(){
+      if(!alive()){clearInterval(t);return}
+      v+=step;
+      if(v>=memMB){v=memMB;clearInterval(t);
+        bootEl.innerHTML=preHtml+'Memory Test :   <span class="ok">'+v+'MB OK</span>\\n';
+        preHtml=bootEl.innerHTML;setTimeout(typePost,300);return}
+      bootEl.innerHTML=preHtml+'Memory Test :   '+v+'MB\\n';
+    },40);
+  }
+  var j=0;
+  function typePost(){
+    if(!alive())return;
+    if(j<post.length){bootEl.innerHTML+=post[j]+'\\n';j++;setTimeout(typePost,j<=4?120:200);return}
+    setTimeout(function(){if(alive())showLogo()},1400);
+  }
+}
+
+function showLogo(){
+  bootOv.classList.remove('show');
+  var biosV=__BOOT_BIOSV__, biosD=__BOOT_BIOSD__, cpu_m=__BOOT_CPU__;
+  var board=__BOOT_BOARD__;
+  var logoImg=__BOOT_LOGOIMG__, logoMono=__BOOT_LOGOMONO__==1, logoTag=__BOOT_LOGOTAG__, bvendor=__BOOT_BVENDOR__;
+  var logoHtml = logoImg
+    ? '<img class="logo-img'+(logoMono?' logo-mono':'')+'" src="'+logoImg+'" alt="vendor logo">'
+    : '<div class="logo-brand" style="color:#aaaaaa">'+bvendor+'</div>';
+  logoBox.innerHTML = logoHtml+
+    '<div class="logo-model">'+board+'</div>'+
+    (logoTag?'<div class="logo-tag">'+logoTag+'</div>':'')+
+    '<div class="logo-bios">AMIBIOS Version '+biosV+' ('+biosD+')<br>'+cpu_m+'</div>'+
+    '<div class="logo-hint">Press <b class="blink">DEL</b> to enter Setup&ensp;&ensp;|&ensp;&ensp;Press <b>F12</b> for Boot Menu</div>';
+  logoOv.classList.add('show');
+}
+
+var bootSel=0;
+function bootEntries(){
+  var e=[],i;
+  for(i=0;i<D_DISKS.length;i++){
+    if(D_DISKS[i]&&D_DISKS[i]!=='None')e.push({t:'SATA Port '+i+' : '+D_DISKS[i],d:i});
+  }
+  return e;
+}
+function openBootMenu(){
+  closeAll();
+  var e=bootEntries(),h='',i;
+  if(!e.length)h='<div class="bootmenu-item none">No bootable devices</div>';
+  for(i=0;i<e.length;i++)h+='<div class="bootmenu-item'+(i===0?' active':'')+'">'+e[i].t+'</div>';
+  bootMenuList.innerHTML=h;bootSel=0;bootMenu.classList.add('show');
+}
+function bootNav(dir){
+  var items=bootMenuList.querySelectorAll('.bootmenu-item:not(.none)');
+  if(!items.length)return;
+  bootSel=(bootSel+dir+items.length)%items.length;
+  for(var i=0;i<items.length;i++)items[i].classList.toggle('active',i===bootSel);
+}
+function bootEnter(){
+  var e=bootEntries();
+  if(e.length&&e[bootSel])runDos(e[bootSel]);
+}
+
+/* WellDOS: a couple-of-KB fake DOS. Real data where free (drive label,
+   memory size, CPU model); everything else is theatre. */
+var dosBuf='',dosScreen='',dosVol='DISK';
+function dosRender(){
+  dosText.innerHTML=dosScreen.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'<span class="cur"></span>';
+  dosText.scrollTop=dosText.scrollHeight;
+}
+function dosOut(s){dosScreen+=s;dosRender();}
+function runDos(entry){
+  closeAll();
+  dosVol=(D_DISKS[entry.d]||'disk').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11)||'DISK';
+  dosScreen='';dosBuf='';
+  dosOut('Starting MS-DOS...\\n\\n');
+  dosOut('C:\\>');
+  dosOv.classList.add('show');
+}
+function dosDir(){
+  var kb = D_MEMMB>0 ? (D_MEMMB*1024) : 8192;
+  dosOut(' Volume in drive C is '+dosVol+'\\n');
+  dosOut(' Directory of C:\\\\n\\\\n');
+  dosOut('COMMAND  COM        92,870 01-10-13   6:00a\\n');
+  dosOut('CONFIG   SYS           312 01-10-13   6:00a\\n');
+  dosOut('AUTOEXEC BAT           256 01-10-13   6:00a\\n');
+  dosOut('WELL     COM        65,536 09-26-26   6:00p\\n');
+  dosOut('        4 file(s)         93,438 bytes\\n');
+  dosOut('                      '+kb+' bytes free\\n');
+}
+function dosMem(){
+  var ext = D_MEMMB>0 ? Math.max(0,D_MEMMB*1048576-1083808) : 7340032;
+  function f(n){return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+  dosOut('Memory Type        Total       Used       Free\\n');
+  dosOut('----------------  ----------  ----------  ----------\\n');
+  dosOut('Conventional         640K        12K       628K\\n');
+  dosOut('Extended (XMS)  '+f(ext)+'   1,081,344 '+f(ext-1081344)+'\\n');
+}
+function dosExec(){
+  var raw=dosBuf, sp=raw.search(/\s/), c, arg;
+  if(sp<0){c=raw;arg='';}else{c=raw.slice(0,sp);arg=raw.slice(sp+1).trim();}
+  c=c.toUpperCase(); dosOut('\\n');
+  switch(c){
+    case '':break;
+    case 'HELP':dosOut('Supported commands:\\n  CLS  DIR  ECHO  MEM  CPU  VER  EXIT\\n');break;
+    case 'VER':dosOut('\\nMS-DOS Version 6.22 (WellDOS)\\n');break;
+    case 'CLS':dosScreen='';break;
+    case 'DIR':dosDir();break;
+    case 'MEM':dosMem();break;
+    case 'CPU':dosOut(' '+D_CPU+'\\n');break;
+    case 'ECHO':dosOut((arg==='.'?'':' '+arg)+'\\n');break;
+    case 'EXIT':closeAll();return;
+    default:dosOut('Bad command or file name\\n');
+  }
+  dosOut('C:\\>');dosBuf='';
 }
 
 function openHelp(){closeAll();openPopup(helpOv)}
@@ -1038,13 +1307,16 @@ document.getElementById('f10Yes').onclick=function(){runBoot()};
 document.getElementById('f10No').onclick=function(){f10Popup.classList.remove('show')};
 helpOv.onclick=function(){helpOv.classList.remove('show')};
 bootOv.onclick=function(){bootOv.classList.remove('show')};
+logoOv.onclick=function(){logoOv.classList.remove('show')};
 
 document.addEventListener('keydown',function(ev){
   if(ev.key==='F1'){ev.preventDefault();openHelp();return}
   if(ev.key==='F9'){ev.preventDefault();openF9();return}
   if(ev.key==='F10'){ev.preventDefault();openF10();return}
+  if(ev.key==='F12'){ev.preventDefault();openBootMenu();return}
   if(ev.key==='Escape'){
     ev.preventDefault();
+    if(logoOv.classList.contains('show')){logoOv.classList.remove('show');return}
     if(bootOv.classList.contains('show')){bootOv.classList.remove('show');return}
     if(helpOv.classList.contains('show')){helpOv.classList.remove('show');return}
     if(f9Popup.classList.contains('show')){f9Popup.classList.remove('show');return}
@@ -1052,6 +1324,22 @@ document.addEventListener('keydown',function(ev){
     return;
   }
   if(anyOpen()){
+    if(dosOv.classList.contains('show')){
+      if(ev.key==='Escape'){ev.preventDefault();dosOv.classList.remove('show');return}
+      if(ev.key==='Enter'){ev.preventDefault();dosExec();return}
+      if(ev.key==='Backspace'){ev.preventDefault();if(dosBuf){dosBuf=dosBuf.slice(0,-1);dosScreen=dosScreen.slice(0,-1);dosRender();}return}
+      if(ev.key.length===1&&!ev.ctrlKey&&!ev.metaKey){dosBuf+=ev.key;dosOut(ev.key);return}
+      ev.preventDefault();return;
+    }
+    if(bootMenu.classList.contains('show')){
+      if(ev.key==='ArrowUp'){ev.preventDefault();bootNav(-1);return}
+      if(ev.key==='ArrowDown'){ev.preventDefault();bootNav(1);return}
+      if(ev.key==='Enter'){ev.preventDefault();bootEnter();return}
+      if(ev.key==='Escape'){ev.preventDefault();bootMenu.classList.remove('show');return}
+      return;
+    }
+    if(logoOv.classList.contains('show')&&ev.key==='F12'){ev.preventDefault();openBootMenu();return}
+    if(logoOv.classList.contains('show')&&(ev.key==='Delete'||ev.key==='Enter')){ev.preventDefault();logoOv.classList.remove('show');return}
     if(f9Popup.classList.contains('show')&&(ev.key==='ArrowLeft'||ev.key==='ArrowRight')){
       ev.preventDefault();popupNav('f9Popup',ev.key==='ArrowRight'?1:-1);
     }
@@ -1184,7 +1472,14 @@ PYEOF
     fi
 
     _whtml_log "building HTML..."
-    local html
+    local html _whtml_selfdir=""
+    _whtml_selfdir=$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null) || _whtml_selfdir=""
+    _whtml_selfdir="${_whtml_selfdir%/*}"
+    export WHTML_LOGODIR=""
+    local _whtml_ld
+    for _whtml_ld in "$_whtml_selfdir/whtml-logos" "$_WU_BOOT_DIR/whtml-logos"; do
+        if [[ -d "$_whtml_ld" ]]; then WHTML_LOGODIR="$_whtml_ld"; break; fi
+    done
     if ! html="$( _whtml_generate )"; then
         echo "whtml: generation failed (see above)" >&2
         exit 3

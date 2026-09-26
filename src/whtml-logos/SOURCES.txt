@@ -1,0 +1,15 @@
+# Vendor logos for the whtml --ami boot splash.
+# Only the ONE logo matching the detected board is embedded into the report
+# (base64 data URI, a few KB); the rest stay here in the repo/package.
+#
+# Sources & licenses:
+# - *.svg from simple-icons (https://github.com/simple-icons/simple-icons),
+#   CC0 1.0 Universal. Monochrome glyphs, shown white-on-black via CSS.
+# - msi-old.svg: MicroStarInternational.svg, Wikimedia Commons, PD-textlogo.
+# - gigabyte-old.svg: Gigabyte Technology logo 20080107.svg, Commons, PD-textlogo.
+# - gigabyte-new.svg: Gigabyte Technology Logo.svg, Commons, PD-textlogo.
+# - intel-old.svg: Intel logo (2006-2020).svg, Commons, PD-textlogo.
+# - hp.svg: HP logo 2012.svg, Commons, PD-textlogo.
+# - asrock.svg: ASRock logo.svg, Commons, PD-textlogo.
+# All Commons files additionally carry a trademark notice: vendor names and
+# logos belong to their owners; they are used here for hardware identification.

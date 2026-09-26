@@ -464,6 +464,9 @@ collect_files() {
     for f in "$src"/*.sh "$src"/wfetch_art.py "$src"/logo.png "$src"/VERSION; do
         [[ -f "$f" ]] && add_file "$f" "$LIBDIR/${f##*/}" 644
     done
+    for f in "$src"/whtml-logos/*.svg; do
+        [[ -f "$f" ]] && add_file "$f" "$LIBDIR/whtml-logos/${f##*/}" 644
+    done
     for f in "$src"/*.1; do
         [[ -f "$f" ]] && add_file "$f" "$MANDIR/${f##*/}" 644
     done
@@ -561,6 +564,7 @@ do_install() {
     fi
 
     run install -d "$BINDIR" "$LIBDIR" "$MANDIR" "$BASHCOMP" "$ZSHCOMP" "$FISHCOMP" || return 1
+    [[ -d "$src/whtml-logos" ]] && { run install -d "$LIBDIR/whtml-logos" || return 1; }
     [[ -f "$src/LICENSE" ]] && { run install -d "$LICDIR" || fail=1; }
     pkg_owner_scan ${F_DST[@]+"${F_DST[@]}"} ${L_DST[@]+"${L_DST[@]}"} ${old[@]+"${old[@]}"}
     # only files we actually wrote go into the manifest: a refused,
@@ -637,7 +641,7 @@ do_uninstall() {
     run rm -f "$MANIFEST" || true
     # remove directories only when they ended up empty
     local d
-    for d in "$LIBDIR" "$LICDIR" "$PREFIX/share/licenses" "$MANDIR" "$PREFIX/share/man" \
+    for d in "$LIBDIR/whtml-logos" "$LIBDIR" "$LICDIR" "$PREFIX/share/licenses" "$MANDIR" "$PREFIX/share/man" \
              "$BASHCOMP" "$PREFIX/share/bash-completion" "$ZSHCOMP" "$PREFIX/share/zsh" \
              "$FISHCOMP" "$PREFIX/share/fish" "$PREFIX/share" "$BINDIR" "$PREFIX"; do
         if [[ $DRY -eq 1 ]]; then
