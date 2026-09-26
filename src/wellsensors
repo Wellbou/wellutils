@@ -494,13 +494,15 @@ ws_disk_model() {
     printf '%s' "${model:-$(t hw_unknown)}"
 }
 
-# _ws_disk_temp DEV -> _WS_DT ("" if unknown). Order: kernel hwmon
-# (nvme / drivetemp: no root, never wakes the disk), then nvme-cli /
-# smartctl -n standby (skips spun-down HDDs), then hddtemp.
+# _ws_disk_temp DEV -> _WS_DT ("" if unknown), _WS_DT_STATE ("" | standby).
+# Order: kernel hwmon (nvme / drivetemp: no root, never wakes the disk),
+# then nvme-cli / smartctl -n standby (never wakes spun-down HDDs),
+# then hddtemp. A disk in STANDBY is reported, not dropped: smartctl
+# -n standby exits 2 with "Device is in STANDBY mode" instead of waking it.
 _ws_disk_temp() {
-    local dev="$1" bn f v="" l a
+    local dev="$1" bn f v="" l a out rc
     bn=${dev##*/}
-    _WS_DT=""
+    _WS_DT=""; _WS_DT_STATE=""
     for f in /sys/block/"$bn"/device/hwmon*/temp1_input /sys/block/"$bn"/device/hwmon/hwmon*/temp1_input; do
         [[ -e "$f" ]] || continue
         wu_read "$f" v || continue
@@ -518,16 +520,22 @@ _ws_disk_temp() {
         fi
     fi
     if [[ -z "$v" ]] && command -v smartctl >/dev/null 2>&1; then
-        while IFS= read -r l; do
-            case "$l" in
-                *Temperature_Celsius*|*Airflow_Temperature_Cel*|*Temperature_Internal*)
-                    read -ra a <<< "$l"; v=${a[9]:-}; [[ "$v" =~ ^([0-9]+) ]] && v=${BASH_REMATCH[1]}; break ;;
-                "Current Drive Temperature:"*|"Temperature:"*)
-                    l=${l#*:}; wu_trim "$l" l; [[ "$l" =~ ^([0-9]+) ]] && { v=${BASH_REMATCH[1]}; break; } ;;
-            esac
-        done < <(ws_smartctl_run -n standby -A "$dev" 2>/dev/null || true)
+        rc=0
+        out=$(ws_smartctl_run -n standby -A "$dev" 2>&1) || rc=$?
+        if (( rc == 2 )) && [[ "$out" == *STANDBY* ]]; then
+            _WS_DT_STATE=standby
+        else
+            while IFS= read -r l; do
+                case "$l" in
+                    *Temperature_Celsius*|*Airflow_Temperature_Cel*|*Temperature_Internal*)
+                        read -ra a <<< "$l"; v=${a[9]:-}; [[ "$v" =~ ^([0-9]+) ]] && v=${BASH_REMATCH[1]}; break ;;
+                    "Current Drive Temperature:"*|"Temperature:"*)
+                        l=${l#*:}; wu_trim "$l" l; [[ "$l" =~ ^([0-9]+) ]] && { v=${BASH_REMATCH[1]}; break; } ;;
+                esac
+            done <<< "$out"
+        fi
     fi
-    if [[ -z "$v" ]] && command -v hddtemp >/dev/null 2>&1; then
+    if [[ -z "$v" && "$_WS_DT_STATE" != standby ]] && command -v hddtemp >/dev/null 2>&1; then
         v=$(wu_root_run hddtemp -n "$dev" 2>/dev/null) || v=""
         wu_trim "$v" v
     fi
@@ -536,24 +544,42 @@ _ws_disk_temp() {
 }
 
 # Collect disk temps once: _WS_D_DEV _WS_D_MODEL _WS_D_C _WS_D_TYPE
+# _WS_D_STATE (ok | standby). Spun-down disks are kept with an empty temp
+# so the user sees "standby" instead of a silently missing row.
+# WELLSENSORS_DISKS overrides enumeration (tests).
 _ws_disks() {
-    local dev _WS_DT
-    _WS_D_DEV=() _WS_D_MODEL=() _WS_D_C=() _WS_D_TYPE=()
-    for dev in /dev/nvme[0-9]*n[0-9]* /dev/sd[a-z] /dev/sd[a-z][a-z]; do
-        [[ -b "$dev" ]] || continue
+    local dev _WS_DT _WS_DT_STATE
+    local -a _WS_D_DEVS
+    _WS_D_DEV=() _WS_D_MODEL=() _WS_D_C=() _WS_D_TYPE=() _WS_D_STATE=()
+    if [[ -n "${WELLSENSORS_DISKS:-}" ]]; then
+        read -ra _WS_D_DEVS <<< "$WELLSENSORS_DISKS"
+    else
+        _WS_D_DEVS=( /dev/nvme[0-9]*n[0-9]* /dev/sd[a-z] /dev/sd[a-z][a-z] )
+    fi
+    for dev in ${_WS_D_DEVS[@]+"${_WS_D_DEVS[@]}"}; do
+        [[ -n "${WELLSENSORS_DISKS:-}" ]] || [[ -b "$dev" ]] || continue
         [[ "$dev" == /dev/nvme*p[0-9]* ]] && continue      # partitions
         _ws_disk_temp "$dev"
-        [[ -n "$_WS_DT" ]] || continue
+        [[ -n "$_WS_DT" || "$_WS_DT_STATE" == standby ]] || continue
         _WS_D_DEV+=("$dev") _WS_D_C+=("$_WS_DT") _WS_D_MODEL+=("$(ws_disk_model "$dev")")
         [[ "$dev" == /dev/nvme* ]] && _WS_D_TYPE+=(nvme) || _WS_D_TYPE+=(sata)
+        _WS_D_STATE+=("${_WS_DT_STATE:-ok}")
     done
 }
 
 print_disks() {
-    local i
+    local i label pad _WU_CAP _WU_VL
     _ws_disks
     for (( i = 0; i < ${#_WS_D_C[@]}; i++ )); do
-        tline "${_WS_D_MODEL[i]}" "${_WS_D_C[i]}" 60
+        if [[ "${_WS_D_STATE[i]}" == standby ]]; then
+            label=${_WS_D_MODEL[i]}
+            _wu_cap_v "$label" "$_WS_LW"; label=$_WU_CAP
+            _wu_vislen_v "$label"
+            printf -v pad '%*s' $(( _WU_VL < _WS_LW ? _WS_LW - _WU_VL : 0 )) ''
+            _LINES+=( "  💤 ${BOLD}${W}${label}${pad}${RESET} ${DIM}$(t sens_disk_standby)${RESET}" )
+        else
+            tline "${_WS_D_MODEL[i]}" "${_WS_D_C[i]}" 60
+        fi
     done
     (( ${#_WS_D_C[@]} )) || pline "${DIM}$(t sens_no_disk)${RESET}"
 }
@@ -824,8 +850,9 @@ json_out() {
     first=1
     for (( i = 0; i < ${#_WS_D_C[@]}; i++ )); do
         (( first )) && first=0 || printf ',\n'
-        printf '    { "device": "%s", "model": "%s", "temp_c": %d, "type": "%s" }' \
-            "$(json_esc "${_WS_D_DEV[i]}")" "$(json_esc "${_WS_D_MODEL[i]}")" "${_WS_D_C[i]}" "${_WS_D_TYPE[i]}"
+        printf '    { "device": "%s", "model": "%s", "temp_c": %s, "type": "%s", "state": "%s" }' \
+            "$(json_esc "${_WS_D_DEV[i]}")" "$(json_esc "${_WS_D_MODEL[i]}")" \
+            "$(wu_json_num "${_WS_D_C[i]}")" "${_WS_D_TYPE[i]}" "${_WS_D_STATE[i]:-ok}"
     done
     printf '\n  ],\n'
 
