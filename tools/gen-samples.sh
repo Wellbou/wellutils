@@ -37,6 +37,7 @@ echo "blocks render the same way in every Markdown viewer; the frames and"
 echo "alignment are kept exactly as they appear in a terminal."
 gen "wellcpu" "wellcpu" "sudo -n ./src/wellcpu"
 gen "wellmem" "wellmem" "wellmem"
+gen "wellmod" "wellmod" "wellmod"
 gen "wellgpu" "wellgpu" "wellgpu"
 gen "wellsensors" "wellsensors" "sudo -n ./src/wellsensors"
 gen "wellhw" "wellhw" "sudo -n ./src/wellhw"
@@ -51,7 +52,7 @@ gen "wellup" "wellup --check" "wellup --check"
 gen "wellfetch" "wellfetch" "wellfetch"
 gen "статус-бары (status bars)" \
     "wellcpu --short && wmem --short && wsensors --short && wgpu --short && wnet --short && wdoc --short" \
-    "for c in 'wellcpu --short' 'wmem --short' 'wsensors --short' 'wgpu --short' 'wnet --short' 'wdoc --short'; do script -qec \"\$c\" /dev/null; done"
+    "for c in 'wellcpu --short' 'wellmem --short' 'wellsensors --short' 'wellgpu --short' 'wellnet --short' 'welldoctor --short'; do script -qec \"\$c\" /dev/null; done"
 } > SAMPLES.md
 
 echo "SAMPLES.md regenerated ($(wc -l < SAMPLES.md) lines, ANSI stripped)"
