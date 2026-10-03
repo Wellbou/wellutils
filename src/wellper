@@ -387,6 +387,8 @@ render_usb_other(){ render_usb_group other; }
 
 # ─── Displays (sysfs EDID, no X required) ───────────────────────
 DISP_NAME=() DISP_VEND=() DISP_MODE=() DISP_CONN=() DISP_EDID_W=() DISP_EDID_H=()
+# Raw connector id (HDMI-0 / card1-HDMI-A-1): stable key for change tracking.
+DISP_RAW=()
 
 read_edid() {
     local f="$1" B A
@@ -506,16 +508,25 @@ collect_displays_drm() {
         [[ -z "$name" ]] && name="$conn"
         read -r edid_w edid_h <<< "$(edid_phys_mm "$d/edid")"
         DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$mode") DISP_CONN+=("$(pretty_conn "$conn")")
+        DISP_RAW+=("$conn")
         DISP_EDID_W+=("${edid_w:-}") DISP_EDID_H+=("${edid_h:-}")
     done
 }
 
 # The X server is the authority on what is actually attached: NVIDIA's DRM
 # sysfs keeps reporting "disconnected" for a port after a monitor hotplug,
-# which used to silently under-count displays. Parse `xrandr --props` (it
-# carries geometry AND the EDID blob per output) and only fall back to DRM
-# sysfs when there is no usable display server (headless / Wayland, where
-# XWayland advertises no connected outputs or only virtual XWAYLAND* ones).
+# which used to silently under-count displays. Parse `xrandr --current
+# --props` (geometry AND the EDID blob per output) and only fall back to
+# DRM sysfs when there is no usable display server (headless / Wayland,
+# where XWayland advertises no connected outputs or only virtual XWAYLAND*
+# ones).
+#
+# --current is load-bearing: plain `xrandr --props` makes the NVIDIA driver
+# re-enumerate every connector on each call (16 Xorg log lines per run) and
+# wakes flaky active adapters (VGA->HDMI) into dropping the link. man
+# xrandr: --current returns the configuration "without polling for
+# hardware changes" -- the X server's event-driven state, zero wire
+# traffic, identical output.
 collect_displays_xrandr() {
     command -v xrandr >/dev/null 2>&1 || return 0
     [[ -n "${DISPLAY:-}" ]] || return 0
@@ -533,11 +544,14 @@ collect_displays_xrandr() {
             read -r edid_w edid_h <<< "$(edid_phys_mm "$edidf")"
         fi
         [[ -z "$name" ]] && name="$out"
-        [[ -z "$geo" ]] && continue
+        # An output that is connected but has no active mode (link
+        # retraining, adapter hiccup) is still reported: hiding it would
+        # hide exactly the transient the user needs to see.
         DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$geo") DISP_CONN+=("$(pretty_conn "$out")")
+        DISP_RAW+=("$out")
         DISP_EDID_W+=("${edid_w:-}") DISP_EDID_H+=("${edid_h:-}")
     done < <(
-        xrandr --props 2>/dev/null | awk '
+        xrandr --current --props 2>/dev/null | awk '
             /^[^ \t]+[ \t]+connected[ \t]/ {
                 if (out != "") print out, (geo == "" ? "-" : geo), hex
                 out = $1; geo = ""; hex = ""; inedid = 0
@@ -570,16 +584,124 @@ collect_displays() {
     return 0
 }
 
+# ─── Display change tracking ────────────────────────────────────
+# A monitor that was present a run ago and is gone now is a CRITICAL
+# change, not something to silently drop from the list. Each run records
+# what it saw; the next run diffs against that record and renders a ⚠
+# block (absent / appeared / mode-or-port changed). Tab-separated: EDID
+# names are printable ASCII without tabs, so tabs are a safe field sep.
+# The header line carries the human timestamp of the recording run.
+CHG_ABSENT=() CHG_APPEARED=() CHG_CHANGED=()
+DISP_STATE_TS=""
+
+displays_state_file() {
+    printf '%s' "${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/wellutils/wellper.displays"
+}
+
+# Fields per entry: absent/appeared = name<TAB>vend<TAB>conn<TAB>mode;
+# changed = name<TAB>old_mode<TAB>new_mode<TAB>old_conn<TAB>new_conn.
+displays_delta() {
+    CHG_ABSENT=() CHG_APPEARED=() CHG_CHANGED=() DISP_STATE_TS=""
+    local sf line ts="" f1 f2 f3 f4 f5 i j matched
+    sf=$(displays_state_file)
+    [[ -r "$sf" ]] || return 0
+    local -a prow=() pname=() pvend=() pmode=() pconn=() used=()
+    while IFS= read -r line; do
+        case "$line" in
+            \#ts=*) ts="${line#\#ts=}"; continue ;;
+            ''|\#*) continue ;;
+        esac
+        IFS=$'\t' read -r f1 f2 f3 f4 f5 <<< "$line"
+        prow+=( "${f1:-}" ) pname+=( "${f2:-}" ) pvend+=( "${f3:-}" )
+        pmode+=( "${f4:-}" ) pconn+=( "${f5:-}" )
+        used+=(0)
+    done < "$sf"
+    DISP_STATE_TS="$ts"
+    (( ${#prow[@]} > 0 )) || return 0
+    for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
+        matched=-1
+        for (( j = 0; j < ${#prow[@]}; j++ )); do
+            (( used[j] )) && continue
+            [[ "${pname[j]}" == "${DISP_NAME[i]:-}" ]] || continue
+            matched=$j
+            break
+        done
+        if (( matched < 0 )); then
+            CHG_APPEARED+=( "$(printf '%s\t%s\t%s\t%s' "${DISP_NAME[i]:-}" "${DISP_VEND[i]:-}" "${DISP_CONN[i]:-}" "${DISP_MODE[i]:-}")" )
+            continue
+        fi
+        used[matched]=1
+        if [[ "${pmode[matched]}" != "${DISP_MODE[i]:-}" || "${pconn[matched]}" != "${DISP_CONN[i]:-}" ]]; then
+            CHG_CHANGED+=( "$(printf '%s\t%s\t%s\t%s\t%s' "${DISP_NAME[i]:-}" "${pmode[matched]:-}" "${DISP_MODE[i]:-}" "${pconn[matched]:-}" "${DISP_CONN[i]:-}")" )
+        fi
+    done
+    for (( j = 0; j < ${#prow[@]}; j++ )); do
+        (( used[j] )) && continue
+        CHG_ABSENT+=( "$(printf '%s\t%s\t%s\t%s' "${pname[j]:-}" "${pvend[j]:-}" "${pconn[j]:-}" "${pmode[j]:-}")" )
+    done
+    return 0
+}
+
+displays_state_save() {
+    local sf d i
+    sf=$(displays_state_file)
+    d=$(dirname "$sf")
+    mkdir -p -- "$d" 2>/dev/null || return 0
+    {
+        printf '#ts=%s\n' "$(date '+%d.%m %H:%M' 2>/dev/null || printf '?')"
+        for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+                "${DISP_RAW[$i]:-}" "${DISP_NAME[$i]:-}" "${DISP_VEND[$i]:-}" \
+                "${DISP_MODE[$i]:-}" "${DISP_CONN[$i]:-}"
+        done
+    } > "$sf.tmp" 2>/dev/null \
+        && mv -f -- "$sf.tmp" "$sf" 2>/dev/null \
+        || { rm -f -- "$sf.tmp" 2>/dev/null; true; }
+    return 0
+}
+
 render_displays() {
+    local i
+    if (( ${#CHG_ABSENT[@]} + ${#CHG_APPEARED[@]} + ${#CHG_CHANGED[@]} > 0 )); then
+        pline "  ${Y}${BOLD}⚠ $(t per_changes)${RESET}"
+        local nm vd cn md om nm2 om2 cn2 nc2
+        for (( i = 0; i < ${#CHG_ABSENT[@]}; i++ )); do
+            IFS=$'\t' read -r nm vd cn md <<< "${CHG_ABSENT[$i]}"
+            [[ -n "$vd" ]] && vd=" ($(pnp_vendor "$vd"))"
+            if [[ -n "$DISP_STATE_TS" ]]; then
+                pline "  ${R}−${RESET} ${BOLD}${nm}${RESET}${vd} · ${cn} — ${R}$(t per_absent)${RESET} ${DIM}($(t per_seen): ${DISP_STATE_TS})${RESET}"
+            else
+                pline "  ${R}−${RESET} ${BOLD}${nm}${RESET}${vd} · ${cn} — ${R}$(t per_absent)${RESET}"
+            fi
+        done
+        for (( i = 0; i < ${#CHG_APPEARED[@]}; i++ )); do
+            IFS=$'\t' read -r nm vd cn md <<< "${CHG_APPEARED[$i]}"
+            [[ -n "$vd" ]] && vd=" ($(pnp_vendor "$vd"))"
+            pline "  ${G}+${RESET} ${BOLD}${nm}${RESET}${vd} · ${cn} — ${G}$(t per_appeared)${RESET}"
+        done
+        for (( i = 0; i < ${#CHG_CHANGED[@]}; i++ )); do
+            local om om2 oc nc port=""
+            IFS=$'\t' read -r nm om om2 oc nc <<< "${CHG_CHANGED[$i]}"
+            [[ "$oc" != "$nc" ]] && port=" ${DIM}(${oc:-?} → ${nc:-?})${RESET}"
+            pline "  ${Y}±${RESET} ${BOLD}${nm}${RESET}: ${om:-—} → ${om2:-—}${port}"
+        done
+        pline ""
+    fi
     if (( ${#DISP_NAME[@]} == 0 )); then
         pline "  ${DIM}$(t per_displays_none)${RESET}"
         return
     fi
-    local i
+    local name vend mode conn
     for (( i = 0; i < ${#DISP_NAME[@]}; i++ )); do
-        local name="${DISP_NAME[$i]:-}" vend="${DISP_VEND[$i]:-}" mode="${DISP_MODE[$i]:-}" conn="${DISP_CONN[$i]:-}"
+        name="${DISP_NAME[$i]:-}" vend="${DISP_VEND[$i]:-}" mode="${DISP_MODE[$i]:-}" conn="${DISP_CONN[$i]:-}"
         [[ -z "$name" ]] && name="$(t per_unknown)"
-        pline "  $(_pic '🖥')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
+        if [[ -n "$mode" ]]; then
+            pline "  $(_pic '🖥')${BOLD}${W}${name}${RESET} ${DIM}${mode}${RESET}"
+        else
+            # Connected but no active mode right now -- say so loudly
+            # instead of rendering a silent/absent line.
+            pline "  $(_pic '🖥')${BOLD}${W}${name}${RESET} ${DIM}—${RESET} ${Y}⚠ $(t per_no_signal)${RESET}"
+        fi
         local subs=() k
         [[ -n "$vend" ]] && subs+=( "$(t per_vendor): $(pnp_vendor "$vend")" )
         [[ -n "$conn" ]] && subs+=( "$(t per_interface): ${conn}" )
@@ -824,6 +946,41 @@ json_out() {
                 "$(json_esc "${DISP_MODE[$i]:-}")" "$(json_esc "${DISP_CONN[$i]:-}")"
         done
         printf '\n  ]'
+        if (( ${#CHG_ABSENT[@]} + ${#CHG_APPEARED[@]} + ${#CHG_CHANGED[@]} > 0 )); then
+            printf ',\n  "display_changes": {\n'
+            first=1
+            printf '    "absent": ['
+            for (( i = 0; i < ${#CHG_ABSENT[@]}; i++ )); do
+                local _cf1 _cf2 _cf3 _cf4
+                IFS=$'\t' read -r _cf1 _cf2 _cf3 _cf4 <<< "${CHG_ABSENT[$i]}"
+                (( first )) && first=0 || printf ','
+                printf '\n      { "name": "%s", "vendor": "%s", "connector": "%s", "mode": "%s" }' \
+                    "$(json_esc "$_cf1")" "$(json_esc "$_cf2")" "$(json_esc "$_cf3")" "$(json_esc "$_cf4")"
+            done
+            (( ${#CHG_ABSENT[@]} > 0 )) && printf '\n    '
+            printf '],\n    "appeared": ['
+            first=1
+            for (( i = 0; i < ${#CHG_APPEARED[@]}; i++ )); do
+                local _cf1 _cf2 _cf3 _cf4
+                IFS=$'\t' read -r _cf1 _cf2 _cf3 _cf4 <<< "${CHG_APPEARED[$i]}"
+                (( first )) && first=0 || printf ','
+                printf '\n      { "name": "%s", "vendor": "%s", "connector": "%s", "mode": "%s" }' \
+                    "$(json_esc "$_cf1")" "$(json_esc "$_cf2")" "$(json_esc "$_cf3")" "$(json_esc "$_cf4")"
+            done
+            (( ${#CHG_APPEARED[@]} > 0 )) && printf '\n    '
+            printf '],\n    "mode_changed": ['
+            first=1
+            for (( i = 0; i < ${#CHG_CHANGED[@]}; i++ )); do
+                local _cf1 _cf2 _cf3 _cf4 _cf5
+                IFS=$'\t' read -r _cf1 _cf2 _cf3 _cf4 _cf5 <<< "${CHG_CHANGED[$i]}"
+                (( first )) && first=0 || printf ','
+                printf '\n      { "name": "%s", "from_mode": "%s", "to_mode": "%s", "from_connector": "%s", "to_connector": "%s" }' \
+                    "$(json_esc "$_cf1")" "$(json_esc "$_cf2")" "$(json_esc "$_cf3")" \
+                    "$(json_esc "$_cf4")" "$(json_esc "$_cf5")"
+            done
+            (( ${#CHG_CHANGED[@]} > 0 )) && printf '\n    '
+            printf ']\n  }'
+        fi
     fi
     if _s_has audio; then
         printf ',\n  "audio": [\n'
@@ -911,6 +1068,8 @@ main() {
     wp_validate
     collect_usb
     collect_displays
+    displays_delta
+    displays_state_save
     collect_audio
     collect_isa
     collect_pcmcia
@@ -935,7 +1094,15 @@ main() {
     local grp ci
     local -a sp=()
     if _s_has usb;      then sp+=( "${BOLD}$(t usb_devices): ${W}${total}${RESET}" ); fi
-    if _s_has displays; then sp+=( "${BOLD}$(t per_displays): ${W}${dcount}${RESET}" ); fi
+    if _s_has displays; then
+        if (( ${#CHG_ABSENT[@]} > 0 )); then
+            # present / last-known-known: a missing monitor must be visible
+            # in the very first line of the report.
+            sp+=( "${BOLD}$(t per_displays): ${W}${dcount}${DIM}/$(( dcount + ${#CHG_ABSENT[@]} ))${RESET} ${Y}⚠${RESET}" )
+        else
+            sp+=( "${BOLD}$(t per_displays): ${W}${dcount}${RESET}" )
+        fi
+    fi
     if _s_has audio;    then sp+=( "${BOLD}$(t per_audio): ${W}${acount}${RESET}" ); fi
     if (( isacount > 0 )); then sp+=( "${BOLD}$(t per_isa): ${W}${isacount}${RESET}" ); fi
     if (( pcmcount > 0 )); then sp+=( "${BOLD}$(t per_pcmcia): ${W}${pcmcount}${RESET}" ); fi
@@ -960,7 +1127,12 @@ main() {
     fi
 
     if _s_has displays; then
-        box "$(_pic '🖥')" "$(t per_displays) (${dcount})" render_displays
+        local dtitle
+        dtitle="$(t per_displays) (${dcount})"
+        if (( ${#CHG_ABSENT[@]} + ${#CHG_APPEARED[@]} + ${#CHG_CHANGED[@]} > 0 )); then
+            dtitle+=" ${Y}⚠${RESET}"
+        fi
+        box "$(_pic '🖥')" "$dtitle" render_displays
     fi
 
     if _s_has audio; then

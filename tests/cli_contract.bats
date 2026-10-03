@@ -6,6 +6,8 @@ TOOLS=(wellcpu wellmem wellgpu wellmod wellblock wellhw wellusb wellpci wellsens
 setup() {
     # Arch ships `python`, Debian/Fedora ship `python3`.
     if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+    # hermetic: wellper's display-state tracking must not touch $HOME
+    export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
 }
 
 @test "every tool: --help exits 0" {
