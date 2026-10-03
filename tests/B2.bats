@@ -117,3 +117,52 @@ assert [x["name"] for x in d["depends"]] == ["snd_hda_codec", "snd"]
     run env WELLMOD_PROC_MODULES="$pm" ./src/wellmod --json
     echo "$output" | "$PY" -c 'import json,sys; d=json.load(sys.stdin); assert d["summary"]["count"] == 3 and d["modules"][0]["category"] == "wifi"'
 }
+
+@test "wellmod: names shadowed by broad patterns keep their own category" {
+    # F1 regression: usbnet/virtio_net/smbus used to be swallowed by the
+    # usb*/virtio*/smb* patterns earlier in mod_cat's case.
+    pm="$BATS_TEST_TMPDIR/modules"
+    printf '%s\n' \
+        'usbnet 65536 2 rndis_host,cdc_ether - Live 0x0' \
+        'virtio_net 45056 0 - Live 0x0' \
+        'smbus 16384 0 - Live 0x0' \
+        'i2c_i801 40960 0 - Live 0x0' \
+        > "$pm"
+    run env WELLMOD_PROC_MODULES="$pm" ./src/wellmod --json
+    [ "$status" -eq 0 ]
+    echo "$output" | "$PY" -c '
+import json, sys
+cats = {m["name"]: m["category"] for m in json.load(sys.stdin)["modules"]}
+assert cats["usbnet"] == "networking", cats
+assert cats["virtio_net"] == "networking", cats
+assert cats["smbus"] == "bus", cats
+assert cats["i2c_i801"] == "bus", cats
+'
+}
+
+@test "wellutils --help: header box lines all have the same width" {
+    # F1 regression: pad math used vislen-1 while the frame printed two
+    # extra cells, so the title row was one cell wider than the borders.
+    command -v script >/dev/null 2>&1 || skip "script(1) not found"
+    run script -qec "env COLUMNS=90 ./src/wellutils --help" /dev/null
+    [ "$status" -eq 0 ]
+    echo "$output" | "$PY" -c '
+import sys, re, unicodedata
+def w(s):
+    s = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", s).replace("\r", "")
+    n = 0
+    for ch in s:
+        if ch in "\uFE0F\uFE0E\u200D":
+            continue
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            n += 2
+        elif unicodedata.combining(ch):
+            pass
+        else:
+            n += 1
+    return n
+ws = [w(l) for l in sys.stdin if ("╔" in l or "╚" in l)]
+assert ws, "no box lines captured"
+assert len(set(ws)) == 1, f"misaligned box widths: {ws}"
+'
+}

@@ -85,17 +85,22 @@ CAT_ICONS=("🎮" "🔊" "🔌" "💾" "📁" "🌐" "📡" "📶" "☁" "🖥" 
 # icon of its category, so the TOP-10 and the category lists always agree.
 mod_cat() {
     case "$1" in
+        # Hoisted: names that the broader usb*/virtio*/smb* patterns below
+        # would swallow, but they belong to another subsystem (same trick as
+        # virtio_gpu/virtio_blk, which must also precede virtio*).
+        usbnet|virtio_net) _CI=5 ;;
+        smbus*) _CI=10 ;;
         mac80211|cfg80211|rt2*|rt61*|rt73*|iwl*|ath9k*|ath10k*|ath11k*|ath12k*|ath5k|ath6kl*|carl9170|\
         brcmfmac*|brcmsmac*|b43*|rtw88*|rtw89*|rtl8*|rtl_*|mt76*|mt7*|mwifiex*|wl12*|wl18*|libertas*|\
         zd1211rw|p54*|orinoco*|ipw2*|libipw|lib80211*) _CI=6 ;;
         nvidia*|nouveau*|amdgpu|radeon|i915|xe|gma500*|mgag200|ast|vc4|v3d|panfrost|lima|msm|etnaviv|\
         virtio_gpu|vmwgfx|qxl|bochs|cirrus*) _CI=0 ;;
-        snd|snd_*|snd-*|sound*|soundcore|pulse*|ac97*) _CI=1 ;;
+        snd|snd_*|snd-*|sound*|pulse*|ac97*) _CI=1 ;;
         usb_*|uas|usb*|xhci*|ehci*|ohci*|uhci*|dwc2|dwc3*|typec*|ucsi*) _CI=2 ;;
         nfs*|cifs*|smb*|ksmbd|9p|9pnet*|ceph|lockd|sunrpc|grace|fscache|netfs|auth_rpcgss|rpcsec*) _CI=13 ;;
         ext2|ext3|ext4|xfs|btrfs|vfat|fat|msdos|exfat|ntfs*|fuse*|f2fs|jfs|reiserfs|hfs*|isofs|udf|\
         squashfs|overlay|zfs|bcachefs|nilfs2|erofs|jbd2|mbcache|crc32c*|zstd*|xor|raid6_pq|libcrc32c) _CI=4 ;;
-        sd_mod|sr_mod|sg|sd*|ahci|libahci|libata|ata_*|pata_*|sata_*|scsi*|nvme*|mmc*|sdhci*|dm_*|dm-*|\
+        sd_mod|sr_mod|sg|sd*|ahci|libahci|libata|ata_*|pata_*|sata_*|scsi*|nvme*|mmc*|dm_*|dm-*|\
         md_mod|raid*|loop|nbd|zram|virtio_blk|virtio_scsi|cdrom|mptsas|megaraid*|mpt3sas) _CI=3 ;;
         bluetooth*|bt[!r]*|rfkill*|hci_*|rfcomm|bnep|hidp) _CI=7 ;;
         vmw_*|vsock*|vmw*|vhost*|virtio*|hv_*|hyperv*|xen*|vboxguest|vboxsf|vboxvideo|vboxdrv|vboxnet*|\
@@ -103,9 +108,9 @@ mod_cat() {
         drm*|fb*|video*|backlight|i2c_algo_bit|ttm|syscopyarea|sysfillrect|sysimgblt|cec) _CI=9 ;;
         ip_*|nf_*|nft*|ipt_*|ip6*|x_tables|xt_*|ebt*|arp_tables|br_netfilter|bridge|stp|llc|veth|tun|tap|\
         macvlan|macvtap|ipvlan|vxlan|wireguard|bonding|8021q|garp|mrp|r8169|r8168|e1000*|igb|igc|ixgbe*|\
-        tg3|bnx2*|atl1*|alx|sky2|forcedeth|mlx*|virtio_net|realtek|libphy|mii|udp_diag|tcp_diag|inet_diag|\
-        *_diag|af_packet|nfnetlink*|nf_conntrack*|pppox|ppp_*|slhc|cdc_ether|rndis_host|usbnet|qmi_wwan) _CI=5 ;;
-        i2c_*|i801*|i2c-*|smbus*|spi_*|spi-*|gpio*|pinctrl*|mei*|lpc_ich|intel_lpss*) _CI=10 ;;
+        tg3|bnx2*|atl1*|alx|sky2|forcedeth|mlx*|realtek|libphy|mii|udp_diag|tcp_diag|inet_diag|\
+        *_diag|af_packet|nfnetlink*|pppox|ppp_*|slhc|cdc_ether|rndis_host|qmi_wwan) _CI=5 ;;
+        i2c_*|i801*|i2c-*|spi_*|spi-*|gpio*|pinctrl*|mei*|lpc_ich|intel_lpss*) _CI=10 ;;
         rtc*|timer*|hpet*) _CI=11 ;;
         intel_*|amd_*|kvm*|coretemp|k10temp|x86_pkg_temp*|cpufreq*|acpi_cpufreq|msr|cpuid|microcode|\
         aesni*|ghash*|crc32_pclmul|polyval*|sha*_ssse3|sha*_x86*|aes*_x86*|zenpower) _CI=12 ;;

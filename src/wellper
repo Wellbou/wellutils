@@ -454,7 +454,46 @@ pnp_vendor() {
     esac
 }
 
-collect_displays() {
+# Physical size (millimetres) of the panel from an EDID file.
+# Prints "<width_mm> <height_mm>", or nothing when the blob is unusable.
+# Prefer the preferred-timing DTD image size (millimetre precision, bytes
+# 66/67 + high nibbles in 68); fall back to the whole-centimetre screen
+# size fields (bytes 21/22).
+edid_phys_mm() {
+    local f="$1" _ea _eb _mmw=0 _mmh=0 _mm_ok=0 w="" h=""
+    [[ -r "$f" ]] || return 0
+    _ea=( $(od -An -v -tx1 "$f" 2>/dev/null) )
+    if (( ${#_ea[@]} >= 23 )); then
+        _eb=$(( 0x${_ea[21]} )); (( _eb > 0 )) && w="$_eb"
+        _eb=$(( 0x${_ea[22]} )); (( _eb > 0 )) && h="$_eb"
+    fi
+    if (( ${#_ea[@]} >= 69 )); then
+        _mmw=$(( (0x${_ea[68]} >> 4) * 256 + 0x${_ea[66]} ))
+        _mmh=$(( (0x${_ea[68]} & 15) * 256 + 0x${_ea[67]} ))
+        if (( _mmw > 100 && _mmh > 50 )); then
+            w=$_mmw; h=$_mmh; _mm_ok=1
+        fi
+    fi
+    if [[ ! ( "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ) ]]; then
+        return 0
+    elif (( ! _mm_ok )); then
+        w=$(( w * 10 )); h=$(( h * 10 ))
+    fi
+    printf '%s %s' "$w" "$h"
+}
+
+# One EDID row from `xrandr --props` is 16 raw bytes as hex; decode the
+# accumulated blob into binary on stdout (pure bash, no xxd dependency).
+edid_hex_to_bin() {
+    local hex="$1" i o oct=""
+    for (( i = 0; i + 1 < ${#hex}; i += 2 )); do
+        printf -v o '%03o' "$(( 16#${hex:i:2} ))"
+        oct+="\\$o"
+    done
+    printf '%b' "$oct"
+}
+
+collect_displays_drm() {
     local d
     for d in /sys/class/drm/card*/; do
         [[ -f "$d/status" ]] || continue
@@ -465,47 +504,69 @@ collect_displays() {
         IFS='|' read -r vend name <<< "$(read_edid "$d/edid")"
         name=$(clean_name "$name")
         [[ -z "$name" ]] && name="$conn"
-        # Physical size from EDID: prefer the preferred-timing DTD image size
-        # (millimetre precision, bytes 66/67 + high nibbles in 68); fall back
-        # to the whole-centimetre screen-size fields (bytes 21/22).
-        if [[ -r "$d/edid" ]]; then
-            local _ea _eb _mmw=0 _mmh=0 _mm_ok=0
-            _ea=( $(od -An -v -tx1 "$d/edid" 2>/dev/null) )
-            if (( ${#_ea[@]} >= 23 )); then
-                _eb=$(( 0x${_ea[21]} )); (( _eb > 0 )) && edid_w="$_eb"
-                _eb=$(( 0x${_ea[22]} )); (( _eb > 0 )) && edid_h="$_eb"
-            fi
-            if (( ${#_ea[@]} >= 69 )); then
-                _mmw=$(( (0x${_ea[68]} >> 4) * 256 + 0x${_ea[66]} ))
-                _mmh=$(( (0x${_ea[68]} & 15) * 256 + 0x${_ea[67]} ))
-                if (( _mmw > 100 && _mmh > 50 )); then
-                    edid_w=$_mmw; edid_h=$_mmh; _mm_ok=1
-                fi
-            fi
-            # Normalise to millimetres for the PPI math.
-            if [[ ! ( "$edid_w" =~ ^[0-9]+$ && "$edid_h" =~ ^[0-9]+$ ) ]]; then
-                edid_w="" edid_h=""
-            elif (( ! _mm_ok )); then
-                edid_w=$(( edid_w * 10 )); edid_h=$(( edid_h * 10 ))
-            fi
-        fi
+        read -r edid_w edid_h <<< "$(edid_phys_mm "$d/edid")"
         DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$mode") DISP_CONN+=("$(pretty_conn "$conn")")
-        DISP_EDID_W+=("$edid_w") DISP_EDID_H+=("$edid_h")
+        DISP_EDID_W+=("${edid_w:-}") DISP_EDID_H+=("${edid_h:-}")
     done
 }
 
+# The X server is the authority on what is actually attached: NVIDIA's DRM
+# sysfs keeps reporting "disconnected" for a port after a monitor hotplug,
+# which used to silently under-count displays. Parse `xrandr --props` (it
+# carries geometry AND the EDID blob per output) and only fall back to DRM
+# sysfs when there is no usable display server (headless / Wayland, where
+# XWayland advertises no connected outputs or only virtual XWAYLAND* ones).
 collect_displays_xrandr() {
     command -v xrandr >/dev/null 2>&1 || return 0
     [[ -n "${DISPLAY:-}" ]] || return 0
-    local line out geo
-    while IFS= read -r line; do
-        [[ "$line" == *" connected "* ]] || continue
-        out=${line%% *}
-        geo=$(awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+/) { print $i; exit } }' <<< "$line") || geo=""
-        [[ -n "$geo" ]] || continue
-        geo=${geo%%+*}
-        DISP_NAME+=("$out") DISP_VEND+=("") DISP_MODE+=("$geo") DISP_CONN+=("$(pretty_conn "$out")")
-    done < <(xrandr --query 2>/dev/null || true)
+    local out geo hex vend name edid_w="" edid_h="" edidf
+    edidf="$(mktemp 2>/dev/null)" || return 0
+    while IFS=' ' read -r out geo hex; do
+        [[ -n "$out" ]] || continue
+        [[ "$out" == XWAYLAND* ]] && continue
+        [[ "$geo" == "-" ]] && geo=""
+        vend="" name="" edid_w="" edid_h=""
+        if [[ -n "$hex" ]]; then
+            edid_hex_to_bin "$hex" > "$edidf" 2>/dev/null
+            IFS='|' read -r vend name <<< "$(read_edid "$edidf")"
+            name=$(clean_name "$name")
+            read -r edid_w edid_h <<< "$(edid_phys_mm "$edidf")"
+        fi
+        [[ -z "$name" ]] && name="$out"
+        [[ -z "$geo" ]] && continue
+        DISP_NAME+=("$name") DISP_VEND+=("$vend") DISP_MODE+=("$geo") DISP_CONN+=("$(pretty_conn "$out")")
+        DISP_EDID_W+=("${edid_w:-}") DISP_EDID_H+=("${edid_h:-}")
+    done < <(
+        xrandr --props 2>/dev/null | awk '
+            /^[^ \t]+[ \t]+connected[ \t]/ {
+                if (out != "") print out, (geo == "" ? "-" : geo), hex
+                out = $1; geo = ""; hex = ""; inedid = 0
+                if (match($0, /[0-9]+x[0-9]+\+/)) {
+                    geo = substr($0, RSTART, RLENGTH); sub(/\+.*/, "", geo)
+                }
+                next
+            }
+            out == "" { next }
+            /^[ \t]+EDID:/ { inedid = 1; next }
+            inedid {
+                t = $0; gsub(/[ \t]/, "", t)
+                if (t ~ /^[0-9a-fA-F]+$/) { hex = hex t; next }
+                inedid = 0
+            }
+            geo == "" && $0 ~ /^[ \t]+[0-9]+x[0-9]+([ \t]|$)/ {
+                geo = $1; sub(/\+.*/, "", geo)
+            }
+            END { if (out != "") print out, (geo == "" ? "-" : geo), hex }
+        '
+    )
+    rm -f -- "$edidf"
+    return 0
+}
+
+# Prefer the display server view; use DRM sysfs only when it found nothing.
+collect_displays() {
+    collect_displays_xrandr
+    (( ${#DISP_NAME[@]} == 0 )) && collect_displays_drm
     return 0
 }
 
@@ -850,7 +911,6 @@ main() {
     wp_validate
     collect_usb
     collect_displays
-    if (( ${#DISP_NAME[@]} == 0 )); then collect_displays_xrandr; fi
     collect_audio
     collect_isa
     collect_pcmcia

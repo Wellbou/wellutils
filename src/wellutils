@@ -46,9 +46,12 @@ if [[ ! -t 1 || -n "${NO_COLOR:-}" || "${TERM:-}" == "dumb" ]]; then
 fi
 
 show_help() {
-    local ttl pad
+    local ttl pad _WU_VL _WU_CAP
     ttl="🛠  wellutils -- $(t launcher_title)"
-    pad=$(( 54 - $(vislen "$ttl") - 1 ))      # box inner is 54 cells
+    # Frame prints: ║ + "  " + ttl + pad spaces; inner width is 54 cells.
+    _wu_vislen_v "$ttl"
+    if (( _WU_VL > 51 )); then _wu_cap_v "$ttl" 51; ttl=$_WU_CAP; fi
+    pad=$(( 54 - $(vislen "$ttl") - 2 ))
     (( pad < 1 )) && pad=1
     printf '\n'
     printf '  %s╔══════════════════════════════════════════════════════╗%s\n' "$C" "$RESET"
